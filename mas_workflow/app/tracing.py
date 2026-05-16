@@ -1,0 +1,209 @@
+"""MASBench-Arch week-1 trace, token, latency, and snapshot helpers."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import random
+import time
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+SCHEMA_VERSION = "masbench_arch_trace_v0.1"
+
+
+def now_ts() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
+def utc_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+
+def stable_hash(value: Any) -> str:
+    if isinstance(value, bytes):
+        data = value
+    elif isinstance(value, str):
+        data = value.encode("utf-8", errors="replace")
+    else:
+        data = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+class TokenCounter:
+    """Best-effort tokenizer adapter with an explicit fallback marker."""
+
+    def __init__(self, model: str | None = None) -> None:
+        self.source = "char_heuristic"
+        self._encoder: Any = None
+        try:
+            import tiktoken  # type: ignore
+
+            self._encoder = tiktoken.encoding_for_model(model or "gpt-4o-mini")
+            self.source = "tokenizer"
+        except Exception:
+            try:
+                from transformers import AutoTokenizer  # type: ignore
+
+                self._encoder = AutoTokenizer.from_pretrained(model or "gpt2")
+                self.source = "tokenizer"
+            except Exception:
+                self._encoder = None
+
+    def count(self, text: str | None) -> int:
+        if not text:
+            return 0
+        if self._encoder is not None:
+            try:
+                return len(self._encoder.encode(text))
+            except Exception:
+                pass
+        return max(1, (len(text) + 3) // 4)
+
+
+_DEFAULT_COUNTER = TokenCounter()
+
+
+def estimate_tokens(text: str | None) -> int:
+    return _DEFAULT_COUNTER.count(text)
+
+
+def token_count_source() -> str:
+    return _DEFAULT_COUNTER.source
+
+
+def latency_delay(profile: str, rng: random.Random, scale: float = 1.0) -> float:
+    profile = (profile or "none").lower()
+    if profile == "none":
+        delay = 0.0
+    elif profile == "fast":
+        delay = rng.uniform(0.1, 0.5)
+    elif profile == "medium":
+        delay = rng.uniform(1.0, 3.0)
+    elif profile == "slow":
+        delay = rng.uniform(5.0, 10.0)
+    elif profile == "heavy_tail":
+        delay = rng.uniform(10.0, 30.0) if rng.random() < 0.15 else rng.uniform(1.0, 3.0)
+    else:
+        delay = 0.0
+    return max(0.0, delay * float(scale))
+
+
+@dataclass
+class TraceContext:
+    run_id: str
+    topology: str
+    topology_role: str
+    instance_id: str
+    task_source: str
+    workflow_id: str
+    trace_path: Path
+    summary_path: Path
+    random_seed: int = 42
+    environment_id: str = field(default_factory=lambda: stable_hash({"cwd": str(Path.cwd()), "ts": now_ts()})[:16])
+    start_perf: float = field(default_factory=time.perf_counter)
+    events: list[dict[str, Any]] = field(default_factory=list)
+
+    def emit(self, **fields: Any) -> dict[str, Any]:
+        event = {
+            "schema_version": SCHEMA_VERSION,
+            "event_id": fields.pop("event_id", str(uuid.uuid4())),
+            "event_type": fields.pop("event_type", "unknown"),
+            "timestamp": fields.pop("timestamp", utc_iso()),
+            "relative_time_sec": round(time.perf_counter() - self.start_perf, 6),
+            "run_id": self.run_id,
+            "topology": self.topology,
+            "topology_role": self.topology_role,
+            "instance_id": self.instance_id,
+            "task_source": self.task_source,
+            "workflow_id": self.workflow_id,
+            "node_id": fields.pop("node_id", ""),
+            "node_name": fields.pop("node_name", ""),
+            "node_type": fields.pop("node_type", "workflow"),
+            "round_id": fields.pop("round_id", None),
+            "manager_round_id": fields.pop("manager_round_id", None),
+            "peer_round_id": fields.pop("peer_round_id", None),
+            "attempt_id": fields.pop("attempt_id", 0),
+            "retry_count": fields.pop("retry_count", 0),
+            "parents": fields.pop("parents", []),
+            "children": fields.pop("children", []),
+            "motif_tags": fields.pop("motif_tags", []),
+            "parallel_group": fields.pop("parallel_group", None),
+            "criticality": fields.pop("criticality", "unknown"),
+            "status": fields.pop("status", "success"),
+            "duration_sec": fields.pop("duration_sec", 0.0),
+            "duration_source": fields.pop("duration_source", "mock_measured"),
+            "replay_policy": fields.pop("replay_policy", "synthetic_only"),
+            "environment_id": self.environment_id,
+            "random_seed": self.random_seed,
+            "extra": fields.pop("extra", {}),
+        }
+        event.update(fields)
+        self.events.append(event)
+        return event
+
+    def save(self) -> Path:
+        self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.trace_path.open("w", encoding="utf-8") as f:
+            for event in self.events:
+                f.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        return self.trace_path
+
+
+def make_event(
+    *,
+    agent_name: str,
+    event_type: str,
+    parents: list[str] | None = None,
+    children: list[str] | None = None,
+    input_text: str = "",
+    output_text: str = "",
+    duration_sec: float = 0.0,
+    status: str = "ok",
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Legacy compatibility for the old demo workflow."""
+    return {
+        "event_id": str(uuid.uuid4()),
+        "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+        "agent_name": agent_name,
+        "event_type": event_type,
+        "parents": parents or [],
+        "children": children or [],
+        "input_chars": len(input_text or ""),
+        "output_chars": len(output_text or ""),
+        "estimated_input_tokens": estimate_tokens(input_text),
+        "estimated_output_tokens": estimate_tokens(output_text),
+        "duration_sec": round(duration_sec, 6),
+        "status": status,
+        "extra": extra or {},
+    }
+
+
+def save_trace(log_dir: str | Path, trace_events: list[dict[str, Any]], run_id: str | None = None) -> Path:
+    path = Path(log_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    output_path = path / f"run_{run_id or now_ts()}.json"
+    output_path.write_text(json.dumps(trace_events, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
+
+def save_run_result(log_dir: str | Path, result: dict[str, Any], run_id: str | None = None) -> Path:
+    path = Path(log_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    output_path = path / f"result_{run_id or now_ts()}.json"
+    output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
+
+class Timer:
+    def __enter__(self) -> "Timer":
+        self.start = time.perf_counter()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.duration = time.perf_counter() - self.start

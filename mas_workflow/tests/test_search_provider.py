@@ -28,6 +28,8 @@ def test_recorded_provider_replay_hash_consistent(tmp_path: Path) -> None:
     provider = RecordedSearchProvider(snapshot_dir=tmp_path, latency_profile="none")
     result = provider.search("same query")
     assert result.result_hash == digest
+    assert result.answer == "recorded"
+    assert result.results == [{"title": "A", "content": "B"}]
 
 
 def test_tavily_or_fallback_behavior() -> None:

@@ -122,9 +122,17 @@ class RecordedSearchProvider(BaseSearchProvider):
         measured = float(snap.get("measured_duration_sec") or 0.0)
         injected = 0.0 if self.latency_profile == "none" else self._delay()
         output = snap.get("output") or {}
-        results = output.get("results") or output if isinstance(output, list) else []
+        if isinstance(output, dict):
+            results = output.get("results") or []
+            answer = output.get("answer", "")
+        elif isinstance(output, list):
+            results = output
+            answer = ""
+        else:
+            results = []
+            answer = ""
         digest = snap.get("output_hash") or stable_hash(output)
-        return SearchResult(self.name, query, results, output.get("answer", "") if isinstance(output, dict) else "", digest, measured, injected, measured + injected, str(candidates[0]))
+        return SearchResult(self.name, query, results, answer, digest, measured, injected, measured + injected, str(candidates[0]))
 
 
 class LocalRepoSearchProvider(BaseSearchProvider):

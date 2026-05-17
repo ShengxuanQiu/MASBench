@@ -8,19 +8,24 @@ class SingleAgentTopology(BaseTopology):
 
     def run(self) -> dict:
         self.workflow_start()
-        evidence = self.search(node_id="single_search", node_name="Single Search", query=self.config.query)
-        evidence_text = str(evidence)
         self.emit_edge(src_node="START", dst_node="single_agent", artifact_type="task", content=self.config.query, transfer_type="prompt_inclusion")
-        answer = self.call_llm(
+        if self.use_react_agents():
+            user_prompt = f"Task:\n{self.config.query}\nDecide whether search evidence is needed before answering."
+            parents = ["START"]
+        else:
+            evidence = self.search(node_id="single_search", node_name="Single Search", query=self.config.query)
+            user_prompt = f"Task:\n{self.config.query}\nEvidence:\n{evidence}"
+            parents = ["START", "single_search"]
+        answer = self.call_agent(
             node_id="single_agent",
             node_name="SingleAgent",
             node_type="agent",
             agent_role="worker",
             prompt_template="single_agent.md",
             system_prompt="You are a single baseline MASBench-Arch agent.",
-            user_prompt=f"Task:\n{self.config.query}\nEvidence:\n{evidence_text}",
+            user_prompt=user_prompt,
             round_id=0,
-            parents=["START", "single_search"],
+            parents=parents,
             criticality="critical",
         )
         self.emit_edge(src_node="single_agent", dst_node="finalizer", artifact_type="answer", content=answer, transfer_type="message_passing")

@@ -51,7 +51,7 @@ def summarize(events: list[dict[str, Any]], trace_path: Path | None = None) -> d
         "critical_path_length": sum(float(e.get("duration_sec") or 0) for e in llm) + sum(float(e.get("effective_duration_sec") or e.get("duration_sec") or 0) for e in tools),
         "max_parallel_width": max((len(v) for v in groups.values()), default=1),
         "barrier_wait_sum": sum(float(e.get("barrier_wait_sec") or 0) for e in barriers),
-        "straggler_gap_by_parallel_group": {k: 0.0 for k in groups},
+        "straggler_gap_by_parallel_group": {str(e.get("barrier_id") or e.get("node_id")): float(e.get("straggler_gap_sec") or 0) for e in barriers},
         "manager_rounds_actual": max([int(e.get("manager_round_id") or 0) for e in events] or [0]) + (1 if any(e.get("manager_round_id") == 0 for e in events) else 0),
         "debate_rounds_actual": max([int(e.get("peer_round_id") or 0) for e in events] or [0]),
         "peer_rounds_actual": max([int(e.get("peer_round_id") or 0) for e in events] or [0]),
@@ -69,12 +69,23 @@ def summarize(events: list[dict[str, Any]], trace_path: Path | None = None) -> d
         "tool_time_by_tool_name": dict(tool_by_name),
         "tool_stall_events": len([e for e in tools if float(e.get("effective_duration_sec") or 0) > 0]),
         "total_llm_time": sum(float(e.get("duration_sec") or 0) for e in llm),
+        "backend_prompt_tokens": sum(int(e.get("backend_prompt_tokens") or 0) for e in llm),
+        "backend_completion_tokens": sum(int(e.get("backend_completion_tokens") or 0) for e in llm),
+        "backend_total_tokens": sum(int(e.get("backend_total_tokens") or 0) for e in llm),
         "total_queue_wait": sum(float(e.get("queue_wait_sec") or 0) for e in llm),
         "critical_queue_wait_time": sum(float(e.get("queue_wait_sec") or 0) for e in llm if e.get("criticality") == "critical"),
         "max_ready_queue_size": 0,
         "dispatch_policy": next((e.get("dispatch_policy") for e in llm if e.get("dispatch_policy")), ""),
         "slot_utilization_estimate": 0.0,
     }
+    if trace_path is not None:
+        base = trace_path.with_suffix("")
+        summary["trace_exports"] = {
+            "arch_spans": str(base) + "_spans.json",
+            "otel_spans": str(base) + "_otel.json",
+            "jaeger": str(base) + "_jaeger.json",
+            "html_viewer": str(base) + "_viewer.html",
+        }
     summary["total_tokens_est"] = summary["total_input_tokens_est"] + summary["total_output_tokens_est"]
     base = max(1, min([int(e.get("input_tokens_est") or 0) for e in llm] or [1]))
     summary["context_duplication_ratio"] = round(summary["total_input_tokens_est"] / base, 4)
@@ -103,7 +114,7 @@ def main() -> int:
     out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else (path if path.is_dir() else path.parent)
     out_dir.mkdir(parents=True, exist_ok=True)
     if path.is_dir():
-        traces = sorted(path.glob("*/*.jsonl")) + sorted(path.glob("*.jsonl"))
+        traces = sorted(path.rglob("*.jsonl"))
         summaries = [summarize(read_events(item), item) for item in traces]
         output = out_dir / (args.summary_name or "summary.json")
         output.write_text(json.dumps({"traces": summaries}, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

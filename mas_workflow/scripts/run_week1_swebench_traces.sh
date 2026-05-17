@@ -5,9 +5,10 @@ cd "$(dirname "$0")/.."
 NUM_INSTANCES=5
 LLM_MODE=mock
 TOOL_MODE=synthetic
-LATENCY_PROFILE=medium
+LATENCY_PROFILE=none
 LATENCY_SCALE=1.0
 TRACE_DIR=traces
+MAX_OUTPUT_TOKENS=4096
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,6 +18,7 @@ while [[ $# -gt 0 ]]; do
     --latency-profile) LATENCY_PROFILE="$2"; shift 2 ;;
     --latency-scale) LATENCY_SCALE="$2"; shift 2 ;;
     --trace-dir) TRACE_DIR="$2"; shift 2 ;;
+    --max-output-tokens) MAX_OUTPUT_TOKENS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -32,6 +34,7 @@ for topology in single independent centralized decentralized hybrid; do
     --tool-mode "$TOOL_MODE" \
     --latency-profile "$LATENCY_PROFILE" \
     --latency-scale "$LATENCY_SCALE" \
+    --max-output-tokens "$MAX_OUTPUT_TOKENS" \
     --trace-dir "$TRACE_DIR" \
     --random-seed 42
 done

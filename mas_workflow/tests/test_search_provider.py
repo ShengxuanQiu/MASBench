@@ -43,6 +43,7 @@ def test_tavily_or_fallback_behavior() -> None:
             latency_profile="none",
             latency_scale=1.0,
             random_seed=42,
+            allow_synthetic_fallback=True,
         )
         assert isinstance(provider, SyntheticSearchProvider)
 

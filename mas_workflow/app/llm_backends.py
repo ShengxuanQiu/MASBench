@@ -96,10 +96,11 @@ class MockLLM:
 class OpenAICompatibleLLM:
     mode = "openai_compatible"
 
-    def __init__(self, *, model: str, base_url: str) -> None:
+    def __init__(self, *, model: str, base_url: str, max_tokens: int = 4096) -> None:
         self.model = model
         self.base_url = base_url
-        self.client = LocalLLMClient(model=model, base_url=base_url)
+        self.max_tokens = max_tokens
+        self.client = LocalLLMClient(model=model, base_url=base_url, max_tokens=max_tokens)
 
     def invoke(self, system_prompt: str, user_prompt: str, metadata: dict[str, Any]) -> LLMResult:
         request_id = str(uuid.uuid4())
@@ -109,8 +110,9 @@ class OpenAICompatibleLLM:
         headers_metadata = dict(metadata)
         headers_metadata["X-Request-Id"] = request_id
         generation_start = time.time()
-        content = self.client.invoke(system_prompt, user_prompt, metadata=headers_metadata)
+        content, response_metadata = self.client.invoke_with_metadata(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=self.max_tokens)
         end = time.time()
+        usage = response_metadata.get("usage") or {}
         return LLMResult(
             content=content,
             request_id_for_backend=request_id,
@@ -120,13 +122,22 @@ class OpenAICompatibleLLM:
             generation_start_ts=generation_start,
             generation_end_ts=end,
             duration_sec=end - generation_start,
-            request_metadata={"x_request_id": request_id},
+            request_metadata={
+                "x_request_id": request_id,
+                "backend_response_id": response_metadata.get("response_id"),
+                "backend_finish_reason": response_metadata.get("finish_reason"),
+                "backend_prompt_tokens": usage.get("prompt_tokens"),
+                "backend_completion_tokens": usage.get("completion_tokens"),
+                "backend_total_tokens": usage.get("total_tokens"),
+                "backend_system_fingerprint": response_metadata.get("system_fingerprint"),
+                "max_output_tokens": self.max_tokens,
+            },
         )
 
 
-def build_llm_backend(llm_mode: str, *, model: str, backend_base_url: str) -> MockLLM | OpenAICompatibleLLM:
+def build_llm_backend(llm_mode: str, *, model: str, backend_base_url: str, max_output_tokens: int = 4096) -> MockLLM | OpenAICompatibleLLM:
     if llm_mode == "mock":
         return MockLLM(model=model)
     if llm_mode == "openai_compatible":
-        return OpenAICompatibleLLM(model=model, base_url=backend_base_url)
+        return OpenAICompatibleLLM(model=model, base_url=backend_base_url, max_tokens=max_output_tokens)
     raise ValueError(f"Unsupported llm_mode: {llm_mode}")

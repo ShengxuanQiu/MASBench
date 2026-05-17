@@ -43,22 +43,27 @@ class CentralizedTopology(BaseTopology):
             if decision["decision"] == "finish" and round_id > 0:
                 final_summary = manager_out
                 break
-            worker_outputs = []
             for worker_id in decision["selected_workers"]:
                 self.emit_edge(src_node=f"manager_r{round_id}", dst_node=f"{worker_id}_r{round_id}", artifact_type="plan", content=decision["next_instruction"], transfer_type="broadcast", manager_round_id=round_id, fanout_count=len(decision["selected_workers"]), recipient_count=len(decision["selected_workers"]))
-                evidence = self.search(
-                    node_id=f"{worker_id}_search_r{round_id}",
-                    node_name=f"{worker_id}-Search-Round-{round_id}",
-                    query=f"{self.config.query}\n{decision['next_instruction']}",
-                )
-                out = self.call_llm(
+
+            def run_worker(worker_id: str) -> str:
+                if self.use_react_agents():
+                    user_prompt = f"Instruction: {decision['next_instruction']}\nTask: {self.config.query}\nDecide whether tool evidence is needed."
+                else:
+                    evidence = self.search(
+                        node_id=f"{worker_id}_search_r{round_id}",
+                        node_name=f"{worker_id}-Search-Round-{round_id}",
+                        query=f"{self.config.query}\n{decision['next_instruction']}",
+                    )
+                    user_prompt = f"Instruction: {decision['next_instruction']}\nTask: {self.config.query}\nSearch evidence:\n{evidence}"
+                out = self.call_agent(
                     node_id=f"{worker_id}_r{round_id}",
                     node_name=f"{worker_id}-Round-{round_id}",
                     node_type="worker",
                     agent_role="worker",
                     prompt_template="worker.md",
                     system_prompt=f"You are {worker_id}.",
-                    user_prompt=f"Instruction: {decision['next_instruction']}\nTask: {self.config.query}\nSearch evidence:\n{evidence}",
+                    user_prompt=user_prompt,
                     round_id=round_id,
                     manager_round_id=round_id,
                     parents=[f"manager_r{round_id}"],
@@ -66,8 +71,10 @@ class CentralizedTopology(BaseTopology):
                     criticality="near_critical",
                     extra_metadata={"manager_instruction": decision["next_instruction"]},
                 )
-                worker_outputs.append(out)
                 self.emit_edge(src_node=f"{worker_id}_r{round_id}", dst_node=f"manager_r{round_id+1}", artifact_type="evidence", content=out, transfer_type="aggregation", manager_round_id=round_id)
+                return out
+
+            worker_outputs = self.run_parallel(list(decision["selected_workers"]), run_worker)
             self.barrier(barrier_id=f"manager_collect_r{round_id}", waiting_for_nodes=[f"{w}_r{round_id}" for w in decision["selected_workers"]], manager_round_id=round_id)
             history.extend(worker_outputs)
             final_summary = "\n".join(history)

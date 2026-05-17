@@ -1,6 +1,9 @@
 logs/
 **/logs/
+.env
+*.env
 langgraph-src/
+motus/
 swebench_repos/
 mas_workflow/traces/
 **/__pycache__/
@@ -10,4 +13,3 @@ mas_workflow/traces/
 .venv/
 venv/
 node_modules/
-

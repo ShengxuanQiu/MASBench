@@ -5,6 +5,14 @@ ROOT_DIR="${ROOT_DIR:-/data/home/shegnxuanqiu/mas-serving}"
 LOG_DIR="${ROOT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
+ENV_FILE="${ROOT_DIR}/.env"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
 # 优先激活 conda 环境 MAS；如果 conda 激活后的 PATH 被 base 覆盖，则手动把 MAS/bin 放到最前。
 if command -v conda >/dev/null 2>&1; then
   CONDA_BASE="$(conda info --base 2>/dev/null || true)"

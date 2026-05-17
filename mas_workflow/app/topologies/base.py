@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from ..llm_backends import MockLLM, OpenAICompatibleLLM
 from ..search_providers import BaseSearchProvider, record_search_event
+from ..trace_export import export_trace_views
 from ..tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
 
 
@@ -34,6 +36,7 @@ class TopologyConfig:
     dispatch_policy: str = "fcfs"
     backend_base_url: str = "http://127.0.0.1:8000/v1"
     model: str = "local-mas-model"
+    max_output_tokens: int = 4096
     task_source: str = "manual"
     trace_dir: Path = Path("traces")
     repo_path: Path | None = None
@@ -48,6 +51,11 @@ class TopologyConfig:
     force_centralized_rounds: int = 0
     allow_parallel_workers: bool = True
     force_live_search_test: bool = False
+    allow_synthetic_tools: bool = False
+    agent_execution: str = "fixed"
+    react_max_steps: int = 4
+    trace_level: str = "arch"
+    export_trace_views: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,8 +121,11 @@ class BaseTopology:
         )
         summary = self.build_summary(final_answer)
         self.trace.summary_path.parent.mkdir(parents=True, exist_ok=True)
-        self.trace.summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         self.trace.save()
+        export_paths = export_trace_views(self.trace.events, self.trace.trace_path, enabled=self.config.export_trace_views)
+        summary["trace_exports"] = export_paths
+        summary["trace_level"] = self.config.trace_level
+        self.trace.summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         return summary
 
     def call_llm(
@@ -167,6 +178,7 @@ class BaseTopology:
             llm_mode=self.config.llm_mode,
             backend_base_url=self.config.backend_base_url,
             model=self.config.model,
+            max_output_tokens=self.config.max_output_tokens,
             llm_request_id=str(uuid.uuid4()),
             input_chars=len(prompt),
             input_tokens_est=estimate_tokens(prompt),
@@ -178,6 +190,7 @@ class BaseTopology:
             priority=1.0 if criticality == "critical" else 0.0,
             dispatch_policy=self.config.dispatch_policy,
             request_metadata=metadata,
+            extra={"prompt_preview": prompt[:1000]} if self.config.trace_level == "detailed" else {},
         )
         result = self.llm.invoke(system_prompt, user_prompt, metadata)
         output = result.content
@@ -203,6 +216,7 @@ class BaseTopology:
             llm_mode=self.config.llm_mode,
             backend_base_url=self.config.backend_base_url,
             model=self.config.model,
+            max_output_tokens=self.config.max_output_tokens,
             llm_request_id=result.request_id_for_backend,
             request_id_for_backend=result.request_id_for_backend,
             input_chars=len(prompt),
@@ -228,6 +242,12 @@ class BaseTopology:
             priority=1.0 if criticality == "critical" else 0.0,
             dispatch_policy=self.config.dispatch_policy,
             request_metadata=result.request_metadata,
+            backend_prompt_tokens=result.request_metadata.get("backend_prompt_tokens"),
+            backend_completion_tokens=result.request_metadata.get("backend_completion_tokens"),
+            backend_total_tokens=result.request_metadata.get("backend_total_tokens"),
+            backend_finish_reason=result.request_metadata.get("backend_finish_reason"),
+            backend_response_id=result.request_metadata.get("backend_response_id"),
+            extra={"output_preview": output[:1000]} if self.config.trace_level == "detailed" else {},
         )
         return output
 
@@ -250,6 +270,85 @@ class BaseTopology:
             latency_profile=self.config.latency_profile,
         )
         return result.results
+
+    def use_react_agents(self) -> bool:
+        return self.config.agent_execution == "react"
+
+    def call_agent(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        node_type: str,
+        agent_role: str,
+        prompt_template: str,
+        system_prompt: str,
+        user_prompt: str,
+        round_id: int | None = None,
+        manager_round_id: int | None = None,
+        peer_round_id: int | None = None,
+        parents: list[str] | None = None,
+        parallel_group: str | None = None,
+        criticality: str = "unknown",
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> str:
+        if not self.use_react_agents():
+            return self.call_llm(
+                node_id=node_id,
+                node_name=node_name,
+                node_type=node_type,
+                agent_role=agent_role,
+                prompt_template=prompt_template,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                round_id=round_id,
+                manager_round_id=manager_round_id,
+                peer_round_id=peer_round_id,
+                parents=parents,
+                parallel_group=parallel_group,
+                criticality=criticality,
+                extra_metadata=extra_metadata,
+            )
+        if self.config.llm_mode != "openai_compatible":
+            raise ValueError("--agent-execution react currently requires --llm-mode openai_compatible")
+        if self.config.tool_mode == "synthetic" and not self.config.allow_synthetic_tools:
+            raise ValueError("--agent-execution react requires real/replay tools unless --allow-synthetic-tools true")
+        from ..langgraph_agents.react_agent import run_react_agent
+
+        return run_react_agent(
+            config=self.config,
+            trace=self.trace,
+            search_provider=self.search_provider,
+            motif_tags=self.motif_tags,
+            node_id=node_id,
+            node_name=node_name,
+            node_type=node_type,
+            agent_role=agent_role,
+            prompt_template=prompt_template,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            round_id=round_id,
+            manager_round_id=manager_round_id,
+            peer_round_id=peer_round_id,
+            parents=parents or [],
+            parallel_group=parallel_group,
+            criticality=criticality,
+            extra_metadata=extra_metadata or {},
+        )
+
+    def run_parallel(self, items: list[Any], fn: Any) -> list[Any]:
+        """Run independent topology branches concurrently and preserve item order."""
+        if not items:
+            return []
+        if not self.config.allow_parallel_workers or len(items) == 1:
+            return [fn(item) for item in items]
+        max_workers = max(1, min(int(self.config.max_concurrent_llm_calls or 1), len(items)))
+        results: list[Any] = [None] * len(items)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(fn, item): idx for idx, item in enumerate(items)}
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        return results
 
     def emit_edge(
         self,
@@ -297,6 +396,18 @@ class BaseTopology:
     def barrier(self, *, barrier_id: str, waiting_for_nodes: list[str], round_id: int | None = None, manager_round_id: int | None = None, peer_round_id: int | None = None) -> None:
         start = time.time()
         end = time.time()
+        arrivals: dict[str, float] = {}
+        for event in self.trace.events:
+            node = str(event.get("node_id") or "")
+            if node in waiting_for_nodes and str(event.get("event_type", "")).endswith("_end"):
+                arrivals[node] = float(event.get("relative_time_sec") or 0.0)
+        if arrivals:
+            latest_node, latest = max(arrivals.items(), key=lambda item: item[1])
+            earliest = min(arrivals.values())
+            straggler_gap = max(0.0, latest - earliest)
+        else:
+            latest_node = waiting_for_nodes[-1] if waiting_for_nodes else ""
+            straggler_gap = 0.0
         self.trace.emit(
             event_type="barrier",
             node_id=barrier_id,
@@ -310,12 +421,12 @@ class BaseTopology:
             duration_source="measured_live",
             barrier_id=barrier_id,
             waiting_for_nodes=waiting_for_nodes,
-            arrived_nodes=waiting_for_nodes,
+            arrived_nodes=list(arrivals) or waiting_for_nodes,
             start_time=start,
             end_time=end,
-            barrier_wait_sec=0.0,
-            straggler_node=waiting_for_nodes[-1] if waiting_for_nodes else "",
-            straggler_gap_sec=0.0,
+            barrier_wait_sec=round(straggler_gap, 6),
+            straggler_node=latest_node,
+            straggler_gap_sec=round(straggler_gap, 6),
         )
 
     def build_summary(self, final_answer: str) -> dict[str, Any]:
@@ -329,6 +440,7 @@ class BaseTopology:
         peer_tokens = sum(int(e.get("artifact_tokens_est") or 0) for e in events if e.get("artifact_type") == "peer_message")
         aggregation_tokens = sum(int(e.get("artifact_tokens_est") or 0) for e in events if e.get("artifact_type") in {"summary", "final"})
         groups = {e.get("parallel_group") for e in events if e.get("parallel_group")}
+        barriers = [e for e in events if e.get("node_type") == "barrier"]
         summary = {
             "trace_path": str(self.trace.trace_path),
             "run_id": self.config.run_id,
@@ -336,6 +448,9 @@ class BaseTopology:
             "instance_id": self.config.instance_id,
             "end_to_end_latency": round(time.perf_counter() - self.trace.start_perf, 6),
             "total_llm_time": round(total_llm, 6),
+            "backend_prompt_tokens": sum(int(e.get("backend_prompt_tokens") or 0) for e in events if e.get("event_type") == "llm_request_end"),
+            "backend_completion_tokens": sum(int(e.get("backend_completion_tokens") or 0) for e in events if e.get("event_type") == "llm_request_end"),
+            "backend_total_tokens": sum(int(e.get("backend_total_tokens") or 0) for e in events if e.get("event_type") == "llm_request_end"),
             "total_tool_time": round(total_tool, 6),
             "measured_tool_time": round(sum(float(e.get("measured_duration_sec") or 0) for e in tool_events), 6),
             "injected_tool_delay_time": round(sum(float(e.get("injected_delay_sec") or 0) for e in tool_events), 6),
@@ -346,7 +461,7 @@ class BaseTopology:
             "total_artifact_tokens_est": artifact_tokens,
             "max_parallel_width": self.config.num_agents,
             "critical_path_length": round(total_llm + total_tool, 6),
-            "barrier_wait_sum": sum(float(e.get("barrier_wait_sec") or 0) for e in events),
+            "barrier_wait_sum": sum(float(e.get("barrier_wait_sec") or 0) for e in barriers),
             "context_duplication_ratio": round(input_tokens / max(1, estimate_tokens(self.config.query)), 4),
             "all_gather_tokens_est": peer_tokens,
             "aggregation_tokens_est": aggregation_tokens,
@@ -356,7 +471,7 @@ class BaseTopology:
             "manager_rounds_actual": max([int(e.get("manager_round_id") or 0) for e in events] or [0]) + (1 if any(e.get("manager_round_id") == 0 for e in events) else 0),
             "peer_rounds_actual": max([int(e.get("peer_round_id") or 0) for e in events] or [0]),
             "retry_count_total": sum(int(e.get("retry_count") or 0) for e in events),
-            "straggler_gap_by_parallel_group": {str(g): 0.0 for g in groups},
+            "straggler_gap_by_parallel_group": {str(e.get("barrier_id") or e.get("node_id")): float(e.get("straggler_gap_sec") or 0) for e in barriers},
             "tool_time_by_tool_name": {},
             "tool_stall_events": len([e for e in tool_events if float(e.get("effective_duration_sec") or 0) > 0]),
             "critical_queue_wait_time": 0.0,

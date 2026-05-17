@@ -39,9 +39,9 @@ MOTIF_BUILDERS = {
 
 def build_trace_context(config: TopologyConfig, *, topology_role: str = "workflow") -> TraceContext:
     trace_dir = Path(config.trace_dir)
-    topology_dir = trace_dir / config.topology_name
-    trace_path = topology_dir / f"{config.instance_id}_{config.run_id}.jsonl"
-    summary_path = topology_dir / f"{config.instance_id}_{config.run_id}_summary.json"
+    task_dir = trace_dir / config.topology_name / config.instance_id
+    trace_path = task_dir / f"{config.run_id}.jsonl"
+    summary_path = task_dir / f"{config.run_id}_summary.json"
     return TraceContext(
         run_id=config.run_id,
         topology=config.topology_name,
@@ -52,12 +52,19 @@ def build_trace_context(config: TopologyConfig, *, topology_role: str = "workflo
         trace_path=trace_path,
         summary_path=summary_path,
         random_seed=config.random_seed,
+        trace_level=config.trace_level,
+        export_views=config.export_trace_views,
     )
 
 
 def _deps(config: TopologyConfig, topology_role: str):
     trace = build_trace_context(config, topology_role=topology_role)
-    llm = build_llm_backend(config.llm_mode, model=config.model, backend_base_url=config.backend_base_url)
+    llm = build_llm_backend(
+        config.llm_mode,
+        model=config.model,
+        backend_base_url=config.backend_base_url,
+        max_output_tokens=config.max_output_tokens,
+    )
     provider = build_search_provider(
         provider_name=config.search_provider,
         tool_mode=config.tool_mode,
@@ -67,6 +74,7 @@ def _deps(config: TopologyConfig, topology_role: str):
         random_seed=config.random_seed,
         repo_path=config.repo_path,
         force_live_search_test=config.force_live_search_test,
+        allow_synthetic_fallback=config.allow_synthetic_tools,
     )
     return {"llm": llm, "search_provider": provider, "trace": trace}
 

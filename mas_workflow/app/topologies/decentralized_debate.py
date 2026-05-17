@@ -15,33 +15,44 @@ class DecentralizedDebateTopology(BaseTopology):
         for i in range(1, self.config.num_agents + 1):
             node = f"debate_agent_{i}"
             self.emit_edge(src_node="START", dst_node=node, artifact_type="task", content=self.config.query, transfer_type="broadcast", round_id=0)
-            evidence = self.search(node_id=f"{node}_search", node_name=f"DebateAgent-{i} Search", query=self.config.query)
-            messages[node] = self.call_llm(
+
+        def initial_answer(i: int) -> tuple[str, str]:
+            node = f"debate_agent_{i}"
+            if self.use_react_agents():
+                user_prompt = f"Initial answer for task:\n{self.config.query}\nDecide whether tool evidence is needed."
+            else:
+                evidence = self.search(node_id=f"{node}_search", node_name=f"DebateAgent-{i} Search", query=self.config.query)
+                user_prompt = f"Initial answer for task:\n{self.config.query}\nSearch evidence:\n{evidence}"
+            message = self.call_agent(
                 node_id=node,
                 node_name=f"DebateAgent-{i}",
                 node_type="agent",
                 agent_role="debate_agent",
                 prompt_template="debate_agent.md",
                 system_prompt=f"You are debate peer {i}.",
-                user_prompt=f"Initial answer for task:\n{self.config.query}\nSearch evidence:\n{evidence}",
+                user_prompt=user_prompt,
                 round_id=0,
                 peer_round_id=0,
                 parents=["START"],
                 parallel_group="debate_initial",
                 criticality="near_critical",
             )
+            return node, message
+
+        messages = dict(self.run_parallel(list(range(1, self.config.num_agents + 1)), initial_answer))
         for peer_round in range(1, self.config.debate_rounds + 1):
-            next_messages: dict[str, str] = {}
-            for i in range(1, self.config.num_agents + 1):
+            peer_plan = {f"debate_agent_{i}": self._peers(f"debate_agent_{i}", list(messages), rng) for i in range(1, self.config.num_agents + 1)}
+
+            def debate_step(i: int) -> tuple[str, str]:
                 node = f"debate_agent_{i}"
-                peers = self._peers(node, list(messages), rng)
+                peers = peer_plan[node]
                 peer_texts = []
                 for peer in peers:
                     content = messages[peer]
                     self.emit_edge(src_node=peer, dst_node=node, artifact_type="peer_message", content=content, transfer_type="message_passing" if self.config.communication_topology != "all_to_all" else "broadcast", round_id=peer_round, peer_round_id=peer_round, parallel_group=f"debate_round_{peer_round}", fanout_count=len(peers), recipient_count=1)
                     peer_texts.append(f"{peer}: {content}")
                 peer_context = "\n".join(peer_texts)
-                next_messages[node] = self.call_llm(
+                message = self.call_agent(
                     node_id=f"{node}_r{peer_round}",
                     node_name=f"DebateAgent-{i}-Round-{peer_round}",
                     node_type="agent",
@@ -56,7 +67,10 @@ class DecentralizedDebateTopology(BaseTopology):
                     criticality="near_critical",
                     extra_metadata={"peer_messages": peer_context},
                 )
-            self.barrier(barrier_id=f"debate_barrier_r{peer_round}", waiting_for_nodes=list(next_messages), round_id=peer_round, peer_round_id=peer_round)
+                return node, message
+
+            next_messages = dict(self.run_parallel(list(range(1, self.config.num_agents + 1)), debate_step))
+            self.barrier(barrier_id=f"debate_barrier_r{peer_round}", waiting_for_nodes=[f"{node}_r{peer_round}" for node in next_messages], round_id=peer_round, peer_round_id=peer_round)
             messages = next_messages
         consensus_input = "\n".join(messages.values())
         for node, content in messages.items():

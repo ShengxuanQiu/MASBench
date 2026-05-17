@@ -39,19 +39,26 @@ class HybridTopology(BaseTopology):
             for i in range(1, self.config.num_agents + 1):
                 node = f"hybrid_agent_{i}_mr{manager_round}"
                 self.emit_edge(src_node=f"hybrid_manager_r{manager_round}", dst_node=node, artifact_type="plan", content=instruction, transfer_type="broadcast", manager_round_id=manager_round, fanout_count=self.config.num_agents, recipient_count=self.config.num_agents)
-                evidence = self.search(
-                    node_id=f"{node}_search",
-                    node_name=f"HybridAgent-{i}-Search-MR{manager_round}",
-                    query=f"{self.config.query}\n{instruction}",
-                )
-                messages[node] = self.call_llm(
+
+            def run_worker(i: int) -> tuple[str, str]:
+                node = f"hybrid_agent_{i}_mr{manager_round}"
+                if self.use_react_agents():
+                    user_prompt = f"Manager instruction: {instruction}\nTask: {self.config.query}\nDecide whether tool evidence is needed."
+                else:
+                    evidence = self.search(
+                        node_id=f"{node}_search",
+                        node_name=f"HybridAgent-{i}-Search-MR{manager_round}",
+                        query=f"{self.config.query}\n{instruction}",
+                    )
+                    user_prompt = f"Manager instruction: {instruction}\nTask: {self.config.query}\nSearch evidence:\n{evidence}"
+                message = self.call_agent(
                     node_id=node,
                     node_name=f"HybridAgent-{i}-MR{manager_round}",
                     node_type="worker",
                     agent_role="worker",
                     prompt_template="hybrid_worker.md",
                     system_prompt=f"You are hybrid worker {i}.",
-                    user_prompt=f"Manager instruction: {instruction}\nTask: {self.config.query}\nSearch evidence:\n{evidence}",
+                    user_prompt=user_prompt,
                     round_id=manager_round,
                     manager_round_id=manager_round,
                     peer_round_id=0,
@@ -60,16 +67,19 @@ class HybridTopology(BaseTopology):
                     criticality="near_critical",
                     extra_metadata={"manager_instruction": instruction},
                 )
+                return node, message
+
+            messages = dict(self.run_parallel(list(range(1, self.config.num_agents + 1)), run_worker))
             for peer_round in range(1, self.config.peer_rounds + 1):
-                next_messages = {}
                 nodes = list(messages)
-                for idx, node in enumerate(nodes):
+                def peer_step(item: tuple[int, str]) -> tuple[str, str]:
+                    idx, node = item
                     peers = self._peer_nodes(nodes, idx)
                     peer_context = []
                     for peer in peers:
                         self.emit_edge(src_node=peer, dst_node=node, artifact_type="peer_message", content=messages[peer], transfer_type="message_passing", manager_round_id=manager_round, peer_round_id=peer_round, parallel_group=f"hybrid_peer_mr{manager_round}_pr{peer_round}")
                         peer_context.append(messages[peer])
-                    next_messages[node] = self.call_llm(
+                    message = self.call_agent(
                         node_id=f"{node}_pr{peer_round}",
                         node_name=f"{node}-PeerRound-{peer_round}",
                         node_type="worker",
@@ -85,7 +95,15 @@ class HybridTopology(BaseTopology):
                         criticality="near_critical",
                         extra_metadata={"peer_messages": peer_context, "manager_instruction": instruction},
                     )
-                self.barrier(barrier_id=f"hybrid_peer_barrier_mr{manager_round}_pr{peer_round}", waiting_for_nodes=list(next_messages), manager_round_id=manager_round, peer_round_id=peer_round)
+                    return node, message
+
+                next_messages = dict(self.run_parallel(list(enumerate(nodes)), peer_step))
+                self.barrier(
+                    barrier_id=f"hybrid_peer_barrier_mr{manager_round}_pr{peer_round}",
+                    waiting_for_nodes=[f"{node}_pr{peer_round}" for node in next_messages],
+                    manager_round_id=manager_round,
+                    peer_round_id=peer_round,
+                )
                 messages = next_messages
             for node, content in messages.items():
                 self.emit_edge(src_node=node, dst_node=f"hybrid_manager_collect_r{manager_round}", artifact_type="evidence", content=content, transfer_type="aggregation", manager_round_id=manager_round, peer_round_id=self.config.peer_rounds)

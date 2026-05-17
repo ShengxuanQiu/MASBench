@@ -164,6 +164,7 @@ def build_search_provider(
     random_seed: int,
     repo_path: Path | None = None,
     force_live_search_test: bool = False,
+    allow_synthetic_fallback: bool = False,
 ) -> BaseSearchProvider:
     rng = random.Random(random_seed)
     if tool_mode == "replay" or provider_name == "recorded":
@@ -178,8 +179,8 @@ def build_search_provider(
         api_key = os.environ.get("TAVILY_API_KEY")
         if api_key:
             return TavilySearchProvider(api_key=api_key, latency_profile=latency_profile, latency_scale=latency_scale, rng=rng)
-        if force_live_search_test:
-            raise RuntimeError("TAVILY_API_KEY is required for forced live search test")
+        if force_live_search_test or not allow_synthetic_fallback:
+            raise RuntimeError("TAVILY_API_KEY is required for live Tavily search")
         print("WARNING: TAVILY_API_KEY missing; falling back to synthetic search.")
     return SyntheticSearchProvider(latency_profile=latency_profile, latency_scale=latency_scale, rng=rng)
 
@@ -194,6 +195,7 @@ def record_search_event(
     snapshot_dir: Path | None,
     replay_policy: str,
     latency_profile: str,
+    trace_fields: dict[str, Any] | None = None,
 ) -> None:
     snapshot_path = result.snapshot_path
     if snapshot_dir and tool_mode == "live":
@@ -218,6 +220,7 @@ def record_search_event(
         }
         path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         snapshot_path = str(path)
+    external_dependency = "web" if result.provider_name == "tavily" else ("local_repo" if result.provider_name == "local_repo" else "none")
     trace.emit(
         event_type="tool_search",
         node_id=node_id,
@@ -240,9 +243,10 @@ def record_search_event(
         injected_delay_sec=result.injected_delay_sec,
         effective_duration_sec=result.effective_duration_sec,
         latency_profile=latency_profile,
-        external_dependency="web" if result.provider_name == "tavily" else "none",
+        external_dependency=external_dependency,
         network_dependent=result.provider_name == "tavily",
         deterministic=result.provider_name != "tavily",
         result_count=len(result.results),
         extra={"provider_name": result.provider_name, "warning": result.warning},
+        **(trace_fields or {}),
     )

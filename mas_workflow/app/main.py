@@ -4,12 +4,28 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import os
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 from .topologies import TopologyConfig, build_workflow
 from .tracing import now_ts
+
+
+def load_env_files() -> None:
+    for path in (Path.cwd() / ".env", Path.cwd().parent / ".env"):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if not text or text.startswith("#") or "=" not in text:
+                continue
+            key, value = text.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def str_bool(value: str | bool) -> bool:
@@ -45,14 +61,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-mode", choices=["mock", "openai_compatible"], default="mock")
     parser.add_argument("--backend-base-url", "--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--model", default="local-mas-model")
+    parser.add_argument("--max-output-tokens", type=int, default=4096)
     parser.add_argument("--max-concurrent-llm-calls", type=int, default=2)
     parser.add_argument("--dispatch-policy", choices=["fcfs", "criticality"], default="fcfs")
     parser.add_argument("--trace-dir", default="traces")
     parser.add_argument("--force-live-search-test", default="false")
+    parser.add_argument("--allow-synthetic-tools", default="false")
+    parser.add_argument("--agent-execution", choices=["fixed", "react"], default="fixed")
+    parser.add_argument("--react-max-steps", type=int, default=4)
     parser.add_argument("--max-retries", type=int, default=0)
     parser.add_argument("--stop-condition", default="default")
     parser.add_argument("--force-centralized-rounds", type=int, default=0)
     parser.add_argument("--allow-parallel-workers", default="true")
+    parser.add_argument("--trace-level", choices=["basic", "arch", "detailed"], default="arch")
+    parser.add_argument("--export-trace-views", default="true")
     return parser.parse_args()
 
 
@@ -83,7 +105,17 @@ def load_swebench_lite(args: argparse.Namespace) -> list[dict[str, Any]]:
                 }
             )
     except Exception as exc:
-        print(f"WARNING: failed to load SWE-bench Lite via datasets; using synthetic task metadata: {exc}", file=sys.stderr)
+        print(f"WARNING: failed to load SWE-bench Lite via datasets; trying Hugging Face rows API: {exc}", file=sys.stderr)
+    try:
+        if requested:
+            rows = _load_swebench_lite_rows_via_hf_api(0, max(100, args.swebench_num_instances))
+            rows = [row for row in rows if row.get("instance_id") in requested]
+        else:
+            rows = _load_swebench_lite_rows_via_hf_api(args.swebench_start_index, args.swebench_num_instances)
+        if rows:
+            return rows
+    except Exception as exc:
+        print(f"WARNING: failed to load SWE-bench Lite via Hugging Face rows API; using synthetic task metadata: {exc}", file=sys.stderr)
     if instances:
         return instances
     fallback_ids = requested or [
@@ -103,6 +135,37 @@ def load_swebench_lite(args: argparse.Namespace) -> list[dict[str, Any]]:
         }
         for instance_id in fallback_ids
     ]
+
+
+def _load_swebench_lite_rows_via_hf_api(offset: int, length: int) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "dataset": "princeton-nlp/SWE-bench_Lite",
+            "config": "default",
+            "split": "test",
+            "offset": int(offset),
+            "length": int(length),
+        }
+    )
+    url = f"https://datasets-server.huggingface.co/rows?{params}"
+    with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310 - public dataset metadata endpoint
+        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    instances = []
+    for item in data.get("rows") or []:
+        row = item.get("row") or {}
+        if not row.get("instance_id"):
+            continue
+        instances.append(
+            {
+                "instance_id": row.get("instance_id"),
+                "repo": row.get("repo"),
+                "problem_statement": row.get("problem_statement", ""),
+                "base_commit": row.get("base_commit", ""),
+                "environment_setup_commit": row.get("environment_setup_commit", ""),
+                "source": "hf_rows_api",
+            }
+        )
+    return instances
 
 
 def repo_for_instance(args: argparse.Namespace, instance: dict[str, Any]) -> Path | None:
@@ -138,6 +201,7 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         dispatch_policy=args.dispatch_policy,
         backend_base_url=args.backend_base_url,
         model=args.model,
+        max_output_tokens=args.max_output_tokens,
         task_source=task_source,
         trace_dir=Path(args.trace_dir),
         repo_path=repo_path,
@@ -152,6 +216,11 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         force_centralized_rounds=args.force_centralized_rounds,
         allow_parallel_workers=str_bool(args.allow_parallel_workers),
         force_live_search_test=str_bool(args.force_live_search_test),
+        allow_synthetic_tools=str_bool(args.allow_synthetic_tools),
+        agent_execution=args.agent_execution,
+        react_max_steps=args.react_max_steps,
+        trace_level=args.trace_level,
+        export_trace_views=str_bool(args.export_trace_views),
     )
 
 
@@ -161,6 +230,7 @@ def run_one(config: TopologyConfig) -> dict[str, Any]:
 
 
 def main() -> int:
+    load_env_files()
     args = parse_args()
     run_id = now_ts()
     summaries = []

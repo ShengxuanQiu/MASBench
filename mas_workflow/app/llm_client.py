@@ -54,16 +54,27 @@ class LocalLLMClient:
         max_tokens: int | None = None,
     ) -> str:
         """调用本地模型。"""
+        content, _ = self.invoke_with_metadata(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
+        return content
+
+    def invoke_with_metadata(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """调用本地模型，并返回 OpenAI-compatible 响应元数据。"""
         http_error: Exception | None = None
         try:
-            return self._invoke_openai_http(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
+            return self._invoke_openai_http_with_metadata(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
         except Exception as exc:
             http_error = exc
         try:
-            return self._invoke_langchain(system_prompt, user_prompt, max_tokens=max_tokens)
+            return self._invoke_langchain(system_prompt, user_prompt, max_tokens=max_tokens), {}
         except Exception as langchain_exc:
             try:
-                return self._invoke_openai_sdk(system_prompt, user_prompt, max_tokens=max_tokens)
+                return self._invoke_openai_sdk(system_prompt, user_prompt, max_tokens=max_tokens), {}
             except Exception as openai_exc:
                 raise RuntimeError(
                     "本地 vLLM 调用失败。"
@@ -111,6 +122,16 @@ class LocalLLMClient:
         metadata: dict[str, Any] | None = None,
         max_tokens: int | None = None,
     ) -> str:
+        content, _ = self._invoke_openai_http_with_metadata(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
+        return content
+
+    def _invoke_openai_http_with_metadata(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         """使用标准库直连 OpenAI-compatible chat completions。"""
         self._ensure_local_no_proxy()
         payload = {
@@ -127,6 +148,9 @@ class LocalLLMClient:
             "Authorization": f"Bearer {self.api_key}",
         }
         if metadata:
+            request_id = metadata.get("X-Request-Id") or metadata.get("request_id_for_backend")
+            if request_id:
+                headers["X-Request-Id"] = str(request_id)
             headers.update(
                 {
                     "X-MAS-Agent-ID": str(metadata.get("agent_id", "")),
@@ -144,7 +168,14 @@ class LocalLLMClient:
         with opener.open(request, timeout=180) as response:
             data = json.loads(response.read().decode("utf-8", errors="replace"))
         message = data["choices"][0]["message"]
-        return message.get("content") or message.get("reasoning") or json.dumps(message, ensure_ascii=False)
+        content = message.get("content") or message.get("reasoning") or json.dumps(message, ensure_ascii=False)
+        return content, {
+            "response_id": data.get("id"),
+            "model": data.get("model"),
+            "finish_reason": (data.get("choices") or [{}])[0].get("finish_reason"),
+            "usage": data.get("usage") or {},
+            "system_fingerprint": data.get("system_fingerprint"),
+        }
 
     def _ensure_local_no_proxy(self) -> None:
         """本地 endpoint 调用不应经过外部 HTTP proxy。"""

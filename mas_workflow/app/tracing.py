@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -14,6 +15,24 @@ from typing import Any
 
 
 SCHEMA_VERSION = "masbench_arch_trace_v0.1"
+
+
+class TraceHookManager:
+    """Small hook bus for future workflow/motif composition.
+
+    Exporters and probes can subscribe to all emitted events without changing
+    topology code. The JSONL event stream remains the canonical trace.
+    """
+
+    def __init__(self) -> None:
+        self._hooks: list[Any] = []
+
+    def register(self, callback: Any) -> None:
+        self._hooks.append(callback)
+
+    def emit(self, event: dict[str, Any]) -> None:
+        for callback in list(self._hooks):
+            callback(event)
 
 
 def now_ts() -> str:
@@ -104,46 +123,55 @@ class TraceContext:
     trace_path: Path
     summary_path: Path
     random_seed: int = 42
+    trace_level: str = "arch"
+    export_views: bool = True
     environment_id: str = field(default_factory=lambda: stable_hash({"cwd": str(Path.cwd()), "ts": now_ts()})[:16])
     start_perf: float = field(default_factory=time.perf_counter)
     events: list[dict[str, Any]] = field(default_factory=list)
+    hooks: TraceHookManager = field(default_factory=TraceHookManager)
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     def emit(self, **fields: Any) -> dict[str, Any]:
-        event = {
-            "schema_version": SCHEMA_VERSION,
-            "event_id": fields.pop("event_id", str(uuid.uuid4())),
-            "event_type": fields.pop("event_type", "unknown"),
-            "timestamp": fields.pop("timestamp", utc_iso()),
-            "relative_time_sec": round(time.perf_counter() - self.start_perf, 6),
-            "run_id": self.run_id,
-            "topology": self.topology,
-            "topology_role": self.topology_role,
-            "instance_id": self.instance_id,
-            "task_source": self.task_source,
-            "workflow_id": self.workflow_id,
-            "node_id": fields.pop("node_id", ""),
-            "node_name": fields.pop("node_name", ""),
-            "node_type": fields.pop("node_type", "workflow"),
-            "round_id": fields.pop("round_id", None),
-            "manager_round_id": fields.pop("manager_round_id", None),
-            "peer_round_id": fields.pop("peer_round_id", None),
-            "attempt_id": fields.pop("attempt_id", 0),
-            "retry_count": fields.pop("retry_count", 0),
-            "parents": fields.pop("parents", []),
-            "children": fields.pop("children", []),
-            "motif_tags": fields.pop("motif_tags", []),
-            "parallel_group": fields.pop("parallel_group", None),
-            "criticality": fields.pop("criticality", "unknown"),
-            "status": fields.pop("status", "success"),
-            "duration_sec": fields.pop("duration_sec", 0.0),
-            "duration_source": fields.pop("duration_source", "mock_measured"),
-            "replay_policy": fields.pop("replay_policy", "synthetic_only"),
-            "environment_id": self.environment_id,
-            "random_seed": self.random_seed,
-            "extra": fields.pop("extra", {}),
-        }
-        event.update(fields)
-        self.events.append(event)
+        with self.lock:
+            event = {
+                "schema_version": SCHEMA_VERSION,
+                "event_id": fields.pop("event_id", str(uuid.uuid4())),
+                "event_type": fields.pop("event_type", "unknown"),
+                "timestamp": fields.pop("timestamp", utc_iso()),
+                "relative_time_sec": round(time.perf_counter() - self.start_perf, 6),
+                "run_id": self.run_id,
+                "topology": self.topology,
+                "topology_role": self.topology_role,
+                "instance_id": self.instance_id,
+                "task_source": self.task_source,
+                "workflow_id": self.workflow_id,
+                "node_id": fields.pop("node_id", ""),
+                "node_name": fields.pop("node_name", ""),
+                "node_type": fields.pop("node_type", "workflow"),
+                "round_id": fields.pop("round_id", None),
+                "manager_round_id": fields.pop("manager_round_id", None),
+                "peer_round_id": fields.pop("peer_round_id", None),
+                "attempt_id": fields.pop("attempt_id", 0),
+                "retry_count": fields.pop("retry_count", 0),
+                "parents": fields.pop("parents", []),
+                "children": fields.pop("children", []),
+                "motif_tags": fields.pop("motif_tags", []),
+                "parallel_group": fields.pop("parallel_group", None),
+                "criticality": fields.pop("criticality", "unknown"),
+                "status": fields.pop("status", "success"),
+                "duration_sec": fields.pop("duration_sec", 0.0),
+                "duration_source": fields.pop("duration_source", "mock_measured"),
+                "replay_policy": fields.pop("replay_policy", "synthetic_only"),
+                "environment_id": self.environment_id,
+                "random_seed": self.random_seed,
+                "trace_level": self.trace_level,
+                "extra": fields.pop("extra", {}),
+            }
+            event.update(fields)
+            if self.trace_level == "basic":
+                self._redact_basic(event)
+            self.events.append(event)
+            self.hooks.emit(event)
         return event
 
     def save(self) -> Path:
@@ -152,6 +180,15 @@ class TraceContext:
             for event in self.events:
                 f.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
         return self.trace_path
+
+    def _redact_basic(self, event: dict[str, Any]) -> None:
+        """Keep simulator fields while dropping bulky/debug-only payloads."""
+        for key in ("request_metadata",):
+            if key in event:
+                event[key] = {"redacted": True, "hash": stable_hash(event[key])}
+        extra = event.get("extra")
+        if isinstance(extra, dict) and extra:
+            event["extra"] = {"redacted": True, "hash": stable_hash(extra)}
 
 
 def make_event(

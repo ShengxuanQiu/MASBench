@@ -8,7 +8,6 @@ class IndependentTopology(BaseTopology):
 
     def run(self) -> dict:
         self.workflow_start()
-        outputs: list[str] = []
         artifact_base = None
         for i in range(1, self.config.num_agents + 1):
             node = f"agent_{i}"
@@ -23,23 +22,30 @@ class IndependentTopology(BaseTopology):
                 recipient_count=self.config.num_agents,
                 duplicated_from_artifact_id=artifact_base,
             )
+        def run_worker(i: int) -> str:
+            node = f"agent_{i}"
             perspective = self.config.extra.get("per_agent_perspective", {}).get(node, f"perspective_{i}")
-            evidence = self.search(node_id=f"{node}_search", node_name=f"Agent-{i} Search", query=f"{self.config.query}\n{perspective}")
-            out = self.call_llm(
+            if self.use_react_agents():
+                user_prompt = f"Perspective: {perspective}\nTask:\n{self.config.query}\nDecide whether tool evidence is needed."
+            else:
+                evidence = self.search(node_id=f"{node}_search", node_name=f"Agent-{i} Search", query=f"{self.config.query}\n{perspective}")
+                user_prompt = f"Perspective: {perspective}\nTask:\n{self.config.query}\nSearch evidence:\n{evidence}"
+            out = self.call_agent(
                 node_id=node,
                 node_name=f"Agent-{i}",
                 node_type="agent",
                 agent_role="independent_worker",
                 prompt_template="independent_worker.md",
                 system_prompt=f"You are independent worker {i}.",
-                user_prompt=f"Perspective: {perspective}\nTask:\n{self.config.query}\nSearch evidence:\n{evidence}",
+                user_prompt=user_prompt,
                 round_id=0,
                 parents=["START"],
                 parallel_group="independent_workers",
                 criticality="near_critical",
             )
-            outputs.append(out)
             self.emit_edge(src_node=node, dst_node="aggregator", artifact_type="answer", content=out, transfer_type="aggregation", parallel_group="independent_workers")
+            return out
+        outputs = self.run_parallel(list(range(1, self.config.num_agents + 1)), run_worker)
         self.barrier(barrier_id="aggregator_barrier", waiting_for_nodes=[f"agent_{i}" for i in range(1, self.config.num_agents + 1)], round_id=0)
         aggregate_input = "\n".join(outputs)
         aggregate = self.call_llm(

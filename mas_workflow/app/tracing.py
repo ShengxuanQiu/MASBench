@@ -127,10 +127,13 @@ class TraceContext:
     export_views: bool = True
     record_model_outputs: bool = False
     model_outputs_path: Path | None = None
+    collect_backend_metrics: bool = False
+    backend_metrics_path: Path | None = None
     environment_id: str = field(default_factory=lambda: stable_hash({"cwd": str(Path.cwd()), "ts": now_ts()})[:16])
     start_perf: float = field(default_factory=time.perf_counter)
     events: list[dict[str, Any]] = field(default_factory=list)
     model_outputs: list[dict[str, Any]] = field(default_factory=list)
+    backend_metrics_summary: dict[str, Any] = field(default_factory=dict)
     hooks: TraceHookManager = field(default_factory=TraceHookManager)
     lock: threading.Lock = field(default_factory=threading.Lock)
 

@@ -76,6 +76,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trace-level", choices=["basic", "arch", "detailed"], default="arch")
     parser.add_argument("--export-trace-views", default="true")
     parser.add_argument("--record-model-outputs", default="false")
+    parser.add_argument("--collect-backend-metrics", default="false")
+    parser.add_argument("--backend-metrics-url", default="")
+    parser.add_argument("--backend-metrics-interval-sec", type=float, default=0.5)
     return parser.parse_args()
 
 
@@ -223,6 +226,9 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         trace_level=args.trace_level,
         export_trace_views=str_bool(args.export_trace_views),
         record_model_outputs=str_bool(args.record_model_outputs),
+        collect_backend_metrics=str_bool(args.collect_backend_metrics),
+        backend_metrics_url=args.backend_metrics_url,
+        backend_metrics_interval_sec=args.backend_metrics_interval_sec,
     )
 
 

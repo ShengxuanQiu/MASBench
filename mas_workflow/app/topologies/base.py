@@ -14,6 +14,7 @@ from ..llm_backends import MockLLM, OpenAICompatibleLLM
 from ..search_providers import BaseSearchProvider, record_search_event
 from ..trace_export import export_trace_views
 from ..tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
+from ..backend_metrics import BackendMetricsSampler, metrics_url_from_base_url, summarize_backend_metrics
 
 
 @dataclass
@@ -57,6 +58,9 @@ class TopologyConfig:
     trace_level: str = "arch"
     export_trace_views: bool = True
     record_model_outputs: bool = False
+    collect_backend_metrics: bool = False
+    backend_metrics_url: str = ""
+    backend_metrics_interval_sec: float = 0.5
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -87,6 +91,7 @@ class BaseTopology:
         self.search_provider = search_provider
         self.trace = trace
         self.artifacts: dict[str, str] = {}
+        self.backend_metrics_sampler: BackendMetricsSampler | None = None
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         old_query = self.config.query
@@ -97,6 +102,7 @@ class BaseTopology:
             self.config.query = old_query
 
     def workflow_start(self) -> None:
+        self._start_backend_metrics_sampler()
         self.trace.emit(
             event_type="workflow_start",
             node_id="START",
@@ -120,6 +126,7 @@ class BaseTopology:
             output_tokens_est=estimate_tokens(final_answer),
             token_count_source=token_count_source(),
         )
+        self._stop_backend_metrics_sampler()
         summary = self.build_summary(final_answer)
         self.trace.summary_path.parent.mkdir(parents=True, exist_ok=True)
         self.trace.save()
@@ -128,6 +135,49 @@ class BaseTopology:
         summary["trace_level"] = self.config.trace_level
         self.trace.summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         return summary
+
+    def _start_backend_metrics_sampler(self) -> None:
+        if not self.config.collect_backend_metrics or self.config.llm_mode != "openai_compatible":
+            return
+        url = self.config.backend_metrics_url or metrics_url_from_base_url(self.config.backend_base_url)
+        path = self.trace.backend_metrics_path or self.trace.trace_path.with_name(f"{self.trace.trace_path.stem}_backend_metrics.json")
+        sampler = BackendMetricsSampler(
+            url=url,
+            output_path=path,
+            interval_sec=max(0.1, float(self.config.backend_metrics_interval_sec or 0.5)),
+            start_perf=self.trace.start_perf,
+        )
+        self.backend_metrics_sampler = sampler
+        sampler.start()
+        self.trace.emit(
+            event_type="backend_metrics_start",
+            node_id="backend_metrics_sampler",
+            node_name="Backend Metrics Sampler",
+            node_type="dispatcher",
+            motif_tags=self.motif_tags,
+            status="start",
+            backend_metrics_url=url,
+            backend_metrics_path=str(path),
+            backend_metrics_interval_sec=sampler.interval_sec,
+        )
+
+    def _stop_backend_metrics_sampler(self) -> None:
+        if self.backend_metrics_sampler is None:
+            return
+        self.backend_metrics_sampler.stop()
+        summary = summarize_backend_metrics(self.backend_metrics_sampler.samples)
+        self.trace.backend_metrics_summary = summary
+        self.trace.emit(
+            event_type="backend_metrics_end",
+            node_id="backend_metrics_sampler",
+            node_name="Backend Metrics Sampler",
+            node_type="dispatcher",
+            motif_tags=self.motif_tags,
+            status="success" if summary.get("backend_metrics_sample_count", 0) else "error",
+            backend_metrics_url=self.backend_metrics_sampler.url,
+            backend_metrics_path=str(self.backend_metrics_sampler.output_path),
+            backend_metrics_summary=summary,
+        )
 
     def call_llm(
         self,
@@ -492,7 +542,10 @@ class BaseTopology:
             "event_count": len(events),
             "model_outputs_path": str(self.trace.model_outputs_path or self.trace.trace_path.with_name(f"{self.trace.trace_path.stem}_model_outputs.json")) if self.config.record_model_outputs else None,
             "model_output_record_count": len(self.trace.model_outputs),
+            "backend_metrics_path": str(self.trace.backend_metrics_path or self.trace.trace_path.with_name(f"{self.trace.trace_path.stem}_backend_metrics.json")) if self.config.collect_backend_metrics else None,
         }
+        if self.trace.backend_metrics_summary:
+            summary.update(self.trace.backend_metrics_summary)
         for event in tool_events:
             name = str(event.get("tool_name") or "tool")
             summary["tool_time_by_tool_name"][name] = summary["tool_time_by_tool_name"].get(name, 0.0) + float(event.get("effective_duration_sec") or 0)

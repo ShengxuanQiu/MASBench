@@ -15,6 +15,7 @@
 │   │   ├── topologies/              # 五个基础拓扑和 registry
 │   │   ├── tracing.py               # JSONL trace context、token、latency helper
 │   │   ├── trace_export.py          # arch spans / OTel / Jaeger / HTML viewer 导出
+│   │   ├── backend_metrics.py       # vLLM /metrics sampler 与窗口级 backend 指标汇总
 │   │   ├── search_providers.py      # Tavily / synthetic / recorded / local repo search
 │   │   ├── langgraph_agents/        # LangGraph ReAct agent + traced real tools
 │   │   ├── llm_backends.py          # mock 和 OpenAI-compatible backend
@@ -144,6 +145,12 @@ traces/<topology>/<instance_id>/<run_id>_jaeger.json
 traces/<topology>/<instance_id>/<run_id>_viewer.html
 ```
 
+如果运行时打开 `--collect-backend-metrics true`，还会在同一个目录生成：
+
+```text
+traces/<topology>/<instance_id>/<run_id>_backend_metrics.json
+```
+
 如果运行时打开 `--record-model-outputs true`，还会在同一个目录生成：
 
 ```text
@@ -158,6 +165,7 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 - `_otel.json` 是 OpenTelemetry-like span 格式。
 - `_jaeger.json` 可导入 Jaeger 类工具。
 - `_viewer.html` 是本地静态 timeline，用颜色区分 LLM、tool、dataflow、barrier、control、workflow span。LLM/tool 是持续时间条；edge、manager decision、workflow start 这类瞬时事件显示为 marker，避免把零时长事件误读成 pipeline 气泡。
+- `_backend_metrics.json` 是可选的 vLLM metrics sidecar。打开后，MAS runner 会周期性采样 vLLM `/metrics`，保存原始 Prometheus metric samples，并把窗口级 delta 汇总进 `_summary.json`。
 - `_model_outputs.json` 是可选的模型输出 sidecar。默认不生成；打开后保存每次 LLM response 的全文、hash、node/agent/round、backend request id、token 估算和 backend usage。主 JSONL 仍只保存 `model_output_artifact_id`、`model_output_path`、`model_output_hash` 等引用字段，避免 canonical trace 因文本 payload 变得过大。
 
 ## Trace Schema 的仿真字段
@@ -184,7 +192,6 @@ LLM event 记录：
 - 如果打开 `--record-model-outputs true`，还会记录 `model_output_artifact_id`、`model_output_path`、`model_output_hash`，全文在同目录的 `_model_outputs.json` sidecar 中。
 
 模型输出全文默认不写入 JSONL。这样做是为了让 JSONL 保持稳定、轻量、适合体系结构仿真；需要语义级检查、debug 或输出质量分析时，再显式打开 sidecar。
-- `prompt_hash`、`output_hash`、`shared_context_hash`
 
 Tool event 记录：
 
@@ -307,7 +314,53 @@ python -m app.main \
 - `--llm-mode openai_compatible`: 调用本地 vLLM/OpenAI-compatible endpoint。trace 会生成 `request_id_for_backend`，并通过 `X-Request-Id` 对齐后端日志。
 - `--max-output-tokens`: 控制每次 LLM request 的输出上限，默认 `4096`。不要用 endpoint 健康检查脚本里的 `128` 作为 workload 上限；正式 trace 会在 LLM event 中记录 `max_output_tokens`。
 
-当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。要展示这些，需要后续在 vLLM fork 中按 `X-Request-Id` 输出 per-request prefill/decode/KV/scheduler event，或先接 `/metrics` 做窗口级对齐。
+当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。
+
+### vLLM Backend Metrics Sidecar
+
+运行时可以打开：
+
+```bash
+--collect-backend-metrics true
+--backend-metrics-url http://127.0.0.1:8000/metrics
+--backend-metrics-interval-sec 0.5
+```
+
+开启后，每个 run 会生成 `_backend_metrics.json`，并在 `_summary.json` 中写入窗口级 backend 指标：
+
+- `prompt_tokens_total_delta`
+- `generation_tokens_total_delta`
+- `request_success_total_delta`
+- `e2e_request_latency_seconds_sum_delta`
+- `backend_avg_ttft_sec_from_metrics`
+- `backend_avg_tpot_sec_from_metrics`
+- `backend_prompt_tokens_per_sec_window`
+- `backend_generation_tokens_per_sec_window`
+- `max_num_requests_running`
+- `max_num_requests_waiting`
+- `max_gpu_cache_usage_perc`
+
+这些指标来自 vLLM Prometheus `/metrics`，是 run window 级别的 aggregate，不是逐 request prefill/decode/KV/scheduler trace。它适合判断 topology 是否放大 backend token work、request volume、scheduler queue 和 KV cache pressure；如果要做 request-level 对齐，后续仍需要在 vLLM fork 中按 `X-Request-Id` 输出 per-request prefill/decode/KV/scheduler event。
+
+真实 backend trace 示例：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --topology hybrid \
+  --task-source swebench_lite \
+  --swebench-num-instances 1 \
+  --llm-mode openai_compatible \
+  --backend-base-url http://127.0.0.1:8000/v1 \
+  --model local-mas-model \
+  --max-output-tokens 4096 \
+  --agent-execution react \
+  --tool-mode live \
+  --search-provider tavily \
+  --record-model-outputs true \
+  --collect-backend-metrics true \
+  --backend-metrics-url http://127.0.0.1:8000/metrics
+```
 
 ## SWE-bench Lite Trace Collection
 

@@ -56,6 +56,7 @@ class TopologyConfig:
     react_max_steps: int = 4
     trace_level: str = "arch"
     export_trace_views: bool = True
+    record_model_outputs: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -194,7 +195,7 @@ class BaseTopology:
         )
         result = self.llm.invoke(system_prompt, user_prompt, metadata)
         output = result.content
-        self.trace.emit(
+        event = self.trace.emit(
             event_type="llm_request_end",
             node_id=node_id,
             node_name=node_name,
@@ -248,6 +249,15 @@ class BaseTopology:
             backend_finish_reason=result.request_metadata.get("backend_finish_reason"),
             backend_response_id=result.request_metadata.get("backend_response_id"),
             extra={"output_preview": output[:1000]} if self.config.trace_level == "detailed" else {},
+        )
+        self.trace.record_model_output(
+            event=event,
+            output_text=output,
+            input_text=prompt,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_metadata=result.request_metadata,
+            extra={"source": "fixed_llm_call"},
         )
         return output
 
@@ -480,6 +490,8 @@ class BaseTopology:
             "slot_utilization_estimate": 0.0,
             "final_answer_hash": stable_hash(final_answer),
             "event_count": len(events),
+            "model_outputs_path": str(self.trace.model_outputs_path or self.trace.trace_path.with_name(f"{self.trace.trace_path.stem}_model_outputs.json")) if self.config.record_model_outputs else None,
+            "model_output_record_count": len(self.trace.model_outputs),
         }
         for event in tool_events:
             name = str(event.get("tool_name") or "tool")

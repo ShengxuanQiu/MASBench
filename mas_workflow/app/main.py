@@ -75,6 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-parallel-workers", default="true")
     parser.add_argument("--trace-level", choices=["basic", "arch", "detailed"], default="arch")
     parser.add_argument("--export-trace-views", default="true")
+    parser.add_argument("--record-model-outputs", default="false")
     return parser.parse_args()
 
 
@@ -221,6 +222,7 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         react_max_steps=args.react_max_steps,
         trace_level=args.trace_level,
         export_trace_views=str_bool(args.export_trace_views),
+        record_model_outputs=str_bool(args.record_model_outputs),
     )
 
 

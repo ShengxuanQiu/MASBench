@@ -125,9 +125,12 @@ class TraceContext:
     random_seed: int = 42
     trace_level: str = "arch"
     export_views: bool = True
+    record_model_outputs: bool = False
+    model_outputs_path: Path | None = None
     environment_id: str = field(default_factory=lambda: stable_hash({"cwd": str(Path.cwd()), "ts": now_ts()})[:16])
     start_perf: float = field(default_factory=time.perf_counter)
     events: list[dict[str, Any]] = field(default_factory=list)
+    model_outputs: list[dict[str, Any]] = field(default_factory=list)
     hooks: TraceHookManager = field(default_factory=TraceHookManager)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -174,11 +177,110 @@ class TraceContext:
             self.hooks.emit(event)
         return event
 
+    def record_model_output(
+        self,
+        *,
+        event: dict[str, Any],
+        output_text: str,
+        input_text: str | None = None,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        response_metadata: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Store full model text outside the canonical JSONL event stream.
+
+        The JSONL trace remains compact and simulation-oriented. When enabled,
+        this sidecar keeps semantic outputs for inspection/replay research and
+        links them back to the LLM event through stable ids and hashes.
+        """
+        if not self.record_model_outputs:
+            return None
+        output_hash = stable_hash(output_text)
+        prompt_hash = stable_hash(input_text or "")
+        artifact_id = f"model_output_{output_hash[:16]}"
+        path = self.model_outputs_path or self.trace_path.with_name(f"{self.trace_path.stem}_model_outputs.json")
+        record = {
+            "schema_version": SCHEMA_VERSION,
+            "artifact_id": artifact_id,
+            "artifact_type": "model_output",
+            "event_id": event.get("event_id"),
+            "event_type": event.get("event_type"),
+            "run_id": self.run_id,
+            "topology": self.topology,
+            "topology_role": self.topology_role,
+            "instance_id": self.instance_id,
+            "task_source": self.task_source,
+            "workflow_id": self.workflow_id,
+            "node_id": event.get("node_id"),
+            "node_name": event.get("node_name"),
+            "node_type": event.get("node_type"),
+            "agent_id": event.get("agent_id"),
+            "agent_role": event.get("agent_role"),
+            "round_id": event.get("round_id"),
+            "manager_round_id": event.get("manager_round_id"),
+            "peer_round_id": event.get("peer_round_id"),
+            "parallel_group": event.get("parallel_group"),
+            "llm_mode": event.get("llm_mode"),
+            "backend_base_url": event.get("backend_base_url"),
+            "model": event.get("model"),
+            "llm_request_id": event.get("llm_request_id"),
+            "request_id_for_backend": event.get("request_id_for_backend"),
+            "prompt_template": event.get("prompt_template"),
+            "prompt_hash": event.get("prompt_hash") or prompt_hash,
+            "input_hash": prompt_hash,
+            "output_hash": output_hash,
+            "input_chars": len(input_text or ""),
+            "output_chars": len(output_text or ""),
+            "input_tokens_est": estimate_tokens(input_text or ""),
+            "output_tokens_est": estimate_tokens(output_text),
+            "token_count_source": token_count_source(),
+            "backend_prompt_tokens": event.get("backend_prompt_tokens"),
+            "backend_completion_tokens": event.get("backend_completion_tokens"),
+            "backend_total_tokens": event.get("backend_total_tokens"),
+            "backend_finish_reason": event.get("backend_finish_reason"),
+            "timestamp": event.get("timestamp"),
+            "relative_time_sec": event.get("relative_time_sec"),
+            "duration_sec": event.get("duration_sec"),
+            "duration_source": event.get("duration_source"),
+            "replay_policy": event.get("replay_policy"),
+            "output_text": output_text,
+            "response_metadata": response_metadata or {},
+            "extra": extra or {},
+        }
+        if system_prompt is not None:
+            record["system_prompt_hash"] = stable_hash(system_prompt)
+            record["system_prompt_chars"] = len(system_prompt)
+            record["system_prompt_tokens_est"] = estimate_tokens(system_prompt)
+        if user_prompt is not None:
+            record["user_prompt_hash"] = stable_hash(user_prompt)
+            record["user_prompt_chars"] = len(user_prompt)
+            record["user_prompt_tokens_est"] = estimate_tokens(user_prompt)
+        with self.lock:
+            self.model_outputs.append(record)
+            event["model_output_artifact_id"] = artifact_id
+            event["model_output_path"] = str(path)
+            event["model_output_hash"] = output_hash
+        return record
+
     def save(self) -> Path:
         self.trace_path.parent.mkdir(parents=True, exist_ok=True)
         with self.trace_path.open("w", encoding="utf-8") as f:
             for event in self.events:
                 f.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        if self.record_model_outputs and self.model_outputs:
+            path = self.model_outputs_path or self.trace_path.with_name(f"{self.trace_path.stem}_model_outputs.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "run_id": self.run_id,
+                "topology": self.topology,
+                "instance_id": self.instance_id,
+                "trace_path": str(self.trace_path),
+                "record_count": len(self.model_outputs),
+                "records": self.model_outputs,
+            }
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         return self.trace_path
 
     def _redact_basic(self, event: dict[str, Any]) -> None:

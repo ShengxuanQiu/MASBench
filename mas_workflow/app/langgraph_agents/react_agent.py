@@ -133,7 +133,7 @@ def run_react_agent(
         usage = getattr(response, "usage_metadata", None) or {}
         response_metadata = getattr(response, "response_metadata", None) or {}
         tool_calls = getattr(response, "tool_calls", None) or []
-        trace.emit(
+        event = trace.emit(
             event_type="llm_request_end",
             node_id=node_id,
             node_name=node_name,
@@ -179,6 +179,19 @@ def run_react_agent(
             dispatch_policy=config.dispatch_policy,
             request_metadata={**extra_metadata, "react_agent": True, "tool_calls": tool_calls},
         )
+        trace.record_model_output(
+            event=event,
+            output_text=output,
+            input_text=input_text,
+            system_prompt=system_prompt,
+            user_prompt=prompt,
+            response_metadata={
+                **response_metadata,
+                "usage_metadata": usage,
+                "tool_calls": tool_calls,
+            },
+            extra={"source": "langgraph_react_llm_step"},
+        )
         return {"messages": [response]}
 
     graph = StateGraph(MessagesState)
@@ -216,4 +229,3 @@ def run_react_agent(
         extra={"message_count": len(messages)},
     )
     return final
-

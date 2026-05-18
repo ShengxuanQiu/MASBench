@@ -42,6 +42,7 @@ def build_trace_context(config: TopologyConfig, *, topology_role: str = "workflo
     task_dir = trace_dir / config.topology_name / config.instance_id
     trace_path = task_dir / f"{config.run_id}.jsonl"
     summary_path = task_dir / f"{config.run_id}_summary.json"
+    model_outputs_path = task_dir / f"{config.run_id}_model_outputs.json"
     return TraceContext(
         run_id=config.run_id,
         topology=config.topology_name,
@@ -54,6 +55,8 @@ def build_trace_context(config: TopologyConfig, *, topology_role: str = "workflo
         random_seed=config.random_seed,
         trace_level=config.trace_level,
         export_views=config.export_trace_views,
+        record_model_outputs=config.record_model_outputs,
+        model_outputs_path=model_outputs_path,
     )
 
 

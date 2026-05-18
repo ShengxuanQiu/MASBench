@@ -144,6 +144,12 @@ traces/<topology>/<instance_id>/<run_id>_jaeger.json
 traces/<topology>/<instance_id>/<run_id>_viewer.html
 ```
 
+如果运行时打开 `--record-model-outputs true`，还会在同一个目录生成：
+
+```text
+traces/<topology>/<instance_id>/<run_id>_model_outputs.json
+```
+
 其中：
 
 - JSONL 是 canonical trace，供仿真和离线分析使用。
@@ -152,6 +158,7 @@ traces/<topology>/<instance_id>/<run_id>_viewer.html
 - `_otel.json` 是 OpenTelemetry-like span 格式。
 - `_jaeger.json` 可导入 Jaeger 类工具。
 - `_viewer.html` 是本地静态 timeline，用颜色区分 LLM、tool、dataflow、barrier、control、workflow span。LLM/tool 是持续时间条；edge、manager decision、workflow start 这类瞬时事件显示为 marker，避免把零时长事件误读成 pipeline 气泡。
+- `_model_outputs.json` 是可选的模型输出 sidecar。默认不生成；打开后保存每次 LLM response 的全文、hash、node/agent/round、backend request id、token 估算和 backend usage。主 JSONL 仍只保存 `model_output_artifact_id`、`model_output_path`、`model_output_hash` 等引用字段，避免 canonical trace 因文本 payload 变得过大。
 
 ## Trace Schema 的仿真字段
 
@@ -173,6 +180,10 @@ LLM event 记录：
 - `system_prompt_tokens_est`、`user_prompt_tokens_est`、`shared_context_tokens_est`
 - `peer_message_tokens_est`、`manager_instruction_tokens_est`
 - `queue_wait_sec`、dispatch/generation timestamps
+- `prompt_hash`、`output_hash`
+- 如果打开 `--record-model-outputs true`，还会记录 `model_output_artifact_id`、`model_output_path`、`model_output_hash`，全文在同目录的 `_model_outputs.json` sidecar 中。
+
+模型输出全文默认不写入 JSONL。这样做是为了让 JSONL 保持稳定、轻量、适合体系结构仿真；需要语义级检查、debug 或输出质量分析时，再显式打开 sidecar。
 - `prompt_hash`、`output_hash`、`shared_context_hash`
 
 Tool event 记录：
@@ -257,6 +268,7 @@ python -m app.main \
   --model local-mas-model \
   --max-output-tokens 4096 \
   --agent-execution react \
+  --record-model-outputs true \
   --tool-mode live \
   --search-provider tavily
 ```

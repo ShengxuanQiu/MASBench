@@ -61,6 +61,10 @@ class TopologyConfig:
     collect_backend_metrics: bool = False
     backend_metrics_url: str = ""
     backend_metrics_interval_sec: float = 0.5
+    agent_pool_size: int = 8
+    min_selected_agents: int = 1
+    max_selected_agents: int = 3
+    orchestrator_stop_confidence: float = 0.78
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -410,6 +414,54 @@ class BaseTopology:
                 results[futures[future]] = future.result()
         return results
 
+    def agent_pool(self, *, prefix: str = "agent") -> list[dict[str, str]]:
+        """Candidate specialist pool for orchestrator-driven topologies."""
+        templates = [
+            ("repo_search", "Repository Searcher", "find relevant files, symbols, and implementation locations"),
+            ("issue_triage", "Issue Triage Analyst", "extract bug symptoms, constraints, and expected behavior"),
+            ("code_localization", "Code Localizer", "map evidence to likely modules and functions"),
+            ("api_doc", "API Documentation Analyst", "check public APIs, docs, and semantic contracts"),
+            ("test_reasoning", "Test Reasoning Agent", "infer regression tests and failure modes"),
+            ("patch_planning", "Patch Planner", "propose minimal implementation changes"),
+            ("regression_risk", "Regression Risk Analyst", "identify compatibility and edge-case risks"),
+            ("performance", "Performance Analyst", "reason about runtime, memory, and scaling impact"),
+            ("tool_heavy", "Tool-Heavy Evidence Agent", "aggressively call tools to gather external evidence"),
+            ("judge", "Judge / Synthesizer", "compare competing evidence and recommend stop or continue"),
+            ("security", "Security Reviewer", "check unsafe behavior and security-adjacent regressions"),
+            ("maintainer", "Maintainer Perspective Agent", "evaluate change scope and repository maintainability"),
+        ]
+        limit = max(1, min(int(self.config.agent_pool_size or len(templates)), len(templates)))
+        pool = []
+        for role, name, capability in templates[:limit]:
+            pool.append(
+                {
+                    "id": f"{prefix}_{role}",
+                    "role": role,
+                    "name": name,
+                    "capability": capability,
+                    "system_prompt": f"You are {name}. Your specialty is to {capability}. Return concise evidence with confidence.",
+                }
+            )
+        return pool
+
+    def clamp_selected_agents(self, selected: list[str], pool: list[dict[str, str]]) -> list[str]:
+        valid = [agent["id"] for agent in pool]
+        seen: set[str] = set()
+        cleaned = []
+        for agent_id in selected:
+            if agent_id in valid and agent_id not in seen:
+                cleaned.append(agent_id)
+                seen.add(agent_id)
+        min_count = max(1, int(self.config.min_selected_agents or 1))
+        max_count = max(min_count, int(self.config.max_selected_agents or min_count))
+        for agent_id in valid:
+            if len(cleaned) >= min_count:
+                break
+            if agent_id not in seen:
+                cleaned.append(agent_id)
+                seen.add(agent_id)
+        return cleaned[:max_count]
+
     def emit_edge(
         self,
         *,
@@ -519,7 +571,10 @@ class BaseTopology:
             "total_output_tokens_est": output_tokens,
             "total_tokens_est": input_tokens + output_tokens,
             "total_artifact_tokens_est": artifact_tokens,
-            "max_parallel_width": self.config.num_agents,
+            "max_parallel_width": max(
+                [int(e.get("selected_agent_count") or 0) for e in events if e.get("event_type") in {"manager_decision", "orchestrator_decision"}]
+                or [self.config.num_agents]
+            ),
             "critical_path_length": round(total_llm + total_tool, 6),
             "barrier_wait_sum": sum(float(e.get("barrier_wait_sec") or 0) for e in barriers),
             "context_duplication_ratio": round(input_tokens / max(1, estimate_tokens(self.config.query)), 4),

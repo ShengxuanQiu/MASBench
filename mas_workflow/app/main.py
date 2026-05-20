@@ -79,6 +79,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--collect-backend-metrics", default="false")
     parser.add_argument("--backend-metrics-url", default="")
     parser.add_argument("--backend-metrics-interval-sec", type=float, default=0.5)
+    parser.add_argument("--agent-pool-size", type=int, default=8)
+    parser.add_argument("--min-selected-agents", type=int, default=1)
+    parser.add_argument("--max-selected-agents", type=int, default=3)
+    parser.add_argument("--orchestrator-stop-confidence", type=float, default=0.78)
     return parser.parse_args()
 
 
@@ -229,6 +233,10 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         collect_backend_metrics=str_bool(args.collect_backend_metrics),
         backend_metrics_url=args.backend_metrics_url,
         backend_metrics_interval_sec=args.backend_metrics_interval_sec,
+        agent_pool_size=args.agent_pool_size,
+        min_selected_agents=args.min_selected_agents,
+        max_selected_agents=args.max_selected_agents,
+        orchestrator_stop_confidence=args.orchestrator_stop_confidence,
     )
 
 

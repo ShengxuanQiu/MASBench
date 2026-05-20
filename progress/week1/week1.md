@@ -82,19 +82,23 @@
 
 解释：在本轮 4B 模型、单任务、3-agent 并发下，vLLM capacity 足够，没有形成 scheduler waiting queue。因此现阶段的主要证据不是“排队瓶颈”，而是 topology 造成的 request/token work amplification。这个结论比原先 workflow-only 图更强，因为它来自 backend scheduler metrics。
 
+补充：这条观察也暴露了旧 centralized/hybrid 原型的局限：上层 topology 激活宽度固定，导致 `max running` 很容易被写死的 agent 数量限制。当前代码已经把 centralized/hybrid 改成 dynamic orchestrator：manager 从更大的 specialist pool 中选择本轮实际调用的 subagents，并记录 `available_agent_count`、`selected_agent_count`、`selected_agent_roles`、`dynamic_fanout_count`。因此后续真实 backend trace 可以区分“候选 pool 大小”和“实际激活宽度”。
+
 下一步：如果要观察 scheduler contention，需要增加并发任务数、agent 数、round 数或降低 serving capacity，而不是只换图表。
 
 ### Insight 4: TTFT/TPOT 和 KV cache 指标说明本轮还没有压到 KV/cache 瓶颈
 
 ![](insight_4_latency_cache_metrics.png)
 
-现象：TTFT/TPOT 可采集，KV cache usage 峰值很低。
+![](insight_6_kv_cache_pipeline.png)
 
-证据：本轮最大 KV cache usage 最高约 `1.597%`。TTFT 在不同 topology 间变化，但 KV/cache 还没有成为主要压力源。
+现象：TTFT/TPOT 可采集，KV cache usage 峰值很低。新增的 pipeline 曲线把 hybrid run 的 KV cache usage 时间序列与 MAS-level LLM spans、tool spans、peer communication edge、manager decision/barrier event 叠加在一张图里。
 
-解释：虽然 max model len 和 KV cache capacity 很大，但单个 SWE-bench instance 的实际上下文还远远没有压满 KV cache。当前结论不能声称 KV/cache 是瓶颈，只能说明 metrics path 已经接通，并且本轮 workload 尚未触发 cache pressure。
+证据：本轮最大 KV cache usage 最高约 `1.597%`。在 pipeline 曲线中，KV usage 只在 LLM 活跃 span 附近轻微上升，并没有随 peer communication 或 manager collect 出现明显堆积；同时 `max_num_requests_waiting=0`。TTFT 在不同 topology 间变化，但 KV/cache 还没有成为主要压力源。
 
-下一步：要研究 KV/cache，应该构造长上下文、多轮 debate、多实例并发，或者接入 vLLM 细粒度 KV block metrics。
+解释：虽然 max model len 和 KV cache capacity 很大，但单个 SWE-bench instance 的实际上下文还远远没有压满 KV cache。此前只看 `max_gpu_cache_usage_perc` 单个标量太单薄；现在的动态曲线更清楚地说明：metrics path 已经接通，但本轮 workload 还没有触发持续 KV pressure。
+
+下一步：要研究 KV/cache，应该构造长上下文、多轮 debate、多实例并发，或者接入 vLLM 细粒度 KV block metrics。尤其需要用 dynamic orchestrator 放大真实激活宽度，而不是固定 3 个 agent。
 
 ### Insight 5: Hybrid/Decentralized 的开销来自 control/dataflow 嵌套，而不仅是 agent 数
 
@@ -140,12 +144,14 @@
 - 新 trace 比原 trace 更有说服力：能直接看到 topology 对 backend prompt/generation tokens、request volume、running/waiting requests、TTFT/TPOT、KV cache usage 的影响。
 - 本轮最强证据是 work amplification：hybrid/decentralized 显著增加 backend prompt token work。
 - 本轮没有观察到 scheduler queue buildup，也没有观察到 KV/cache 压力；这不是失败，而是说明当前 workload 还不够压迫 serving 系统。
+- 旧 trace 中 `max running=3` 主要反映固定激活宽度；当前代码已经将 centralized/hybrid 改为 dynamic orchestrator，从候选 agent pool 中按轮选择不同 subagents，后续 backend run 应以该版本重新采集。
 
 ## 9. 当前问题与风险
 
 - `/metrics` 是窗口级 aggregate，不是 per-request prefill/decode/KV/scheduler trace。
 - `request_success_total_delta` 是 vLLM metrics 窗口计数，和 MAS `llm_request_end` event 数不一定一一相等；强 per-request 对齐仍需要 vLLM 侧 request trace。
 - 本轮只有一个 SWE-bench instance，结论是阶段性系统观察，不是统计结论。
+- dynamic orchestrator 已通过 mock/synthetic smoke test 验证，但本报告表格中的 vLLM backend 数值来自上一轮真实 backend trace，尚未全量重跑 dynamic orchestrator backend trace。
 - live search 依赖 Tavily API key。
 - full workflow 尚未定义，case study 尚未开始。
 - 没有修改 vLLM scheduler/KV manager。
@@ -153,6 +159,7 @@
 ## 10. 下一步计划
 
 - 构造能触发 scheduler queue 的 workload：提高并发实例数、agent 数、round 数，或降低 serving capacity。
-- 构造长上下文 debate/hybrid workload，观察 KV cache usage 是否上升。
+- 用 dynamic orchestrator 版本重跑 centralized/hybrid backend trace，观察实际激活宽度、候选 pool 大小、scheduler running/waiting 和 token work 的关系。
+- 构造长上下文 debate/hybrid workload，观察 KV cache usage 是否上升，并继续使用 pipeline 曲线叠加 spans/communication/barrier。
 - 在 vLLM fork 中增加 per-request prefill/decode/KV/scheduler event，并用 `X-Request-Id` 对齐 MAS trace。
 - 基于当前 observation 设计 2-3 个 meso workflow。

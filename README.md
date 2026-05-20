@@ -63,13 +63,14 @@ python -m app.main --topology independent --num-agents 3 \
 
 结构：`Manager-Round-k -> selected Workers -> Manager observes -> continue/finish`
 
-用途：中心 manager 控制动态多轮。`rule_based` manager 支持 `--force-centralized-rounds` 和 `--max-rounds`；`llm` manager 会解析 JSON decision。trace 重点是 manager critical path、worker fan-out/fan-in、round count、control-flow dependency。
-同一轮被选中的 workers 会并发执行，manager round 之间仍保持控制依赖。
+用途：中心 orchestrator 控制动态多轮。它不再固定调用 `num_agents` 个 worker，而是从更大的 specialist candidate pool 中按轮次选择本轮真正需要的 subagents。`rule_based` orchestrator 会按证据阶段选择不同专家；`llm` orchestrator 会解析 JSON decision。`--max-rounds` 是安全上限，真实结束由 orchestrator 的 continue/finish 决策控制。trace 重点是 manager critical path、动态 fan-out/fan-in、round count、control-flow dependency。
+同一轮被选中的 workers 会并发执行，manager round 之间仍保持控制依赖。未被选中的候选 agent 会记录在 `not_selected_agents`，用于分析“可选 pool”和“实际激活宽度”的差异。
 
 ```bash
 cd mas_workflow
 python -m app.main --topology centralized --manager-policy rule_based \
-  --force-centralized-rounds 2 --max-rounds 3 \
+  --agent-pool-size 10 --max-selected-agents 4 \
+  --force-centralized-rounds 2 --max-rounds 4 \
   --llm-mode mock --tool-mode synthetic --latency-profile none
 ```
 
@@ -91,12 +92,13 @@ python -m app.main --topology decentralized \
 
 结构：`Manager assigns -> peer rounds -> Manager collects -> continue/finish`
 
-用途：中心控制和 peer communication 的混合拓扑。trace 重点是 nested manager/peer rounds、manager collection barrier、peer communication overhead、manager critical path。
-manager 分配后的 worker stage 和每个 peer round 都会并发执行，manager collect 是同步点。
+用途：中心控制和 peer communication 的混合拓扑。Hybrid 也使用同一套 candidate pool 和 dynamic selection：每个 manager round 可以选择不同数量、不同功能的 subagents，选中的 agents 再进入本轮 peer discussion。trace 重点是 nested manager/peer rounds、manager collection barrier、peer communication overhead、manager critical path。
+manager 分配后的 worker stage 和每个 peer round 都会并发执行，manager collect 是同步点。`peer_rounds` 是每个 manager round 内 peer discussion 的上限，LLM orchestrator 可以在 decision 中降低本轮 peer rounds。
 
 ```bash
 cd mas_workflow
-python -m app.main --topology hybrid --max-rounds 2 --peer-rounds 2 \
+python -m app.main --topology hybrid --max-rounds 4 --peer-rounds 2 \
+  --agent-pool-size 10 --max-selected-agents 4 \
   --communication-topology ring \
   --llm-mode mock --tool-mode synthetic --latency-profile none
 ```
@@ -109,6 +111,27 @@ python -m app.main --topology hybrid --max-rounds 2 --peer-rounds 2 \
 - `build_motif(config)`: 返回可组合子图对象，后续 full workflow 可以把它作为局部 motif/plugin 调用。
 
 统一配置在 `mas_workflow/app/topologies/base.py` 的 `TopologyConfig`。只要后续组合 workflow 继续复用同一个 `TraceContext.emit()`，所有 node/tool/LLM/edge/barrier event 都会进入同一套 JSONL、span、OTel、HTML 导出路径。
+
+Centralized 和 Hybrid 的 workflow/motif 当前共享同一套 dynamic orchestrator 实现。也就是说，把它们作为 motif 嵌入后续复杂 workflow 时，仍然会记录：
+
+- `available_agent_count`: 候选 specialist pool 的大小。
+- `selected_agent_count`: 本轮实际激活的 subagent 数。
+- `selected_workers` / `selected_agent_roles`: 本轮被 orchestrator 选中的节点和功能。
+- `proposed_selected_workers`: Centralized finish 决策中保留的原始候选建议；如果 manager 已结束，本轮不会计入实际 fan-out。
+- `not_selected_agents`: 本轮未激活候选节点。
+- `dynamic_fanout_count`: 本轮真实 fan-out 宽度。
+- `selection_reason`、`stop_reason`、`confidence_est`: orchestrator 控制决策。
+
+相关 CLI 参数：
+
+```bash
+--agent-pool-size 10
+--min-selected-agents 1
+--max-selected-agents 4
+--orchestrator-stop-confidence 0.78
+```
+
+`num_agents` 仍用于 Independent / Debate 这类固定 peer-size topology；涉及中心调度的 Centralized / Hybrid 则优先使用 candidate pool 和 orchestrator selection。
 
 ## Agent Execution
 
@@ -214,7 +237,9 @@ Barrier event 记录：
 - `barrier_id`、`waiting_for_nodes`、`arrived_nodes`
 - `barrier_wait_sec`、`straggler_node`、`straggler_gap_sec`
 
-并行执行说明：topology 内部的 fan-out 阶段使用线程池真实并发调用 worker/search/LLM 分支。mock LLM 和 synthetic search 本身仍然很快，因此真实 wall-clock 可能只有毫秒级；这不是 HTML 写错，而是当前 backend 没有真实模型推理或外部工具耗时。观察真实瓶颈时应使用 OpenAI-compatible/vLLM backend、`--agent-execution react`、`--tool-mode live`、Tavily 或 local_repo search、更多 agents 和更多 rounds，而不是把模拟延迟混入真实测量。
+并行执行说明：topology 内部的 fan-out 阶段使用线程池真实并发调用 worker/search/LLM 分支。mock LLM 和 synthetic search 本身仍然很快，因此真实 wall-clock 可能只有毫秒级；这不是 HTML 写错，而是当前 backend 没有真实模型推理或外部工具耗时。观察真实瓶颈时应使用 OpenAI-compatible/vLLM backend、`--agent-execution react`、`--tool-mode live`、Tavily 或 local_repo search、更大的 candidate pool、更多被 orchestrator 激活的 agents 和更多 rounds，而不是把模拟延迟混入真实测量。
+
+Centralized / Hybrid 的并发宽度不是固定写死的。它由 orchestrator 每轮从 `--agent-pool-size` 给出的候选专家池中选择，并受 `--max-selected-agents` 约束。summary 中的 `max_parallel_width` 来自实际 `selected_agent_count`，不是候选 pool size。
 
 ## Trace Level
 
@@ -314,7 +339,7 @@ python -m app.main \
 - `--llm-mode openai_compatible`: 调用本地 vLLM/OpenAI-compatible endpoint。trace 会生成 `request_id_for_backend`，并通过 `X-Request-Id` 对齐后端日志。
 - `--max-output-tokens`: 控制每次 LLM request 的输出上限，默认 `4096`。不要用 endpoint 健康检查脚本里的 `128` 作为 workload 上限；正式 trace 会在 LLM event 中记录 `max_output_tokens`。
 
-当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。
+当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。Week 1 报告中的 KV 曲线图来自 `_backend_metrics.json` sidecar，会把 vLLM cache usage 曲线和 MAS spans / peer communication / manager events 对齐展示，但它仍是 metrics 采样级别，不是 vLLM 内核级 per-request event。
 
 ### vLLM Backend Metrics Sidecar
 
@@ -407,6 +432,6 @@ done
 - 不追求 SWE-bench 解题成功率。
 - 不设计 final full workflow。
 - 不修改 vLLM scheduler。
-- 不接入 KV/cache trace。
+- 不修改 vLLM 内部 KV/cache manager，也不声称已有 per-request KV block trace；当前只接入 vLLM `/metrics` 采样级 KV cache usage。
 - 不做最终 case study。
 - 不把 Motus runtime 直接搬进来；只吸收 hook、extractor、span/export/viewer 这类 trace 工程化思路。

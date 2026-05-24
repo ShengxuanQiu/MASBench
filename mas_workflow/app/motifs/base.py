@@ -143,8 +143,14 @@ class CompositeMotif(BaseTopology):
     def maybe_tool_evidence(self, *, node_id: str, node_name: str, query: str, force: bool = False) -> str:
         if force or not self.use_react_agents():
             results = self.search(node_id=f"{node_id}_search", node_name=f"{node_name} Search", query=query)
-            return str(results)
+            return self._clip_prompt_text(str(results), max_chars=2000)
         return "ReAct agent may call tools if needed."
+
+    def _clip_prompt_text(self, text: str, *, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        digest = stable_hash(text)[:16]
+        return f"{text[:max_chars]}\n[truncated_for_prompt hash={digest} original_chars={len(text)}]"
 
     def llm_agent(
         self,

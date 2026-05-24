@@ -88,7 +88,9 @@ def run_react_agent(
     prompt = (
         f"{system_prompt}\n\n"
         "You may call tools when evidence is needed. Use the search tool for web, documentation, "
-        "repository, issue, API, or factual evidence. If the answer is already clear, do not call a tool.\n\n"
+        "repository, issue, API, or factual evidence. Use at most one search call; after receiving a "
+        "tool result, produce the final answer without calling more tools. If the answer is already "
+        "clear, do not call a tool.\n\n"
         f"{user_prompt}"
     )
     prompt_hash = stable_hash(prompt)

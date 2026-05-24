@@ -15,6 +15,8 @@ fi
 PYTHON_BIN="${PYTHON_BIN:-python}"
 BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:8000/v1}"
 MODEL="${MODEL:-local-mas-model}"
+MAX_OUTPUT_TOKENS="${MAX_OUTPUT_TOKENS:-1024}"
+REACT_MAX_STEPS="${REACT_MAX_STEPS:-8}"
 TRACE_DIR="${TRACE_DIR:-traces}"
 REPLAY_SNAPSHOT_DIR="${REPLAY_SNAPSHOT_DIR:-}"
 SUMMARY_PATH="$TRACE_DIR/motif_real_trace_summary.json"
@@ -93,7 +95,9 @@ for motif in "${MOTIFS[@]}"; do
     --llm-mode openai_compatible \
     --backend-base-url "$BACKEND_BASE_URL" \
     --model "$MODEL" \
+    --max-output-tokens "$MAX_OUTPUT_TOKENS" \
     --agent-execution react \
+    --react-max-steps "$REACT_MAX_STEPS" \
     "${TOOL_ARGS[@]}" \
     --trace-level arch \
     --export-trace-views true \

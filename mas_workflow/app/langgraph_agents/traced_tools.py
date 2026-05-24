@@ -44,6 +44,37 @@ class TracedToolRuntime:
             self._counter += 1
             call_index = self._counter
         node_id = f"{self.agent_id}_tool_search_{call_index}"
+        if call_index > 1:
+            self.trace.emit(
+                event_type="tool_search_limit",
+                node_id=node_id,
+                node_name=f"{self.agent_id}.search[{call_index}]",
+                node_type="tool",
+                status="skipped",
+                duration_sec=0.0,
+                duration_source="not_applicable",
+                replay_policy="tool_call_limit",
+                tool_name="search",
+                tool_mode=self.config.tool_mode,
+                tool_query=query,
+                result_count=0,
+                agent_id=self.agent_id,
+                agent_role=self.agent_role,
+                round_id=self.round_id,
+                manager_round_id=self.manager_round_id,
+                peer_round_id=self.peer_round_id,
+                parallel_group=self.parallel_group,
+                motif_tags=self.motif_tags,
+                extra={"reason": "one_search_call_per_react_agent"},
+            )
+            return json.dumps(
+                {
+                    "tool_call_limit_reached": True,
+                    "message": "Use the previous search result and produce the final answer now.",
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
         result = self.search_provider.search(query)
         snapshot_dir = self.config.trace_dir / "snapshots" / self.config.run_id if self.config.record_tool_results else None
         replay_policy = {
@@ -77,7 +108,7 @@ class TracedToolRuntime:
             "result_hash": result.result_hash,
             "provider_name": result.provider_name,
         }
-        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return _clip_tool_payload(json.dumps(payload, ensure_ascii=False, sort_keys=True), max_chars=2000)
 
 
 def make_search_tools(runtime: TracedToolRuntime) -> list[Any]:
@@ -96,12 +127,26 @@ def make_search_tools(runtime: TracedToolRuntime) -> list[Any]:
             description=(
                 "Search for evidence before answering when the task needs current facts, "
                 "repository evidence, issue details, APIs, errors, or confirmation. "
-                "Input must be a concise search query."
+                "Input must be a concise search query. Use this at most once, then answer."
             ),
         )
     ]
 
 
+def _clip_tool_payload(text: str, *, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return json.dumps(
+        {
+            "truncated_for_prompt": True,
+            "original_chars": len(text),
+            "result_hash": stable_hash(text),
+            "preview": text[:max_chars],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def tool_input_hash(tool_name: str, args: dict[str, Any]) -> str:
     return stable_hash({"tool_name": tool_name, "args": args})
-

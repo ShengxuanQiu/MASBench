@@ -7,6 +7,7 @@ import os
 import random
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +82,7 @@ class TavilySearchProvider(BaseSearchProvider):
 
     def search(self, query: str, **kwargs: Any) -> SearchResult:
         start = time.perf_counter()
+        attempts = int(kwargs.get("attempts") or 3)
         payload = {
             "api_key": self.api_key,
             "query": query,
@@ -95,13 +97,24 @@ class TavilySearchProvider(BaseSearchProvider):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - explicit live provider
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        last_exc: Exception | None = None
+        data: dict[str, Any] = {}
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - explicit live provider
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                break
+            except (urllib.error.URLError, TimeoutError, ConnectionResetError) as exc:
+                last_exc = exc
+                if attempt >= attempts:
+                    raise
+                time.sleep(min(2.0, 0.5 * attempt))
         measured = time.perf_counter() - start
         injected = self._delay()
         results = data.get("results") or []
         digest = stable_hash({"query": query, "results": results, "answer": data.get("answer", "")})
-        return SearchResult(self.name, query, results, data.get("answer", ""), digest, measured, injected, measured + injected)
+        warning = f"retried_after_{type(last_exc).__name__}" if last_exc is not None else None
+        return SearchResult(self.name, query, results, data.get("answer", ""), digest, measured, injected, measured + injected, warning=warning)
 
 
 class RecordedSearchProvider(BaseSearchProvider):

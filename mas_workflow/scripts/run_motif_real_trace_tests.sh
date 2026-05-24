@@ -5,6 +5,13 @@ set -o pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR" || exit 1
 
+if [[ -z "${TAVILY_API_KEY:-}" && -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 PYTHON_BIN="${PYTHON_BIN:-python}"
 BACKEND_BASE_URL="${BACKEND_BASE_URL:-http://127.0.0.1:8000/v1}"
 MODEL="${MODEL:-local-mas-model}"

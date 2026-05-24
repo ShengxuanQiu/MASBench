@@ -12,7 +12,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from .topologies import TopologyConfig, build_workflow
+from .motifs import MOTIF_NAMES
+from .motifs import build_workflow as build_motif_workflow
+from .topologies import TopologyConfig
+from .topologies import build_workflow as build_topology_workflow
 from .tracing import now_ts
 
 
@@ -35,8 +38,10 @@ def str_bool(value: str | bool) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MASBench-Arch week-1 base topology prototype")
+    parser = argparse.ArgumentParser(description="MASBench-Arch topology and composite motif runner")
+    parser.add_argument("--mode", choices=["topology", "motif"], default="topology")
     parser.add_argument("--topology", choices=["single", "independent", "centralized", "decentralized", "hybrid"], default="single")
+    parser.add_argument("--motif", choices=MOTIF_NAMES, default="planner_executor")
     parser.add_argument("--task-source", choices=["manual", "swebench_lite"], default="manual")
     parser.add_argument("--swebench-split", default="test")
     parser.add_argument("--swebench-start-index", type=int, default=0)
@@ -190,8 +195,9 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         provider = "tavily" if args.tool_mode == "live" else "synthetic"
     if provider == "recorded":
         provider = "recorded"
+    workload_name = args.motif if args.mode == "motif" else args.topology
     return TopologyConfig(
-        topology_name=args.topology,
+        topology_name=workload_name,
         run_id=run_id,
         task_id=instance_id,
         instance_id=instance_id,
@@ -237,11 +243,13 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         min_selected_agents=args.min_selected_agents,
         max_selected_agents=args.max_selected_agents,
         orchestrator_stop_confidence=args.orchestrator_stop_confidence,
+        mode=args.mode,
+        motif_name=args.motif if args.mode == "motif" else "",
     )
 
 
 def run_one(config: TopologyConfig) -> dict[str, Any]:
-    workflow = build_workflow(config)
+    workflow = build_motif_workflow(config) if config.mode == "motif" else build_topology_workflow(config)
     return workflow.run()
 
 
@@ -276,7 +284,8 @@ def main() -> int:
                 config.extra["setup_error"] = "repo clone/checkout unavailable; using no_repo synthetic tool path"
             summaries.append(run_one(config))
     for summary in summaries:
-        print(f"{summary['topology']} {summary['instance_id']} trace={summary['trace_path']}")
+        label = summary.get("motif_name") or summary["topology"]
+        print(f"{summary.get('mode', args.mode)} {label} {summary['instance_id']} trace={summary['trace_path']}")
     return 0
 
 

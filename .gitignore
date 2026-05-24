@@ -6,6 +6,8 @@ langgraph-src/
 motus/
 swebench_repos/
 mas_workflow/traces/
+traces/
+traces_tmp/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/

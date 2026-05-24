@@ -1,0 +1,525 @@
+"""Composite MAS motifs built from the base topology runtime.
+
+The classes in this module keep one TraceContext and reuse BaseTopology's
+LLM/tool/edge/barrier helpers. Each motif also instantiates the named base
+topology motifs with shared dependencies so later full workflows can call or
+inspect the same component graph without creating another trace system.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..topologies.base import BaseTopology, TopologyConfig, parse_json_maybe
+from ..topologies.centralized import build_motif as centralized_motif
+from ..topologies.decentralized_debate import build_motif as decentralized_motif
+from ..topologies.independent import build_motif as independent_motif
+from ..topologies.single_agent import build_motif as single_motif
+from ..topologies.hybrid import build_motif as hybrid_motif
+from ..tracing import estimate_tokens, stable_hash, token_count_source
+
+
+BASE_MOTIF_BUILDERS = {
+    "single": single_motif,
+    "independent": independent_motif,
+    "centralized": centralized_motif,
+    "decentralized": decentralized_motif,
+    "hybrid": hybrid_motif,
+}
+
+
+@dataclass(frozen=True)
+class MotifSpec:
+    name: str
+    composed_from: list[str]
+    tags: list[str]
+    description: str
+    roles: list[str] = field(default_factory=list)
+
+
+class CompositeMotif(BaseTopology):
+    spec = MotifSpec("composite", [], ["composite"], "generic composite motif")
+
+    def __init__(self, config: TopologyConfig, **deps: Any) -> None:
+        super().__init__(config, **deps)
+        self.config.mode = "motif"
+        self.config.motif_name = self.spec.name
+        self.config.composed_from_topologies = list(self.spec.composed_from)
+        self.trace.mode = "motif"
+        self.trace.motif_name = self.spec.name
+        self.trace.motif_instance_id = self.config.instance_id
+        self.trace.parent_motif_id = self.config.parent_motif_id
+        self.trace.composed_from_topologies = list(self.spec.composed_from)
+        self.motif_tags = list(dict.fromkeys(["composite", self.spec.name, *self.spec.tags]))
+        self.component_motifs = {
+            name: BASE_MOTIF_BUILDERS[name](config, **deps)
+            for name in self.spec.composed_from
+            if name in BASE_MOTIF_BUILDERS
+        }
+
+    def workflow_start(self) -> None:
+        super().workflow_start()
+        self.trace.emit(
+            event_type="motif_start",
+            node_id=f"{self.spec.name}_START",
+            node_name=f"{self.spec.name} START",
+            node_type="workflow",
+            motif_tags=self.motif_tags,
+            topology_role="workflow",
+            composed_from_topologies=self.spec.composed_from,
+            status="start",
+            extra={"description": self.spec.description, "component_motifs": sorted(self.component_motifs)},
+        )
+
+    def workflow_end(self, final_answer: str) -> dict[str, Any]:
+        self.trace.emit(
+            event_type="motif_end",
+            node_id=f"{self.spec.name}_END",
+            node_name=f"{self.spec.name} END",
+            node_type="workflow",
+            motif_tags=self.motif_tags,
+            topology_role="workflow",
+            composed_from_topologies=self.spec.composed_from,
+            status="success",
+            output_hash=stable_hash(final_answer),
+            output_tokens_est=estimate_tokens(final_answer),
+            token_count_source=token_count_source(),
+        )
+        return super().workflow_end(final_answer)
+
+    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        parent = self.config.parent_motif_id
+        if payload.get("parent_motif_id"):
+            self.config.parent_motif_id = str(payload["parent_motif_id"])
+            self.trace.parent_motif_id = self.config.parent_motif_id
+        try:
+            return super().invoke(payload)
+        finally:
+            self.config.parent_motif_id = parent
+            self.trace.parent_motif_id = parent
+
+    def emit_control(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        event_type: str = "motif_control",
+        round_id: int | None = None,
+        manager_round_id: int | None = None,
+        peer_round_id: int | None = None,
+        **fields: Any,
+    ) -> None:
+        self.trace.emit(
+            event_type=event_type,
+            node_id=node_id,
+            node_name=node_name,
+            node_type=fields.pop("node_type", "manager"),
+            round_id=round_id,
+            manager_round_id=manager_round_id,
+            peer_round_id=peer_round_id,
+            motif_tags=self.motif_tags,
+            composed_from_topologies=self.spec.composed_from,
+            **fields,
+        )
+
+    def finalizer(self, content: str, *, parents: list[str] | None = None) -> str:
+        self.emit_edge(src_node=(parents or ["motif"])[0], dst_node="finalizer", artifact_type="summary", content=content, transfer_type="aggregation")
+        final = self.call_llm(
+            node_id="finalizer",
+            node_name="Finalizer",
+            node_type="agent",
+            agent_role="finalizer",
+            prompt_template="finalizer.md",
+            system_prompt="Produce the final answer for this composite MAS motif.",
+            user_prompt=content,
+            parents=parents or [],
+            criticality="critical",
+            extra_metadata={"motif_name": self.spec.name},
+        )
+        self.emit_edge(src_node="finalizer", dst_node="END", artifact_type="final", content=final, transfer_type="aggregation")
+        return final
+
+    def maybe_tool_evidence(self, *, node_id: str, node_name: str, query: str, force: bool = False) -> str:
+        if force or not self.use_react_agents():
+            results = self.search(node_id=f"{node_id}_search", node_name=f"{node_name} Search", query=query)
+            return str(results)
+        return "ReAct agent may call tools if needed."
+
+    def llm_agent(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        agent_role: str,
+        system_prompt: str,
+        user_prompt: str,
+        parents: list[str] | None = None,
+        round_id: int | None = None,
+        manager_round_id: int | None = None,
+        peer_round_id: int | None = None,
+        retry_count: int = 0,
+        parallel_group: str | None = None,
+        criticality: str = "near_critical",
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> str:
+        return self.call_agent(
+            node_id=node_id,
+            node_name=node_name,
+            node_type="agent",
+            agent_role=agent_role,
+            prompt_template=f"{agent_role}.md",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            parents=parents or [],
+            round_id=round_id,
+            manager_round_id=manager_round_id,
+            peer_round_id=peer_round_id,
+            retry_count=retry_count,
+            parallel_group=parallel_group,
+            criticality=criticality,
+            extra_metadata=extra_metadata or {},
+        )
+
+    def topology_summary(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+        motif_events = [e for e in events if e.get("mode") == "motif"]
+        tools = [e for e in events if str(e.get("event_type", "")).startswith("tool_")]
+        llm = [e for e in events if e.get("event_type") == "llm_request_end"]
+        edges = [e for e in events if e.get("node_type") == "edge"]
+        return {
+            "motif_name": self.spec.name,
+            "motif_count": len([e for e in events if e.get("event_type") == "motif_start"]),
+            "motif_duration_sec": max([float(e.get("relative_time_sec") or 0) for e in motif_events] or [0.0]),
+            "motif_input_tokens_est": sum(int(e.get("input_tokens_est") or 0) for e in llm),
+            "motif_output_tokens_est": sum(int(e.get("output_tokens_est") or 0) for e in llm),
+            "motif_artifact_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in edges),
+            "motif_tool_time_sec": round(sum(float(e.get("effective_duration_sec") or e.get("duration_sec") or 0) for e in tools), 6),
+            "motif_llm_time_sec": round(sum(float(e.get("duration_sec") or 0) for e in llm), 6),
+            "motif_barrier_wait_sec": round(sum(float(e.get("barrier_wait_sec") or 0) for e in events), 6),
+            "motif_retry_count": sum(int(e.get("retry_count") or 0) for e in events),
+            "composed_from_topologies": self.spec.composed_from,
+            "shared_evidence_read_tokens_est": sum(int(e.get("shared_evidence_read_tokens_est") or 0) for e in events),
+            "shared_evidence_write_tokens_est": sum(int(e.get("shared_evidence_write_tokens_est") or 0) for e in events),
+            "duplicated_context_tokens_est": sum(int(e.get("duplicated_context_tokens_est") or 0) for e in events),
+            "retry_loop_count": len([e for e in events if int(e.get("debug_loop_count") or 0) > 0]),
+            "handoff_count": sum(int(e.get("handoff_count") or 0) for e in events),
+        }
+
+
+class PlannerExecutorMotif(CompositeMotif):
+    spec = MotifSpec("planner_executor", ["centralized"], ["manager_worker", "plan_execution"], "Planner -> Executor -> Finalizer")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Create a concise executable plan.", user_prompt=self.config.query, parents=["START"], manager_round_id=0, criticality="critical")
+        self.emit_edge(src_node="planner", dst_node="executor", artifact_type="plan", content=plan, transfer_type="plan_to_execution", manager_round_id=0)
+        execution_input = f"Task:\n{self.config.query}\nPlan artifact:\n{plan}"
+        self.emit_control(node_id="plan_artifact", node_name="Plan Artifact", artifact_type="plan", plan_tokens_est=estimate_tokens(plan), executor_input_tokens_est=estimate_tokens(execution_input))
+        result = self.llm_agent(node_id="executor", node_name="Executor", agent_role="executor", system_prompt="Execute the plan and report concrete results.", user_prompt=execution_input, parents=["planner"], manager_round_id=0, criticality="critical")
+        final = self.finalizer(result, parents=["executor"])
+        return self.workflow_end(final)
+
+
+class EvidenceCollectionMotif(CompositeMotif):
+    spec = MotifSpec("evidence_collection", ["independent"], ["parallel_evidence", "aggregation"], "Planner -> specialist evidence agents -> merge")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Plan evidence collection across search, repo, docs, and tools.", user_prompt=self.config.query, parents=["START"], criticality="critical")
+        roles = [("searcher", "Searcher"), ("repo_searcher", "RepoSearcher"), ("doc_searcher", "DocSearcher"), ("tool_agent", "ToolAgent")]
+        for role, label in roles:
+            self.emit_edge(src_node="planner", dst_node=role, artifact_type="evidence_group", content=plan, transfer_type="broadcast", parallel_group="evidence_collectors", fanout_count=len(roles), recipient_count=len(roles))
+
+        def run_role(item: tuple[str, str]) -> tuple[str, str]:
+            role, label = item
+            evidence = self.maybe_tool_evidence(node_id=role, node_name=label, query=f"{self.config.query}\n{label}", force=role in {"searcher", "tool_agent"})
+            out = self.llm_agent(node_id=role, node_name=label, agent_role=role, system_prompt=f"You are {label}; collect evidence only.", user_prompt=f"Plan:\n{plan}\nEvidence:\n{evidence}", parents=["planner"], parallel_group="evidence_collectors", extra_metadata={"evidence_group": role})
+            self.emit_edge(src_node=role, dst_node="evidence_merge", artifact_type="evidence", content=out, transfer_type="aggregation", parallel_group="evidence_collectors")
+            return role, out
+
+        outputs = dict(self.run_parallel(roles, run_role))
+        self.barrier(barrier_id="evidence_merge_barrier", waiting_for_nodes=list(outputs), round_id=0)
+        merge_input = "\n".join(f"{k}: {v}" for k, v in outputs.items())
+        self.emit_control(node_id="evidence_metrics", node_name="Evidence Metrics", evidence_tokens=estimate_tokens(merge_input), merge_input_tokens=estimate_tokens(merge_input), aggregation_tokens_est=estimate_tokens(merge_input))
+        merged = self.llm_agent(node_id="evidence_merge", node_name="EvidenceMerge", agent_role="aggregator", system_prompt="Merge evidence, deduplicate, and preserve source uncertainty.", user_prompt=merge_input, parents=list(outputs), criticality="critical")
+        final = self.finalizer(merged, parents=["evidence_merge"])
+        return self.workflow_end(final)
+
+
+class ResearcherSynthesizerMotif(CompositeMotif):
+    spec = MotifSpec("researcher_synthesizer", ["independent"], ["research", "synthesis"], "Parallel researchers -> synthesizer")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        n = max(1, self.config.num_agents)
+        for i in range(1, n + 1):
+            self.emit_edge(src_node="START", dst_node=f"researcher_{i}", artifact_type="task", content=self.config.query, transfer_type="broadcast", parallel_group="researchers", fanout_count=n, recipient_count=n)
+
+        def run_researcher(i: int) -> tuple[str, str]:
+            node = f"researcher_{i}"
+            evidence = self.maybe_tool_evidence(node_id=node, node_name=f"Researcher-{i}", query=f"{self.config.query}\nresearch angle {i}")
+            out = self.llm_agent(node_id=node, node_name=f"Researcher-{i}", agent_role="researcher", system_prompt=f"Research angle {i} independently.", user_prompt=f"Task:\n{self.config.query}\nEvidence:\n{evidence}", parents=["START"], parallel_group="researchers")
+            self.emit_edge(src_node=node, dst_node="synthesizer", artifact_type="research_artifact", content=out, transfer_type="aggregation", parallel_group="researchers")
+            return node, out
+
+        outputs = dict(self.run_parallel(list(range(1, n + 1)), run_researcher))
+        self.barrier(barrier_id="synthesis_barrier", waiting_for_nodes=list(outputs), round_id=0)
+        synth_input = "\n".join(outputs.values())
+        self.emit_control(node_id="research_tokens", node_name="Research Tokens", redundant_input_tokens=estimate_tokens(self.config.query) * max(0, n - 1), research_artifact_tokens=estimate_tokens(synth_input), synthesis_tokens=estimate_tokens(synth_input))
+        synth = self.llm_agent(node_id="synthesizer", node_name="Synthesizer", agent_role="synthesizer", system_prompt="Synthesize independent research into a coherent answer.", user_prompt=synth_input, parents=list(outputs), criticality="critical")
+        final = self.finalizer(synth, parents=["synthesizer"])
+        return self.workflow_end(final)
+
+
+class GeneratorVerifierMotif(CompositeMotif):
+    spec = MotifSpec("generator_verifier", ["centralized"], ["two_stage_control", "verification"], "Generator -> Verifier with optional revision")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        draft = self.llm_agent(node_id="generator", node_name="Generator", agent_role="generator", system_prompt="Generate a candidate solution.", user_prompt=self.config.query, parents=["START"], manager_round_id=0, criticality="critical")
+        self.emit_edge(src_node="generator", dst_node="verifier", artifact_type="candidate", content=draft, transfer_type="handoff", manager_round_id=0)
+        verdict = self.llm_agent(node_id="verifier", node_name="Verifier", agent_role="verifier", system_prompt="Verify the candidate. Return APPROVE or REQUEST_CHANGES with reasons.", user_prompt=f"Task:\n{self.config.query}\nCandidate:\n{draft}", parents=["generator"], manager_round_id=0, criticality="critical")
+        decision = self._verifier_decision(verdict)
+        retry_count = 0
+        self.emit_control(node_id="verifier_decision", node_name="Verifier Decision", event_type="verifier_decision", verifier_decision=decision, retry_count=retry_count, critical_path_length=2)
+        result = draft
+        if decision == "request_changes" and self.config.max_retries > 0:
+            retry_count = 1
+            self.emit_edge(src_node="verifier", dst_node="generator_revise", artifact_type="review", content=verdict, transfer_type="revision", retry_count=retry_count)
+            result = self.llm_agent(node_id="generator_revise", node_name="Generator-Revise", agent_role="generator", system_prompt="Revise the candidate according to verifier feedback.", user_prompt=f"Original:\n{draft}\nFeedback:\n{verdict}", parents=["verifier"], retry_count=retry_count, manager_round_id=1, criticality="critical")
+            verdict = self.llm_agent(node_id="verifier_round2", node_name="Verifier-Round2", agent_role="verifier", system_prompt="Verify revised candidate.", user_prompt=result, parents=["generator_revise"], retry_count=retry_count, manager_round_id=1, criticality="critical")
+            self.emit_control(node_id="verifier_decision_r2", node_name="Verifier Decision R2", event_type="verifier_decision", verifier_decision=self._verifier_decision(verdict), retry_count=retry_count, critical_path_length=4)
+        final = self.finalizer(f"Candidate:\n{result}\nVerification:\n{verdict}", parents=["verifier_round2" if retry_count else "verifier"])
+        return self.workflow_end(final)
+
+    def _verifier_decision(self, text: str) -> str:
+        lowered = text.lower()
+        return "request_changes" if "request_changes" in lowered or "revise" in lowered or "change" in lowered else "approve"
+
+
+class CoderReviewerMotif(GeneratorVerifierMotif):
+    spec = MotifSpec("coder_reviewer", ["centralized"], ["generator_verifier_motif", "code_review", "revision_loop"], "Coder -> Reviewer with optional revise/review loop")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        code = self.llm_agent(node_id="coder", node_name="Coder", agent_role="coder", system_prompt="Write a concise implementation plan or patch sketch.", user_prompt=self.config.query, parents=["START"], manager_round_id=0, criticality="critical")
+        review = self.llm_agent(node_id="reviewer", node_name="Reviewer", agent_role="reviewer", system_prompt="Review the code. APPROVE or REQUEST_CHANGES.", user_prompt=code, parents=["coder"], manager_round_id=0, criticality="critical")
+        decision = self._verifier_decision(review)
+        loop_count = 0
+        self.emit_control(node_id="review_decision", node_name="Review Decision", event_type="review_decision", verifier_decision=decision, review_loop_count=loop_count, reviewer_input_tokens=estimate_tokens(code))
+        result = code
+        if decision == "request_changes" and self.config.max_retries > 0:
+            loop_count = 1
+            self.emit_edge(src_node="reviewer", dst_node="coder_revise", artifact_type="review", content=review, transfer_type="revision", retry_count=1)
+            result = self.llm_agent(node_id="coder_revise", node_name="Coder-Revise", agent_role="coder", system_prompt="Revise the code from review feedback.", user_prompt=f"Code:\n{code}\nReview:\n{review}", parents=["reviewer"], retry_count=1, manager_round_id=1, criticality="critical")
+            review = self.llm_agent(node_id="reviewer_round2", node_name="Reviewer-Round2", agent_role="reviewer", system_prompt="Review revised code.", user_prompt=result, parents=["coder_revise"], retry_count=1, manager_round_id=1, criticality="critical")
+        self.emit_control(node_id="review_loop_metrics", node_name="Review Loop Metrics", event_type="review_loop_metrics", review_loop_count=loop_count, retry_amplification=round((estimate_tokens(result) + estimate_tokens(review)) / max(1, estimate_tokens(code)), 4), revision_tokens=estimate_tokens(result), retry_count=loop_count)
+        final = self.finalizer(f"Code:\n{result}\nReview:\n{review}", parents=["reviewer_round2" if loop_count else "reviewer"])
+        return self.workflow_end(final)
+
+
+class MultiCoderBranchMotif(CompositeMotif):
+    spec = MotifSpec("multi_coder_branch", ["independent", "centralized"], ["parallel_candidates", "reviewer_selector"], "Planner -> multiple coders -> reviewer/selector")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Split this coding task into candidate implementation strategies.", user_prompt=self.config.query, parents=["START"], criticality="critical")
+        n = max(2, self.config.num_agents)
+
+        def run_coder(i: int) -> tuple[str, str]:
+            node = f"coder_{chr(64 + i)}"
+            self.emit_edge(src_node="planner", dst_node=node, artifact_type="plan", content=plan, transfer_type="broadcast", parallel_group="coder_candidates", fanout_count=n, recipient_count=n)
+            out = self.llm_agent(node_id=node, node_name=f"Coder-{chr(64 + i)}", agent_role="coder", system_prompt=f"Produce candidate implementation {i}.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], parallel_group="coder_candidates")
+            self.emit_edge(src_node=node, dst_node="selector", artifact_type="candidate", content=out, transfer_type="aggregation", parallel_group="coder_candidates")
+            return node, out
+
+        outputs = dict(self.run_parallel(list(range(1, n + 1)), run_coder))
+        self.barrier(barrier_id="candidate_selection_barrier", waiting_for_nodes=list(outputs), round_id=0)
+        candidates = "\n".join(f"{k}: {v}" for k, v in outputs.items())
+        self.emit_control(node_id="candidate_metrics", node_name="Candidate Metrics", candidate_agent_count=n, candidate_count=n, candidate_tokens=estimate_tokens(candidates), reviewer_aggregation_tokens=estimate_tokens(candidates), aggregation_tokens_est=estimate_tokens(candidates))
+        selected = self.llm_agent(node_id="selector", node_name="Reviewer / Selector", agent_role="reviewer", system_prompt="Review candidates and select the best one with rationale.", user_prompt=candidates, parents=list(outputs), criticality="critical")
+        final = self.finalizer(selected, parents=["selector"])
+        return self.workflow_end(final)
+
+
+class DebateReviewerMotif(CompositeMotif):
+    spec = MotifSpec("debate_reviewer", ["decentralized"], ["debate", "review_consensus"], "Candidate/evidence -> reviewer debate -> consensus")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        n = max(2, self.config.num_agents)
+        initial = self.llm_agent(node_id="candidate", node_name="Candidate", agent_role="generator", system_prompt="Summarize the candidate to be reviewed.", user_prompt=self.config.query, parents=["START"], criticality="critical")
+        messages: dict[str, str] = {}
+
+        def initial_review(i: int) -> tuple[str, str]:
+            node = f"reviewer_{i}"
+            self.emit_edge(src_node="candidate", dst_node=node, artifact_type="candidate", content=initial, transfer_type="broadcast", parallel_group="reviewers", fanout_count=n, recipient_count=n)
+            out = self.llm_agent(node_id=node, node_name=f"Reviewer-{i}", agent_role="reviewer", system_prompt=f"You are reviewer {i}; critique independently.", user_prompt=initial, parents=["candidate"], peer_round_id=0, parallel_group="reviewers")
+            return node, out
+
+        messages = dict(self.run_parallel(list(range(1, n + 1)), initial_review))
+        for r in range(1, self.config.debate_rounds + 1):
+            def debate_step(i: int) -> tuple[str, str]:
+                node = f"reviewer_{i}"
+                peers = {k: v for k, v in messages.items() if k != node}
+                peer_text = "\n".join(f"{k}: {v}" for k, v in peers.items())
+                for peer, content in peers.items():
+                    self.emit_edge(src_node=peer, dst_node=f"{node}_r{r}", artifact_type="peer_message", content=content, transfer_type="broadcast" if self.config.communication_topology == "all_to_all" else "message_passing", peer_round_id=r, round_id=r, parallel_group=f"review_debate_r{r}", recipient_count=1)
+                return node, self.llm_agent(node_id=f"{node}_r{r}", node_name=f"Reviewer-{i}-Round-{r}", agent_role="reviewer", system_prompt="Update your review after peer critiques.", user_prompt=f"Candidate:\n{initial}\nPeer reviews:\n{peer_text}", parents=list(peers), peer_round_id=r, round_id=r, parallel_group=f"review_debate_r{r}", extra_metadata={"peer_messages": peer_text})
+            messages = dict(self.run_parallel(list(range(1, n + 1)), debate_step))
+            self.barrier(barrier_id=f"review_debate_barrier_r{r}", waiting_for_nodes=[f"reviewer_{i}_r{r}" for i in range(1, n + 1)], peer_round_id=r)
+        consensus_input = "\n".join(messages.values())
+        self.emit_control(node_id="debate_metrics", node_name="Debate Metrics", debate_rounds=self.config.debate_rounds, peer_message_edges=len([e for e in self.trace.events if e.get("artifact_type") == "peer_message"]), peer_message_tokens_est=estimate_tokens(consensus_input) * max(1, n - 1), consensus_input_tokens=estimate_tokens(consensus_input))
+        consensus = self.llm_agent(node_id="consensus", node_name="Consensus", agent_role="aggregator", system_prompt="Produce review consensus.", user_prompt=consensus_input, parents=list(messages), criticality="critical")
+        final = self.finalizer(consensus, parents=["consensus"])
+        return self.workflow_end(final)
+
+
+class ToolSpecialistTeamMotif(CompositeMotif):
+    spec = MotifSpec("tool_specialist_team", ["centralized"], ["dynamic_selection", "tool_heavy"], "Manager -> tool specialists -> merge")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        specialists = [("tool_search", "ToolAgent-Search"), ("tool_repo", "ToolAgent-Repo"), ("tool_doc", "ToolAgent-Doc"), ("tool_test", "ToolAgent-Test")]
+        selected = specialists[: max(1, min(len(specialists), self.config.max_selected_agents or len(specialists)))]
+        candidate_routes = [name for name, _ in specialists]
+        self.emit_control(node_id="manager", node_name="Manager", event_type="manager_decision", selected_agent_count=len(selected), candidate_agent_count=len(specialists), selected_workers=[s[0] for s in selected], candidate_routes=candidate_routes)
+
+        def run_tool(item: tuple[str, str]) -> tuple[str, str]:
+            node, label = item
+            evidence = self.maybe_tool_evidence(node_id=node, node_name=label, query=f"{self.config.query}\n{label}", force=True)
+            self.emit_control(node_id=f"{node}_tool_metrics", node_name=f"{label} Tool Metrics", node_type="tool", tool_mode=self.config.tool_mode, tool_name="search", tool_result_hash=stable_hash(evidence), measured_tool_time=0.0, tool_stall_events=1)
+            out = self.llm_agent(node_id=node, node_name=label, agent_role="tool_agent", system_prompt=f"Use tool evidence for {label}.", user_prompt=f"Task:\n{self.config.query}\nTool evidence:\n{evidence}", parents=["manager"], parallel_group="tool_specialists")
+            self.emit_edge(src_node=node, dst_node="tool_result_merge", artifact_type="tool_result", content=out, transfer_type="aggregation", parallel_group="tool_specialists")
+            return node, out
+
+        outputs = dict(self.run_parallel(selected, run_tool))
+        self.barrier(barrier_id="tool_merge_barrier", waiting_for_nodes=list(outputs))
+        merged = self.llm_agent(node_id="tool_result_merge", node_name="ToolResultMerge", agent_role="aggregator", system_prompt="Merge tool specialist results.", user_prompt="\n".join(outputs.values()), parents=list(outputs), criticality="critical")
+        final = self.finalizer(merged, parents=["tool_result_merge"])
+        return self.workflow_end(final)
+
+
+class AllGatherRoundMotif(CompositeMotif):
+    spec = MotifSpec("all_gather_round", ["decentralized"], ["all_gather", "broadcast"], "Agents produce messages -> broadcast all -> aggregate")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        n = max(2, self.config.num_agents)
+
+        def produce(i: int) -> tuple[str, str]:
+            node = f"agent_{i}"
+            return node, self.llm_agent(node_id=node, node_name=f"Agent-{i}", agent_role="peer_agent", system_prompt="Produce your local message.", user_prompt=self.config.query, parents=["START"], parallel_group="all_gather_initial")
+
+        messages = dict(self.run_parallel(list(range(1, n + 1)), produce))
+        self.barrier(barrier_id="all_gather_initial_barrier", waiting_for_nodes=list(messages))
+        broadcast_tokens = 0
+
+        def receive(i: int) -> tuple[str, str]:
+            nonlocal broadcast_tokens
+            node = f"agent_{i}"
+            context = []
+            for src, msg in messages.items():
+                self.emit_edge(src_node=src, dst_node=f"{node}_gathered", artifact_type="peer_message", content=msg, transfer_type="broadcast", round_id=1, peer_round_id=1, parallel_group="all_gather_broadcast", fanout_count=n, recipient_count=n)
+                broadcast_tokens += estimate_tokens(msg)
+                context.append(f"{src}: {msg}")
+            peer_text = "\n".join(context)
+            return node, self.llm_agent(node_id=f"{node}_gathered", node_name=f"Agent-{i}-Gathered", agent_role="peer_agent", system_prompt="Update using all gathered peer messages.", user_prompt=peer_text, parents=list(messages), round_id=1, peer_round_id=1, parallel_group="all_gather_broadcast", extra_metadata={"peer_messages": peer_text})
+
+        gathered = dict(self.run_parallel(list(range(1, n + 1)), receive))
+        self.barrier(barrier_id="all_gather_broadcast_barrier", waiting_for_nodes=[f"agent_{i}_gathered" for i in range(1, n + 1)], peer_round_id=1)
+        aggregate_input = "\n".join(gathered.values())
+        self.emit_control(node_id="all_gather_metrics", node_name="All Gather Metrics", broadcast_tokens_est=broadcast_tokens, recipient_count=n, all_gather_tokens=estimate_tokens(aggregate_input), duplicated_context_tokens_est=max(0, broadcast_tokens - estimate_tokens("\n".join(messages.values()))))
+        aggregate = self.llm_agent(node_id="aggregator", node_name="Aggregator", agent_role="aggregator", system_prompt="Aggregate all-gather updates.", user_prompt=aggregate_input, parents=list(gathered), criticality="critical")
+        final = self.finalizer(aggregate, parents=["aggregator"])
+        return self.workflow_end(final)
+
+
+class SharedEvidenceStoreMotif(CompositeMotif):
+    spec = MotifSpec("shared_evidence_store", ["independent", "centralized"], ["shared_memory", "dataflow"], "Writers -> shared evidence store -> readers")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        writer_count = max(2, min(self.config.num_agents, 4))
+
+        def write(i: int) -> tuple[str, str]:
+            node = f"writer_{i}"
+            evidence = self.maybe_tool_evidence(node_id=node, node_name=f"Writer-{i}", query=f"{self.config.query}\nwriter {i}")
+            out = self.llm_agent(node_id=node, node_name=f"Writer-{i}", agent_role="writer", system_prompt="Write evidence into the shared store.", user_prompt=f"Task:\n{self.config.query}\nEvidence:\n{evidence}", parents=["START"], parallel_group="store_writers")
+            self.emit_edge(src_node=node, dst_node="shared_evidence_store", artifact_type="memory_write", content=out, transfer_type="memory_write", parallel_group="store_writers")
+            self.trace.emit(event_type="memory_write", node_id=f"{node}_write", node_name=f"{node} write", node_type="memory", motif_tags=self.motif_tags, artifact_type="memory_write", artifact_version=i, artifact_hash=stable_hash(out), write_set=[f"evidence_{i}"], shared_evidence_write_tokens_est=estimate_tokens(out))
+            return f"evidence_{i}", out
+
+        store = dict(self.run_parallel(list(range(1, writer_count + 1)), write))
+        self.barrier(barrier_id="shared_store_write_barrier", waiting_for_nodes=[f"writer_{i}" for i in range(1, writer_count + 1)])
+        store_text = "\n".join(f"{k}: {v}" for k, v in store.items())
+
+        def read(i: int) -> tuple[str, str]:
+            node = f"reader_{i}"
+            self.trace.emit(event_type="memory_read", node_id=f"{node}_read", node_name=f"{node} read", node_type="memory", motif_tags=self.motif_tags, artifact_type="memory_read", artifact_version=len(store), artifact_hash=stable_hash(store), read_set=list(store), stale_read=False, shared_evidence_read_tokens_est=estimate_tokens(store_text))
+            out = self.llm_agent(node_id=node, node_name=f"Reader-{i}", agent_role="reader", system_prompt="Read shared evidence and extract implications.", user_prompt=store_text, parents=["shared_evidence_store"], parallel_group="store_readers")
+            self.emit_edge(src_node=node, dst_node="finalizer", artifact_type="memory_read", content=out, transfer_type="aggregation", parallel_group="store_readers")
+            return node, out
+
+        readers = dict(self.run_parallel([1, 2], read))
+        final = self.finalizer("\n".join(readers.values()), parents=list(readers))
+        return self.workflow_end(final)
+
+
+class RetryDebugLoopMotif(GeneratorVerifierMotif):
+    spec = MotifSpec("retry_debug_loop", ["centralized"], ["generator_verifier_motif", "debug_loop", "retry"], "Executor/Coder -> Tester/Verifier -> Debugger -> revise")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        result = self.llm_agent(node_id="executor", node_name="Executor / Coder", agent_role="executor", system_prompt="Execute the task or draft code.", user_prompt=self.config.query, parents=["START"], manager_round_id=0, criticality="critical")
+        max_loops = max(1, self.config.max_retries or 1)
+        passed = False
+        test_result = ""
+        loop = 0
+        for loop in range(max_loops + 1):
+            test_result = self.llm_agent(node_id=f"tester_r{loop}", node_name=f"Tester / Verifier R{loop}", agent_role="tester", system_prompt="Test or verify the result. Say PASS if acceptable, otherwise FAIL with reason.", user_prompt=result, parents=["executor" if loop == 0 else f"executor_revise_r{loop}"], retry_count=loop, manager_round_id=loop, criticality="critical")
+            passed = "pass" in test_result.lower() and "fail" not in test_result.lower()
+            self.trace.emit(event_type="test_result", node_id=f"test_result_r{loop}", node_name=f"Test Result R{loop}", node_type="artifact", motif_tags=self.motif_tags, artifact_type="test_result", test_result="pass" if passed else "fail", failure_reason="" if passed else test_result[:500], retry_count=loop, debug_loop_count=loop, wasted_work_estimate=estimate_tokens(result))
+            if passed or loop >= max_loops:
+                break
+            debug = self.llm_agent(node_id=f"debugger_r{loop}", node_name=f"Debugger R{loop}", agent_role="debugger", system_prompt="Diagnose failure and propose a minimal fix.", user_prompt=f"Result:\n{result}\nFailure:\n{test_result}", parents=[f"tester_r{loop}"], retry_count=loop + 1, manager_round_id=loop, criticality="critical")
+            self.emit_edge(src_node=f"debugger_r{loop}", dst_node=f"executor_revise_r{loop+1}", artifact_type="debug_feedback", content=debug, transfer_type="revision", retry_count=loop + 1)
+            result = self.llm_agent(node_id=f"executor_revise_r{loop+1}", node_name=f"Executor-Revise R{loop+1}", agent_role="executor", system_prompt="Revise from debug feedback.", user_prompt=f"Previous:\n{result}\nDebug:\n{debug}", parents=[f"debugger_r{loop}"], retry_count=loop + 1, manager_round_id=loop + 1, criticality="critical")
+        final = self.finalizer(f"Result:\n{result}\nTest:\n{test_result}", parents=[f"tester_r{loop}"])
+        return self.workflow_end(final)
+
+
+class RouterHandoffMotif(CompositeMotif):
+    spec = MotifSpec("router_handoff", ["centralized", "single"], ["router", "handoff"], "Router -> selected specialist -> optional handoff")
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        routes = ["planner_executor", "evidence_collection", "coder_reviewer", "tool_specialist"]
+        router_out = self.llm_agent(node_id="router", node_name="Router", agent_role="router", system_prompt=f"Choose one route from {routes}. Return JSON if possible.", user_prompt=self.config.query, parents=["START"], manager_round_id=0, criticality="critical")
+        parsed = parse_json_maybe(router_out)
+        selected = str(parsed.get("selected_route") or parsed.get("route") or self._route_by_query(routes))
+        if selected not in routes:
+            selected = self._route_by_query(routes)
+        not_selected = [r for r in routes if r != selected]
+        self.emit_control(node_id="route_decision", node_name="Route Decision", event_type="route_decision", selected_route=selected, candidate_routes=routes, not_selected_routes=not_selected, selected_agent_count=1, candidate_agent_count=len(routes), handoff_count=0)
+        self.emit_edge(src_node="router", dst_node=selected, artifact_type="route", content=router_out, transfer_type="handoff")
+        specialist = self.llm_agent(node_id=selected, node_name=f"Selected Specialist: {selected}", agent_role="specialist", system_prompt=f"You are the selected route {selected}. Solve the task.", user_prompt=self.config.query, parents=["router"], manager_round_id=0, criticality="critical")
+        handoff_count = 0
+        if "handoff" in specialist.lower() and self.config.max_retries > 0:
+            handoff_count = 1
+            alternate = not_selected[0]
+            self.emit_edge(src_node=selected, dst_node=alternate, artifact_type="handoff", content=specialist, transfer_type="handoff", retry_count=1)
+            specialist = self.llm_agent(node_id=alternate, node_name=f"Handoff Specialist: {alternate}", agent_role="specialist", system_prompt=f"Handle handoff from {selected}.", user_prompt=specialist, parents=[selected], retry_count=1, manager_round_id=1, criticality="critical")
+        self.emit_control(node_id="handoff_metrics", node_name="Handoff Metrics", event_type="handoff_metrics", selected_route=selected, candidate_routes=routes, not_selected_routes=not_selected, handoff_count=handoff_count)
+        final = self.finalizer(specialist, parents=[selected])
+        return self.workflow_end(final)
+
+    def _route_by_query(self, routes: list[str]) -> str:
+        text = self.config.query.lower()
+        if "tool" in text or "search" in text or "evidence" in text:
+            return "evidence_collection"
+        if "code" in text or "patch" in text:
+            return "coder_reviewer"
+        if "plan" in text:
+            return "planner_executor"
+        return routes[0]

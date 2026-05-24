@@ -129,6 +129,11 @@ class TraceContext:
     model_outputs_path: Path | None = None
     collect_backend_metrics: bool = False
     backend_metrics_path: Path | None = None
+    mode: str = "topology"
+    motif_name: str = ""
+    motif_instance_id: str = ""
+    parent_motif_id: str = ""
+    composed_from_topologies: list[str] = field(default_factory=list)
     environment_id: str = field(default_factory=lambda: stable_hash({"cwd": str(Path.cwd()), "ts": now_ts()})[:16])
     start_perf: float = field(default_factory=time.perf_counter)
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -151,6 +156,11 @@ class TraceContext:
                 "instance_id": self.instance_id,
                 "task_source": self.task_source,
                 "workflow_id": self.workflow_id,
+                "mode": fields.pop("mode", self.mode),
+                "motif_name": fields.pop("motif_name", self.motif_name),
+                "motif_instance_id": fields.pop("motif_instance_id", self.motif_instance_id),
+                "parent_motif_id": fields.pop("parent_motif_id", self.parent_motif_id),
+                "composed_from_topologies": fields.pop("composed_from_topologies", list(self.composed_from_topologies)),
                 "node_id": fields.pop("node_id", ""),
                 "node_name": fields.pop("node_name", ""),
                 "node_type": fields.pop("node_type", "workflow"),

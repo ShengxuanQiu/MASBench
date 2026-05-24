@@ -13,6 +13,7 @@
 │   ├── app/
 │   │   ├── main.py                  # 正式 CLI 入口
 │   │   ├── topologies/              # 五个基础拓扑和 registry
+│   │   ├── motifs/                  # 复合 MAS 子图模式库和 registry
 │   │   ├── tracing.py               # JSONL trace context、token、latency helper
 │   │   ├── trace_export.py          # arch spans / OTel / Jaeger / HTML viewer 导出
 │   │   ├── backend_metrics.py       # vLLM /metrics sampler 与窗口级 backend 指标汇总
@@ -103,6 +104,79 @@ python -m app.main --topology hybrid --max-rounds 4 --peer-rounds 2 \
   --llm-mode mock --tool-mode synthetic --latency-profile none
 ```
 
+## Composite Motif Library
+
+基础 topology 是通用连接模式；composite motif 是带任务语义、可复用的 MAS 子图。当前新增的复合子图位于 `mas_workflow/app/motifs/`，每个 motif 都暴露：
+
+- `build_workflow(config)`: 作为完整 workload 直接运行。
+- `build_motif(config)`: 作为可组合子图返回，供后续 full workflow 嵌入。
+
+所有 composite motif 复用统一 `TraceContext`，并尽量由已有基础 topology 的 `build_motif(config)` 组合而来。当前实现会在 motif 对象中实例化对应基础 topology component，并继续使用 `BaseTopology` 的 LLM、ReAct、tool、edge、barrier、summary/export helper，因此 trace 保存格式、viewer 和 summary 与基础 topology 保持一致。
+
+新增 motif：
+
+- `planner_executor`: 由 centralized manager-worker 语义化为 `Planner -> Executor -> Finalizer`，用于计划到执行的控制链。
+- `evidence_collection`: 由 independent fan-out/fan-in 组合为 planner、多个 evidence specialist、merge 和 finalizer。
+- `researcher_synthesizer`: 由 independent MAS 语义化为多 researcher 并行研究后由 synthesizer 汇总。
+- `generator_verifier`: 由 centralized 两阶段控制组合为 generator、verifier 和可选 revision。
+- `coder_reviewer`: 由 generator_verifier 语义化为 coder、reviewer 和可选 code review loop。
+- `multi_coder_branch`: 由 independent candidate generation 加 centralized reviewer/selector 聚合组成。
+- `debate_reviewer`: 由 decentralized debate 作为 reviewer 子图，多个 reviewer 交换 peer message 后形成 consensus。
+- `tool_specialist_team`: 由 centralized dynamic selection 加 tool-heavy specialist 组成，用于工具证据收集和 merge。
+- `all_gather_round`: 由 decentralized all-to-all 显式展开，记录 broadcast 和 duplicated context。
+- `shared_evidence_store`: dataflow motif，由 independent writers、shared store、centralized readers 组成。
+- `retry_debug_loop`: 由 centralized 多轮控制和 generator_verifier 组合，执行、测试、debug、修订。
+- `router_handoff`: 由 centralized router 加 selected specialist/handoff 组成，记录 route selection。
+
+基础拓扑和复合子图的关系：
+
+- 基础 topology 描述通用连接模式，例如 single、independent、centralized、decentralized、hybrid。
+- composite motif 描述有任务语义的局部子图，例如 evidence collection、code review、debug loop。
+- composite motif 应尽量由基础 topology 的 `build_motif(config)` 组合而来，而不是重新定义一套独立 trace/runtime。
+- motif 可以直接作为 workload 跑 trace，也可以嵌入后续 full workflow；本轮不设计最终 full workflow。
+
+运行基础 topology：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --mode topology \
+  --topology independent \
+  --task-source manual \
+  --query "分析 MAS benchmark 的研究意义" \
+  --llm-mode mock \
+  --tool-mode synthetic
+```
+
+运行 composite motif：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --mode motif \
+  --motif evidence_collection \
+  --task-source manual \
+  --query "收集 MAS benchmark 的相关证据" \
+  --llm-mode openai_compatible \
+  --backend-base-url http://127.0.0.1:8000/v1 \
+  --model local-mas-model \
+  --agent-execution react \
+  --tool-mode live \
+  --search-provider tavily \
+  --trace-level arch \
+  --export-trace-views true \
+  --collect-backend-metrics true
+```
+
+运行全部 motif 的真实 trace 检查：
+
+```bash
+cd mas_workflow
+scripts/run_motif_real_trace_tests.sh
+```
+
+该脚本使用 `--llm-mode openai_compatible`、`--agent-execution react`、`--collect-backend-metrics true` 和 `--record-model-outputs true`。工具模式优先使用 `--tool-mode live --search-provider tavily`；如果没有 `TAVILY_API_KEY`，只在显式设置 `REPLAY_SNAPSHOT_DIR` 时使用 replay，否则失败并写出 `traces/motif_real_trace_summary.json`，不会静默 fallback 成 synthetic。
+
 ## Workflow 与 Motif
 
 每个拓扑都通过统一 registry 暴露两个接口：
@@ -110,7 +184,7 @@ python -m app.main --topology hybrid --max-rounds 4 --peer-rounds 2 \
 - `build_workflow(config)`: 返回可直接运行的完整 topology workload。
 - `build_motif(config)`: 返回可组合子图对象，后续 full workflow 可以把它作为局部 motif/plugin 调用。
 
-统一配置在 `mas_workflow/app/topologies/base.py` 的 `TopologyConfig`。只要后续组合 workflow 继续复用同一个 `TraceContext.emit()`，所有 node/tool/LLM/edge/barrier event 都会进入同一套 JSONL、span、OTel、HTML 导出路径。
+统一配置在 `mas_workflow/app/topologies/base.py` 的 `TopologyConfig`。只要后续组合 workflow 继续复用同一个 `TraceContext.emit()`，所有 node/tool/LLM/edge/barrier/motif event 都会进入同一套 JSONL、span、OTel、HTML 导出路径。
 
 Centralized 和 Hybrid 的 workflow/motif 当前共享同一套 dynamic orchestrator 实现。也就是说，把它们作为 motif 嵌入后续复杂 workflow 时，仍然会记录：
 
@@ -168,6 +242,17 @@ traces/<topology>/<instance_id>/<run_id>_jaeger.json
 traces/<topology>/<instance_id>/<run_id>_viewer.html
 ```
 
+复合 motif 使用同一保存形态，目录中的第一层名称是 motif name：
+
+```text
+traces/<motif>/<instance_id>/<run_id>.jsonl
+traces/<motif>/<instance_id>/<run_id>_summary.json
+traces/<motif>/<instance_id>/<run_id>_spans.json
+traces/<motif>/<instance_id>/<run_id>_otel.json
+traces/<motif>/<instance_id>/<run_id>_jaeger.json
+traces/<motif>/<instance_id>/<run_id>_viewer.html
+```
+
 如果运行时打开 `--collect-backend-metrics true`，还会在同一个目录生成：
 
 ```text
@@ -195,12 +280,20 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 
 所有 event 共享字段包括：
 
-- 身份：`schema_version`、`event_id`、`run_id`、`topology`、`topology_role`、`instance_id`、`workflow_id`
+- 身份：`schema_version`、`event_id`、`run_id`、`mode`、`topology`、`topology_role`、`instance_id`、`workflow_id`
 - 时间：`timestamp`、`relative_time_sec`、`duration_sec`、`duration_source`
 - 结构：`node_id`、`node_name`、`node_type`、`parents`、`children`、`parallel_group`、`criticality`
 - 轮次：`round_id`、`manager_round_id`、`peer_round_id`
 - 复现：`replay_policy`、`environment_id`、`random_seed`、`trace_level`
-- 语义：`motif_tags`、`status`、`extra`
+- 语义：`motif_name`、`motif_instance_id`、`parent_motif_id`、`composed_from_topologies`、`motif_tags`、`status`、`extra`
+
+Composite motif 会额外尽量补充：
+
+- 控制流：`selected_route`、`candidate_routes`、`not_selected_routes`、`handoff_count`、`retry_count`、`debug_loop_count`、`review_loop_count`
+- 数据流：`artifact_type`、`transfer_type`、`aggregation_tokens_est`、`broadcast_tokens_est`、`peer_message_tokens_est`、`duplicated_context_tokens_est`
+- shared store：`memory_write`、`memory_read`、`artifact_version`、`artifact_hash`、`read_set`、`write_set`、`stale_read`
+- tool-heavy：`tool_mode`、`tool_name`、`measured_tool_time`、`tool_result_hash`、`tool_stall_events`
+- backend/linkage：`duration_source`、`replay_policy`、`request_id_for_backend`
 
 LLM event 记录：
 
@@ -412,6 +505,9 @@ scripts/run_week1_swebench_traces.sh \
 - 工具：total tool time、measured tool time、injected delay、tool stall events
 - LLM/dispatcher：LLM time、queue wait、dispatch policy、slot utilization estimate
 - 拓扑特定：single baseline、independent redundant input、centralized manager decisions、decentralized peer messages、hybrid nested rounds
+- motif 级：`motif_name`、`motif_count`、`motif_duration_sec`、`motif_input_tokens_est`、`motif_output_tokens_est`、`motif_artifact_tokens_est`、`motif_tool_time_sec`、`motif_llm_time_sec`、`motif_barrier_wait_sec`、`motif_retry_count`、`composed_from_topologies`
+- motif 数据流：`aggregation_tokens_est`、`broadcast_tokens_est`、`peer_message_tokens_est`、`duplicated_context_tokens_est`、`shared_evidence_read_tokens_est`、`shared_evidence_write_tokens_est`
+- motif 控制流：`max_parallel_width`、`critical_path_length`、`manager_rounds_actual`、`peer_rounds_actual`、`retry_loop_count`、`handoff_count`
 
 ## 测试
 
@@ -421,10 +517,12 @@ python -m compileall app tests
 python -m pytest -q tests/test_search_provider.py
 
 for topology in single independent centralized decentralized hybrid; do
-  python -m app.main --topology "$topology" --task-source manual \
+  python -m app.main --mode topology --topology "$topology" --task-source manual \
     --query "分析 MAS benchmark 的研究意义" \
     --llm-mode mock --tool-mode synthetic --latency-profile none
 done
+
+scripts/run_motif_real_trace_tests.sh
 ```
 
 ## 当前 Non-goals
@@ -434,4 +532,6 @@ done
 - 不修改 vLLM scheduler。
 - 不修改 vLLM 内部 KV/cache manager，也不声称已有 per-request KV block trace；当前只接入 vLLM `/metrics` 采样级 KV cache usage。
 - 不做最终 case study。
+- 不追求 SWE-bench 修复成功率。
+- 本轮只补齐复合 motif library 并采集真实 trace。
 - 不把 Motus runtime 直接搬进来；只吸收 hook、extractor、span/export/viewer 这类 trace 工程化思路。

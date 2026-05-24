@@ -60,6 +60,11 @@ def build_trace_context(config: TopologyConfig, *, topology_role: str = "workflo
         model_outputs_path=model_outputs_path,
         collect_backend_metrics=config.collect_backend_metrics,
         backend_metrics_path=backend_metrics_path,
+        mode=config.mode,
+        motif_name=config.motif_name,
+        motif_instance_id=config.instance_id if config.mode == "motif" else "",
+        parent_motif_id=config.parent_motif_id,
+        composed_from_topologies=list(config.composed_from_topologies),
     )
 
 

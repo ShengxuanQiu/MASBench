@@ -40,10 +40,25 @@ def summarize(events: list[dict[str, Any]], trace_path: Path | None = None) -> d
         tool_by_name[str(e.get("tool_name") or "tool")] += float(e.get("effective_duration_sec") or e.get("duration_sec") or 0)
     peer_edges = [e for e in edges if e.get("artifact_type") == "peer_message"]
     manager_decisions = [e for e in events if e.get("event_type") == "manager_decision"]
+    motif_events = [e for e in events if e.get("mode") == "motif"]
+    retry_events = [e for e in events if int(e.get("retry_count") or 0) > 0]
     topology = str(events[0].get("topology") or "")
+    motif_name = next((e.get("motif_name") for e in events if e.get("motif_name")), "")
     summary = {
         "trace_path": str(trace_path or ""),
         "topology": topology,
+        "mode": events[0].get("mode") or "topology",
+        "motif_name": motif_name,
+        "motif_count": len([e for e in events if e.get("event_type") == "motif_start"]),
+        "motif_duration_sec": max([float(e.get("relative_time_sec") or 0) for e in motif_events] or [0.0]),
+        "motif_input_tokens_est": sum(int(e.get("input_tokens_est") or 0) for e in llm),
+        "motif_output_tokens_est": sum(int(e.get("output_tokens_est") or 0) for e in llm),
+        "motif_artifact_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in edges),
+        "motif_tool_time_sec": sum(float(e.get("effective_duration_sec") or e.get("duration_sec") or 0) for e in tools),
+        "motif_llm_time_sec": sum(float(e.get("duration_sec") or 0) for e in llm),
+        "motif_barrier_wait_sec": sum(float(e.get("barrier_wait_sec") or 0) for e in barriers),
+        "motif_retry_count": sum(int(e.get("retry_count") or 0) for e in events),
+        "composed_from_topologies": next((e.get("composed_from_topologies") for e in events if e.get("composed_from_topologies")), []),
         "instance_id": events[0].get("instance_id"),
         "run_id": events[0].get("run_id"),
         "event_count": len(events),
@@ -55,6 +70,8 @@ def summarize(events: list[dict[str, Any]], trace_path: Path | None = None) -> d
         "manager_rounds_actual": max([int(e.get("manager_round_id") or 0) for e in events] or [0]) + (1 if any(e.get("manager_round_id") == 0 for e in events) else 0),
         "debate_rounds_actual": max([int(e.get("peer_round_id") or 0) for e in events] or [0]),
         "peer_rounds_actual": max([int(e.get("peer_round_id") or 0) for e in events] or [0]),
+        "retry_loop_count": len([e for e in events if int(e.get("debug_loop_count") or 0) > 0]) or len(retry_events),
+        "handoff_count": sum(int(e.get("handoff_count") or 0) for e in events),
         "total_artifact_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in edges),
         "total_input_tokens_est": sum(int(e.get("input_tokens_est") or 0) for e in llm),
         "total_output_tokens_est": sum(int(e.get("output_tokens_est") or 0) for e in llm),
@@ -63,6 +80,9 @@ def summarize(events: list[dict[str, Any]], trace_path: Path | None = None) -> d
         "all_gather_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in peer_edges),
         "peer_message_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in peer_edges),
         "broadcast_tokens_est": sum(int(e.get("artifact_tokens_est") or 0) for e in edges if e.get("transfer_type") == "broadcast"),
+        "duplicated_context_tokens_est": sum(int(e.get("duplicated_context_tokens_est") or 0) for e in events),
+        "shared_evidence_read_tokens_est": sum(int(e.get("shared_evidence_read_tokens_est") or 0) for e in events),
+        "shared_evidence_write_tokens_est": sum(int(e.get("shared_evidence_write_tokens_est") or 0) for e in events),
         "total_tool_time": sum(float(e.get("effective_duration_sec") or e.get("duration_sec") or 0) for e in tools),
         "measured_tool_time": sum(float(e.get("measured_duration_sec") or 0) for e in tools),
         "injected_tool_delay_time": sum(float(e.get("injected_delay_sec") or 0) for e in tools),

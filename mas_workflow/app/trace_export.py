@@ -106,6 +106,11 @@ def events_to_arch_spans(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "peer_round_id": event.get("peer_round_id"),
             "topology": event.get("topology"),
             "topology_role": event.get("topology_role"),
+            "mode": event.get("mode"),
+            "motif_name": event.get("motif_name"),
+            "motif_instance_id": event.get("motif_instance_id"),
+            "parent_motif_id": event.get("parent_motif_id"),
+            "composed_from_topologies": event.get("composed_from_topologies") or [],
             "motif_tags": event.get("motif_tags") or [],
             "tokens": tokens,
             "artifact": {
@@ -154,6 +159,11 @@ def spans_to_otel(spans: list[dict[str, Any]], *, trace_id: str) -> list[dict[st
         attrs = {
             "mas.topology": span.get("topology"),
             "mas.topology_role": span.get("topology_role"),
+            "mas.mode": span.get("mode"),
+            "mas.motif_name": span.get("motif_name"),
+            "mas.motif_instance_id": span.get("motif_instance_id"),
+            "mas.parent_motif_id": span.get("parent_motif_id"),
+            "mas.composed_from_topologies": ",".join(span.get("composed_from_topologies") or []),
             "mas.node_id": span.get("node_id"),
             "mas.node_type": span.get("node_type"),
             "mas.event_type": span.get("event_type"),

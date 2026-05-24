@@ -65,6 +65,10 @@ class TopologyConfig:
     min_selected_agents: int = 1
     max_selected_agents: int = 3
     orchestrator_stop_confidence: float = 0.78
+    mode: str = "topology"
+    motif_name: str = ""
+    parent_motif_id: str = ""
+    composed_from_topologies: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -196,6 +200,7 @@ class BaseTopology:
         round_id: int | None = None,
         manager_round_id: int | None = None,
         peer_round_id: int | None = None,
+        retry_count: int = 0,
         parents: list[str] | None = None,
         parallel_group: str | None = None,
         criticality: str = "unknown",
@@ -222,6 +227,7 @@ class BaseTopology:
             round_id=round_id,
             manager_round_id=manager_round_id,
             peer_round_id=peer_round_id,
+            retry_count=retry_count,
             parents=parents or [],
             motif_tags=self.motif_tags,
             parallel_group=parallel_group,
@@ -257,6 +263,7 @@ class BaseTopology:
             round_id=round_id,
             manager_round_id=manager_round_id,
             peer_round_id=peer_round_id,
+            retry_count=retry_count,
             parents=parents or [],
             motif_tags=self.motif_tags,
             parallel_group=parallel_group,
@@ -351,6 +358,7 @@ class BaseTopology:
         round_id: int | None = None,
         manager_round_id: int | None = None,
         peer_round_id: int | None = None,
+        retry_count: int = 0,
         parents: list[str] | None = None,
         parallel_group: str | None = None,
         criticality: str = "unknown",
@@ -368,6 +376,7 @@ class BaseTopology:
                 round_id=round_id,
                 manager_round_id=manager_round_id,
                 peer_round_id=peer_round_id,
+                retry_count=retry_count,
                 parents=parents,
                 parallel_group=parallel_group,
                 criticality=criticality,
@@ -477,6 +486,7 @@ class BaseTopology:
         fanout_count: int = 1,
         recipient_count: int = 1,
         duplicated_from_artifact_id: str | None = None,
+        retry_count: int = 0,
     ) -> str:
         artifact_id = f"artifact_{stable_hash(src_node + dst_node + content)[:12]}"
         self.trace.emit(
@@ -487,6 +497,7 @@ class BaseTopology:
             round_id=round_id,
             manager_round_id=manager_round_id,
             peer_round_id=peer_round_id,
+            retry_count=retry_count,
             motif_tags=self.motif_tags,
             parallel_group=parallel_group,
             src_node=src_node,
@@ -556,6 +567,11 @@ class BaseTopology:
         summary = {
             "trace_path": str(self.trace.trace_path),
             "run_id": self.config.run_id,
+            "mode": self.config.mode,
+            "motif_name": self.config.motif_name,
+            "motif_instance_id": self.config.instance_id if self.config.mode == "motif" else "",
+            "parent_motif_id": self.config.parent_motif_id,
+            "composed_from_topologies": list(self.config.composed_from_topologies),
             "topology": self.config.topology_name,
             "instance_id": self.config.instance_id,
             "end_to_end_latency": round(time.perf_counter() - self.trace.start_perf, 6),

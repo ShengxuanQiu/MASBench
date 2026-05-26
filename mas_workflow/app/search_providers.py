@@ -126,9 +126,9 @@ class RecordedSearchProvider(BaseSearchProvider):
 
     def search(self, query: str, **kwargs: Any) -> SearchResult:
         input_hash = stable_hash(query)
-        candidates = sorted(self.snapshot_dir.glob(f"*search*{input_hash[:12]}*.json"))
+        candidates = sorted(self.snapshot_dir.rglob(f"*search*{input_hash[:12]}*.json"))
         if not candidates:
-            candidates = sorted(self.snapshot_dir.glob("*.json"))
+            candidates = sorted(self.snapshot_dir.rglob("*.json"))
         if not candidates:
             raise FileNotFoundError(f"No recorded snapshot found in {self.snapshot_dir}")
         snap = json.loads(candidates[0].read_text(encoding="utf-8"))

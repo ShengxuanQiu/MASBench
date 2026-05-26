@@ -22,11 +22,11 @@ REPLAY_SNAPSHOT_DIR="${REPLAY_SNAPSHOT_DIR:-}"
 SUMMARY_PATH="$TRACE_DIR/motif_real_trace_summary.json"
 mkdir -p "$TRACE_DIR"
 
-TOOL_ARGS=(--tool-mode live --search-provider tavily)
-if [[ -z "${TAVILY_API_KEY:-}" ]]; then
-  if [[ -n "$REPLAY_SNAPSHOT_DIR" ]]; then
-    TOOL_ARGS=(--tool-mode replay --search-provider recorded --replay-snapshot-dir "$REPLAY_SNAPSHOT_DIR")
-  else
+if [[ -n "$REPLAY_SNAPSHOT_DIR" ]]; then
+  TOOL_ARGS=(--tool-mode replay --search-provider recorded --replay-snapshot-dir "$REPLAY_SNAPSHOT_DIR")
+else
+  TOOL_ARGS=(--tool-mode live --search-provider tavily)
+  if [[ -z "${TAVILY_API_KEY:-}" ]]; then
     cat > "$SUMMARY_PATH" <<JSON
 {
   "success": false,

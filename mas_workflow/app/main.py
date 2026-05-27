@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["topology", "motif"], default="topology")
     parser.add_argument("--topology", choices=["single", "independent", "centralized", "decentralized", "hybrid"], default="single")
     parser.add_argument("--motif", choices=MOTIF_NAMES, default="planner_executor")
+    parser.add_argument("--workload", default="", help="Alias for a composite meso workload without changing --mode topology|motif.")
     parser.add_argument("--task-source", choices=["manual", "swebench_lite"], default="manual")
     parser.add_argument("--swebench-split", default="test")
     parser.add_argument("--swebench-start-index", type=int, default=0)
@@ -88,6 +89,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-selected-agents", type=int, default=1)
     parser.add_argument("--max-selected-agents", type=int, default=3)
     parser.add_argument("--orchestrator-stop-confidence", type=float, default=0.78)
+    parser.add_argument("--tool-branch-width", type=int, choices=[1, 2, 4], default=2)
+    parser.add_argument("--controlled-tool-delay-sec", type=float, default=3.0)
+    parser.add_argument(
+        "--resume-phase-policy",
+        choices=["before_critical", "overlap_reviewer", "overlap_finalizer", "after_critical"],
+        default="overlap_reviewer",
+    )
+    parser.add_argument("--critical-stage-marker", choices=["reviewer", "finalizer"], default="reviewer")
+    parser.add_argument("--background-resume-enabled", default="true")
+    parser.add_argument("--contention-labeling", default="true")
     return parser.parse_args()
 
 
@@ -195,6 +206,13 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         provider = "tavily" if args.tool_mode == "live" else "synthetic"
     if provider == "recorded":
         provider = "recorded"
+    workload_arg = (args.workload or "").strip()
+    if workload_arg:
+        if workload_arg in MOTIF_NAMES:
+            args.mode = "motif"
+            args.motif = workload_arg
+        else:
+            raise ValueError(f"Unknown workload: {workload_arg}")
     workload_name = args.motif if args.mode == "motif" else args.topology
     return TopologyConfig(
         topology_name=workload_name,
@@ -243,6 +261,13 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         min_selected_agents=args.min_selected_agents,
         max_selected_agents=args.max_selected_agents,
         orchestrator_stop_confidence=args.orchestrator_stop_confidence,
+        workload_name=workload_arg or workload_name,
+        tool_branch_width=args.tool_branch_width,
+        controlled_tool_delay_sec=args.controlled_tool_delay_sec,
+        resume_phase_policy=args.resume_phase_policy,
+        critical_stage_marker=args.critical_stage_marker,
+        background_resume_enabled=str_bool(args.background_resume_enabled),
+        contention_labeling=str_bool(args.contention_labeling),
         mode=args.mode,
         motif_name=args.motif if args.mode == "motif" else "",
     )

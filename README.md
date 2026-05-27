@@ -127,6 +127,7 @@ python -m app.main --topology hybrid --max-rounds 4 --peer-rounds 2 \
 - `shared_evidence_store`: dataflow motif，由 independent writers、shared store、centralized readers 组成。
 - `retry_debug_loop`: 由 centralized 多轮控制和 generator_verifier 组合，执行、测试、debug、修订。
 - `router_handoff`: 由 centralized router 加 selected specialist/handoff 组成，记录 route selection。
+- `tool_resume_contention_meso`: 由已有 tool/evidence、parallel coder、coder/reviewer 和 finalizer/merge motif 语义组合出的 meso workload。它用于暴露 tool-stalled branches 在工具返回后 resume，并与 reviewer/finalizer 等 critical-path stage 形成潜在 backend contention window 的结构条件。
 
 基础拓扑和复合子图的关系：
 
@@ -167,6 +168,32 @@ python -m app.main \
   --export-trace-views true \
   --collect-backend-metrics true
 ```
+
+运行 tool resume contention meso workload 的 dry-run/mock 结构检查：
+
+```bash
+python -m mas_workflow.app.main \
+  --workload tool_resume_contention_meso \
+  --task-source manual \
+  --query "检查一个带延迟证据分支的代码评审 workflow" \
+  --llm-mode mock \
+  --tool-mode synthetic \
+  --max-concurrent-llm-calls 8 \
+  --tool-branch-width 2 \
+  --controlled-tool-delay-sec 2.5 \
+  --resume-phase-policy overlap_reviewer \
+  --critical-stage-marker reviewer \
+  --background-resume-enabled true \
+  --contention-labeling true
+```
+
+也可以只运行结构级验证脚本；它不调用真实 vLLM，不需要 GPU：
+
+```bash
+mas_workflow/scripts/validate_week2_meso_contention_structure.sh
+```
+
+`tool_resume_contention_meso` 不修改 scheduler 或 KV manager。它只在 workload/trace 层标记潜在 overlap window；真实 contention、queueing、batching、KV residency 和 cache behavior 需要后续在真实 backend trace 中验证。
 
 运行全部 motif 的真实 trace 检查：
 
@@ -295,6 +322,16 @@ Composite motif 会额外尽量补充：
 - tool-heavy：`tool_mode`、`tool_name`、`measured_tool_time`、`tool_result_hash`、`tool_stall_events`
 - backend/linkage：`duration_source`、`replay_policy`、`request_id_for_backend`
 
+`tool_resume_contention_meso` 会在相关 event payload 中补充结构化 metadata：
+
+- workload 组成：`meso_workload_name`、`composed_from_motifs`、`composed_from_topologies`
+- graph role：`workload_role`、`criticality`、`critical_path_candidate`、`critical_stage`
+- delayed tool resume：`background_branch_id`、`tool_stalled`、`resume_after_tool`、`resume_group_id`
+- overlap plan：`resume_phase_policy`、`controlled_tool_delay_sec`、`observed_tool_delay_sec`、`expected_overlap_target`、`expected_overlap_window_sec`
+- dependency/linkage：`request_id_for_backend`、`node_id`、`parent_node_ids`、`dependency_edges`
+- critical request markers：`critical_request_marker`、`nearby_background_resume_expected`、`overlap_analysis_status`
+- background resume request markers：`background_resume_request`、`resumed_from_tool_event_id`、`intended_to_overlap_with`、`expected_resume_to_critical_delta_sec`
+
 LLM event 记录：
 
 - `agent_id`、`agent_role`、`prompt_template`
@@ -317,6 +354,15 @@ Tool event 记录：
 - `latency_profile`、`external_dependency`、`network_dependent`、`deterministic`
 - `result_count`、输出大小和 token 估算
 - ReAct tool call 还会记录 `agent_id`、`agent_role`、`tool_call_id`、round/manager/peer round 和 `parallel_group`
+
+Controlled delay tool event 记录：
+
+- `tool_name=controlled_delay_tool`
+- `configured_delay_sec`、`observed_or_simulated_delay_sec`
+- `delay_mode=simulated|actual`
+- `tool_return_ts` 或 `simulated_tool_return_ts`
+
+mock/synthetic dry-run 默认使用 simulated delay，不会为了模拟长工具调用而 sleep；OpenAI-compatible live backend 运行时可以使用 actual delay 进行后续真实 trace。
 
 Edge/Dataflow event 记录：
 

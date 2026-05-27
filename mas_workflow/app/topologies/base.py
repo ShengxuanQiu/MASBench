@@ -65,6 +65,13 @@ class TopologyConfig:
     min_selected_agents: int = 1
     max_selected_agents: int = 3
     orchestrator_stop_confidence: float = 0.78
+    workload_name: str = ""
+    tool_branch_width: int = 2
+    controlled_tool_delay_sec: float = 3.0
+    resume_phase_policy: str = "overlap_reviewer"
+    critical_stage_marker: str = "reviewer"
+    background_resume_enabled: bool = True
+    contention_labeling: bool = True
     mode: str = "topology"
     motif_name: str = ""
     parent_motif_id: str = ""
@@ -218,6 +225,28 @@ class BaseTopology:
         }
         if extra_metadata:
             metadata.update(extra_metadata)
+        trace_metadata = {
+            key: value
+            for key, value in (extra_metadata or {}).items()
+            if key
+            not in {
+                "agent_id",
+                "agent_role",
+                "round_id",
+                "manager_round_id",
+                "peer_round_id",
+                "parents",
+                "children",
+                "criticality",
+                "status",
+                "duration_sec",
+                "duration_source",
+                "node_id",
+                "node_name",
+                "node_type",
+                "event_type",
+            }
+        }
         prompt = system_prompt + "\n" + user_prompt
         self.trace.emit(
             event_type="llm_request_start",
@@ -252,6 +281,7 @@ class BaseTopology:
             dispatch_policy=self.config.dispatch_policy,
             request_metadata=metadata,
             extra={"prompt_preview": prompt[:1000]} if self.config.trace_level == "detailed" else {},
+            **trace_metadata,
         )
         result = self.llm.invoke(system_prompt, user_prompt, metadata)
         output = result.content
@@ -310,6 +340,7 @@ class BaseTopology:
             backend_finish_reason=result.request_metadata.get("backend_finish_reason"),
             backend_response_id=result.request_metadata.get("backend_response_id"),
             extra={"output_preview": output[:1000]} if self.config.trace_level == "detailed" else {},
+            **trace_metadata,
         )
         self.trace.record_model_output(
             event=event,
@@ -341,6 +372,51 @@ class BaseTopology:
             latency_profile=self.config.latency_profile,
         )
         return result.results
+
+    def controlled_delay_tool(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        configured_delay_sec: float,
+        delay_mode: str | None = None,
+        trace_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Emit a deterministic tool-delay event without requiring a live tool."""
+        configured = max(0.0, float(configured_delay_sec or 0.0))
+        mode = delay_mode or ("actual" if self.config.llm_mode == "openai_compatible" and self.config.tool_mode == "live" else "simulated")
+        start_wall = time.time()
+        start_rel = time.perf_counter() - self.trace.start_perf
+        if mode == "actual" and configured > 0:
+            time.sleep(configured)
+        observed = time.time() - start_wall if mode == "actual" else configured
+        end_wall = time.time() if mode == "actual" else None
+        event = self.trace.emit(
+            event_type="tool_controlled_delay",
+            node_id=node_id,
+            node_name=node_name,
+            node_type="tool",
+            status="success",
+            duration_sec=round(observed, 6),
+            duration_source="measured_live" if mode == "actual" else "simulated_duration",
+            replay_policy="controlled_delay_tool",
+            tool_name="controlled_delay_tool",
+            tool_mode=self.config.tool_mode,
+            configured_delay_sec=round(configured, 6),
+            observed_or_simulated_delay_sec=round(observed, 6),
+            observed_tool_delay_sec=round(observed, 6),
+            measured_duration_sec=round(observed if mode == "actual" else 0.0, 6),
+            injected_delay_sec=round(0.0 if mode == "actual" else configured, 6),
+            effective_duration_sec=round(observed, 6),
+            delay_mode=mode,
+            tool_return_ts=end_wall,
+            simulated_tool_return_ts=round(start_rel + configured, 6) if mode == "simulated" else None,
+            external_dependency="none",
+            network_dependent=False,
+            deterministic=True,
+            **(trace_fields or {}),
+        )
+        return event
 
     def use_react_agents(self) -> bool:
         return self.config.agent_execution == "react"

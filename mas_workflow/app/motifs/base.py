@@ -119,7 +119,7 @@ class CompositeMotif(BaseTopology):
             manager_round_id=manager_round_id,
             peer_round_id=peer_round_id,
             motif_tags=self.motif_tags,
-            composed_from_topologies=self.spec.composed_from,
+            composed_from_topologies=fields.pop("composed_from_topologies", self.spec.composed_from),
             **fields,
         )
 
@@ -492,6 +492,302 @@ class RetryDebugLoopMotif(GeneratorVerifierMotif):
             self.emit_edge(src_node=f"debugger_r{loop}", dst_node=f"executor_revise_r{loop+1}", artifact_type="debug_feedback", content=debug, transfer_type="revision", retry_count=loop + 1)
             result = self.llm_agent(node_id=f"executor_revise_r{loop+1}", node_name=f"Executor-Revise R{loop+1}", agent_role="executor", system_prompt="Revise from debug feedback.", user_prompt=f"Previous:\n{result}\nDebug:\n{debug}", parents=[f"debugger_r{loop}"], retry_count=loop + 1, manager_round_id=loop + 1, criticality="critical")
         final = self.finalizer(f"Result:\n{result}\nTest:\n{test_result}", parents=[f"tester_r{loop}"])
+        return self.workflow_end(final)
+
+
+class ToolResumeContentionMesoMotif(CompositeMotif):
+    spec = MotifSpec(
+        "tool_resume_contention_meso",
+        ["independent", "centralized"],
+        ["meso_workload", "tool_resume", "critical_path", "compound_contention_opportunity"],
+        "Planner plus critical coder/reviewer/finalizer path with delayed tool resume branches.",
+    )
+    composed_from_motifs = ["evidence_collection", "tool_specialist_team", "multi_coder_branch", "coder_reviewer"]
+
+    def meso_meta(
+        self,
+        *,
+        role: str,
+        criticality: str,
+        stage: str = "none",
+        branch_id: str = "",
+        tool_stalled: bool = False,
+        resume_after_tool: bool = False,
+        resume_group_id: str = "",
+        expected_target: str | None = None,
+        parents: list[str] | None = None,
+        dependency_edges: list[dict[str, str]] | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        target = expected_target
+        if target is None:
+            target = self.config.critical_stage_marker if self.config.resume_phase_policy in {"overlap_reviewer", "overlap_finalizer"} else "none"
+        base = {
+            "meso_workload_name": self.spec.name,
+            "composed_from_motifs": list(self.composed_from_motifs),
+            "composed_from_topologies": list(self.spec.composed_from),
+            "workload_role": role,
+            "criticality": criticality,
+            "critical_path_candidate": criticality == "critical",
+            "critical_stage": stage,
+            "background_branch_id": branch_id,
+            "tool_stalled": tool_stalled,
+            "resume_after_tool": resume_after_tool,
+            "resume_group_id": resume_group_id,
+            "resume_phase_policy": self.config.resume_phase_policy,
+            "controlled_tool_delay_sec": self.config.controlled_tool_delay_sec,
+            "expected_overlap_target": target,
+            "expected_overlap_window_sec": self.expected_overlap_window_sec(),
+            "parent_node_ids": parents or [],
+            "dependency_edges": dependency_edges or [],
+        }
+        base.update(extra)
+        return base
+
+    def expected_overlap_window_sec(self) -> float:
+        if self.config.resume_phase_policy in {"overlap_reviewer", "overlap_finalizer"}:
+            return max(0.5, min(float(self.config.controlled_tool_delay_sec or 0.0), 5.0))
+        return 0.0
+
+    def critical_llm(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        agent_role: str,
+        stage: str,
+        system_prompt: str,
+        user_prompt: str,
+        parents: list[str],
+    ) -> str:
+        meta = self.meso_meta(
+            role="merge_or_finalizer" if stage == "finalizer" else "critical_path",
+            criticality="critical",
+            stage=stage,
+            parents=parents,
+            dependency_edges=[{"src": parent, "dst": node_id} for parent in parents],
+            critical_request_marker=stage if stage in {"reviewer", "finalizer"} else "",
+            nearby_background_resume_expected=self.config.contention_labeling
+            and self.config.background_resume_enabled
+            and self.config.resume_phase_policy in {"overlap_reviewer", "overlap_finalizer"},
+            overlap_analysis_status="planned" if self.config.contention_labeling else "unavailable",
+        )
+        return self.llm_agent(
+            node_id=node_id,
+            node_name=node_name,
+            agent_role=agent_role,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            parents=parents,
+            criticality="critical",
+            extra_metadata=meta,
+        )
+
+    def background_resume_llm(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        branch_id: str,
+        tool_event_id: str,
+        user_prompt: str,
+        parents: list[str],
+    ) -> str:
+        target = {
+            "overlap_reviewer": "reviewer",
+            "overlap_finalizer": "finalizer",
+            "before_critical": "reviewer",
+            "after_critical": "none",
+        }.get(self.config.resume_phase_policy, "none")
+        meta = self.meso_meta(
+            role="background_tool_branch",
+            criticality="background",
+            branch_id=branch_id,
+            tool_stalled=True,
+            resume_after_tool=True,
+            resume_group_id="resume_group_tool_evidence",
+            parents=parents,
+            dependency_edges=[{"src": parent, "dst": node_id} for parent in parents],
+            background_resume_request=True,
+            resumed_from_tool_event_id=tool_event_id,
+            intended_to_overlap_with=target,
+            expected_resume_to_critical_delta_sec=0.0
+            if self.config.resume_phase_policy in {"overlap_reviewer", "overlap_finalizer"}
+            else None,
+        )
+        return self.llm_agent(
+            node_id=node_id,
+            node_name=node_name,
+            agent_role="evidence_processor",
+            system_prompt="Resume after tool return and convert delayed evidence into reviewer-ready notes.",
+            user_prompt=user_prompt,
+            parents=parents,
+            parallel_group="background_tool_resume",
+            criticality="background",
+            extra_metadata=meta,
+        )
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        planner_meta = self.meso_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], dependency_edges=[{"src": "START", "dst": "planner"}])
+        plan = self.llm_agent(
+            node_id="planner",
+            node_name="Manager / Planner",
+            agent_role="planner",
+            system_prompt="Plan a realistic software workflow with critical coding/review and delayed evidence branches.",
+            user_prompt=self.config.query,
+            parents=["START"],
+            criticality="critical",
+            extra_metadata=planner_meta,
+        )
+
+        def run_critical_path(_: int) -> tuple[str, str, str]:
+            self.emit_edge(src_node="planner", dst_node="critical_coder", artifact_type="plan", content=plan, transfer_type="handoff")
+            code = self.critical_llm(
+                node_id="critical_coder",
+                node_name="CriticalWorker / Coder",
+                agent_role="coder",
+                stage="coder",
+                system_prompt="Produce the main candidate patch or implementation plan without waiting for late tools.",
+                user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}",
+                parents=["planner"],
+            )
+            self.emit_edge(src_node="critical_coder", dst_node="critical_reviewer", artifact_type="candidate", content=code, transfer_type="handoff")
+            review = self.critical_llm(
+                node_id="critical_reviewer",
+                node_name="Reviewer",
+                agent_role="reviewer",
+                stage="reviewer",
+                system_prompt="Review the critical-path candidate. Mark risks that late evidence may affect.",
+                user_prompt=f"Plan:\n{plan}\nCandidate:\n{code}",
+                parents=["critical_coder"],
+            )
+            return "critical_reviewer", code, review
+
+        def run_background_tool_branch(index: int) -> tuple[str, str]:
+            node = f"tool_branch_{index}"
+            label = ["Search", "Repo", "Doc", "Test"][index - 1]
+            branch_id = f"background_tool_{index}"
+            self.emit_edge(src_node="planner", dst_node=node, artifact_type="evidence_plan", content=plan, transfer_type="broadcast", parallel_group="background_tool_branches", fanout_count=self.config.tool_branch_width, recipient_count=self.config.tool_branch_width)
+            tool_meta = self.meso_meta(
+                role="background_tool_branch",
+                criticality="background",
+                branch_id=branch_id,
+                tool_stalled=True,
+                parents=["planner"],
+                dependency_edges=[{"src": "planner", "dst": node}, {"src": node, "dst": f"resume_evidence_processor_{index}"}],
+            )
+            tool_event = self.controlled_delay_tool(
+                node_id=f"{node}_controlled_delay",
+                node_name=f"ToolAgent-{label} Controlled Delay",
+                configured_delay_sec=self.config.controlled_tool_delay_sec,
+                trace_fields=tool_meta,
+            )
+            if not self.config.background_resume_enabled:
+                return node, ""
+            evidence = f"Delayed {label} evidence after controlled tool return for: {self.config.query}"
+            resumed = self.background_resume_llm(
+                node_id=f"resume_evidence_processor_{index}",
+                node_name=f"ResumeEvidenceProcessor-{index}",
+                branch_id=branch_id,
+                tool_event_id=str(tool_event.get("event_id")),
+                user_prompt=f"Plan:\n{plan}\nTool evidence:\n{evidence}",
+                parents=[f"{node}_controlled_delay"],
+            )
+            self.emit_edge(src_node=f"resume_evidence_processor_{index}", dst_node="evidence_merge", artifact_type="resumed_evidence", content=resumed, transfer_type="aggregation", parallel_group="background_tool_resume")
+            return f"resume_evidence_processor_{index}", resumed
+
+        def run_parallel_branch(_: int) -> tuple[str, str]:
+            branch_meta = self.meso_meta(
+                role="background_parallel_branch",
+                criticality="background",
+                branch_id="parallel_coder_A",
+                parents=["planner"],
+                dependency_edges=[{"src": "planner", "dst": "background_coder_A"}, {"src": "background_coder_A", "dst": "optional_selector"}],
+            )
+            self.emit_edge(src_node="planner", dst_node="background_coder_A", artifact_type="plan", content=plan, transfer_type="broadcast", parallel_group="background_parallel_branch")
+            out = self.llm_agent(
+                node_id="background_coder_A",
+                node_name="Background Coder A",
+                agent_role="coder",
+                system_prompt="Produce an alternate candidate in the background.",
+                user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}",
+                parents=["planner"],
+                parallel_group="background_parallel_branch",
+                criticality="background",
+                extra_metadata=branch_meta,
+            )
+            self.emit_edge(src_node="background_coder_A", dst_node="optional_selector", artifact_type="candidate", content=out, transfer_type="aggregation", parallel_group="background_parallel_branch")
+            return "background_coder_A", out
+
+        work_items: list[tuple[str, int]] = [("critical", 0), ("parallel", 0)]
+        for i in range(1, max(1, min(4, self.config.tool_branch_width)) + 1):
+            work_items.append(("tool", i))
+
+        def dispatch(item: tuple[str, int]) -> tuple[str, Any]:
+            kind, index = item
+            if kind == "critical":
+                return kind, run_critical_path(index)
+            if kind == "parallel":
+                return kind, run_parallel_branch(index)
+            return f"tool_{index}", run_background_tool_branch(index)
+
+        results = dict(self.run_parallel(work_items, dispatch))
+        critical_node, code, review = results["critical"]
+        background_outputs = {
+            str(value[0]): str(value[1])
+            for key, value in results.items()
+            if key.startswith("tool_") and value and value[1]
+        }
+        optional_parallel = results.get("parallel")
+        if optional_parallel:
+            background_outputs[str(optional_parallel[0])] = str(optional_parallel[1])
+        waiting_nodes = [critical_node, *background_outputs.keys()]
+        self.barrier(barrier_id="evidence_resume_fanin_barrier", waiting_for_nodes=waiting_nodes, round_id=0)
+        merge_input = "\n".join(f"{node}: {text}" for node, text in background_outputs.items())
+        merge_meta = self.meso_meta(
+            role="merge_or_finalizer",
+            criticality="merge",
+            stage="none",
+            parents=list(background_outputs),
+            dependency_edges=[{"src": node, "dst": "evidence_merge"} for node in background_outputs],
+            downstream_fanin_node_present=True,
+        )
+        self.emit_control(
+            node_id="tool_resume_contention_plan",
+            node_name="Tool Resume Contention Plan",
+            event_type="meso_trace_plan",
+            node_type="workflow",
+            **self.meso_meta(
+                role="merge_or_finalizer",
+                criticality="merge",
+                parents=waiting_nodes,
+                dependency_edges=[{"src": node, "dst": "finalizer"} for node in waiting_nodes],
+                expected_overlap_window_sec=self.expected_overlap_window_sec(),
+                critical_stage_marker=self.config.critical_stage_marker,
+            ),
+        )
+        merged = self.llm_agent(
+            node_id="evidence_merge",
+            node_name="EvidenceMerge",
+            agent_role="aggregator",
+            system_prompt="Merge delayed resumed evidence with optional background candidates.",
+            user_prompt=merge_input or "No background resume output.",
+            parents=list(background_outputs),
+            criticality="merge",
+            extra_metadata=merge_meta,
+        )
+        final_input = f"Critical candidate:\n{code}\nReview:\n{review}\nDelayed evidence merge:\n{merged}"
+        final = self.critical_llm(
+            node_id="finalizer",
+            node_name="Finalizer",
+            agent_role="finalizer",
+            stage="finalizer",
+            system_prompt="Finalize the workflow using critical-path review and any late resumed evidence.",
+            user_prompt=final_input,
+            parents=[critical_node, "evidence_merge"],
+        )
+        self.emit_edge(src_node="finalizer", dst_node="END", artifact_type="final", content=final, transfer_type="aggregation")
         return self.workflow_end(final)
 
 

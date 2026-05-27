@@ -32,6 +32,8 @@ from .shared_evidence_store import build_motif as shared_evidence_store_motif
 from .shared_evidence_store import build_workflow as shared_evidence_store_workflow
 from .tool_specialist_team import build_motif as tool_specialist_team_motif
 from .tool_specialist_team import build_workflow as tool_specialist_team_workflow
+from .tool_resume_contention_meso import build_motif as tool_resume_contention_meso_motif
+from .tool_resume_contention_meso import build_workflow as tool_resume_contention_meso_workflow
 
 
 MOTIF_NAMES = [
@@ -47,6 +49,7 @@ MOTIF_NAMES = [
     "shared_evidence_store",
     "retry_debug_loop",
     "router_handoff",
+    "tool_resume_contention_meso",
 ]
 
 WORKFLOW_BUILDERS = {
@@ -62,6 +65,7 @@ WORKFLOW_BUILDERS = {
     "shared_evidence_store": shared_evidence_store_workflow,
     "retry_debug_loop": retry_debug_loop_workflow,
     "router_handoff": router_handoff_workflow,
+    "tool_resume_contention_meso": tool_resume_contention_meso_workflow,
 }
 
 MOTIF_BUILDERS = {
@@ -77,6 +81,7 @@ MOTIF_BUILDERS = {
     "shared_evidence_store": shared_evidence_store_motif,
     "retry_debug_loop": retry_debug_loop_motif,
     "router_handoff": router_handoff_motif,
+    "tool_resume_contention_meso": tool_resume_contention_meso_motif,
 }
 
 

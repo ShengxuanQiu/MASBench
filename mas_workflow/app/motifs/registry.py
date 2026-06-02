@@ -14,10 +14,14 @@ from .coder_reviewer import build_motif as coder_reviewer_motif
 from .coder_reviewer import build_workflow as coder_reviewer_workflow
 from .debate_reviewer import build_motif as debate_reviewer_motif
 from .debate_reviewer import build_workflow as debate_reviewer_workflow
+from .debate_allgather_pressure_meso import build_motif as debate_allgather_pressure_meso_motif
+from .debate_allgather_pressure_meso import build_workflow as debate_allgather_pressure_meso_workflow
 from .evidence_collection import build_motif as evidence_collection_motif
 from .evidence_collection import build_workflow as evidence_collection_workflow
 from .generator_verifier import build_motif as generator_verifier_motif
 from .generator_verifier import build_workflow as generator_verifier_workflow
+from .hierarchical_synthesis_pressure_meso import build_motif as hierarchical_synthesis_pressure_meso_motif
+from .hierarchical_synthesis_pressure_meso import build_workflow as hierarchical_synthesis_pressure_meso_workflow
 from .multi_coder_branch import build_motif as multi_coder_branch_motif
 from .multi_coder_branch import build_workflow as multi_coder_branch_workflow
 from .planner_executor import build_motif as planner_executor_motif
@@ -26,10 +30,14 @@ from .researcher_synthesizer import build_motif as researcher_synthesizer_motif
 from .researcher_synthesizer import build_workflow as researcher_synthesizer_workflow
 from .retry_debug_loop import build_motif as retry_debug_loop_motif
 from .retry_debug_loop import build_workflow as retry_debug_loop_workflow
+from .retry_debug_pressure_meso import build_motif as retry_debug_pressure_meso_motif
+from .retry_debug_pressure_meso import build_workflow as retry_debug_pressure_meso_workflow
 from .router_handoff import build_motif as router_handoff_motif
 from .router_handoff import build_workflow as router_handoff_workflow
 from .shared_evidence_store import build_motif as shared_evidence_store_motif
 from .shared_evidence_store import build_workflow as shared_evidence_store_workflow
+from .shared_memory_fanin_meso import build_motif as shared_memory_fanin_meso_motif
+from .shared_memory_fanin_meso import build_workflow as shared_memory_fanin_meso_workflow
 from .tool_specialist_team import build_motif as tool_specialist_team_motif
 from .tool_specialist_team import build_workflow as tool_specialist_team_workflow
 from .tool_resume_contention_meso import build_motif as tool_resume_contention_meso_motif
@@ -50,6 +58,10 @@ MOTIF_NAMES = [
     "retry_debug_loop",
     "router_handoff",
     "tool_resume_contention_meso",
+    "hierarchical_synthesis_pressure_meso",
+    "debate_allgather_pressure_meso",
+    "retry_debug_pressure_meso",
+    "shared_memory_fanin_meso",
 ]
 
 WORKFLOW_BUILDERS = {
@@ -66,6 +78,10 @@ WORKFLOW_BUILDERS = {
     "retry_debug_loop": retry_debug_loop_workflow,
     "router_handoff": router_handoff_workflow,
     "tool_resume_contention_meso": tool_resume_contention_meso_workflow,
+    "hierarchical_synthesis_pressure_meso": hierarchical_synthesis_pressure_meso_workflow,
+    "debate_allgather_pressure_meso": debate_allgather_pressure_meso_workflow,
+    "retry_debug_pressure_meso": retry_debug_pressure_meso_workflow,
+    "shared_memory_fanin_meso": shared_memory_fanin_meso_workflow,
 }
 
 MOTIF_BUILDERS = {
@@ -82,6 +98,10 @@ MOTIF_BUILDERS = {
     "retry_debug_loop": retry_debug_loop_motif,
     "router_handoff": router_handoff_motif,
     "tool_resume_contention_meso": tool_resume_contention_meso_motif,
+    "hierarchical_synthesis_pressure_meso": hierarchical_synthesis_pressure_meso_motif,
+    "debate_allgather_pressure_meso": debate_allgather_pressure_meso_motif,
+    "retry_debug_pressure_meso": retry_debug_pressure_meso_motif,
+    "shared_memory_fanin_meso": shared_memory_fanin_meso_motif,
 }
 
 

@@ -791,6 +791,224 @@ class ToolResumeContentionMesoMotif(CompositeMotif):
         return self.workflow_end(final)
 
 
+class Week3MesoMotif(CompositeMotif):
+    composed_from_motifs: list[str] = []
+
+    def week3_meta(
+        self,
+        *,
+        role: str,
+        criticality: str = "unknown",
+        stage: str = "none",
+        parents: list[str] | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        meta = {
+            "workflow_name": self.spec.name,
+            "meso_workload_name": self.spec.name,
+            "composed_from_motifs": list(self.composed_from_motifs),
+            "composed_from_topologies": list(self.spec.composed_from),
+            "workload_role": role,
+            "criticality": criticality,
+            "critical_path_candidate": criticality == "critical",
+            "critical_stage": stage,
+            "parent_node_ids": parents or [],
+            "dependency_edges": [{"src": p, "dst": extra.get("dst_node", "")} for p in (parents or [])],
+        }
+        meta.update(extra)
+        return meta
+
+    def block_meta(
+        self,
+        *,
+        private_text: str,
+        shared_blocks: dict[str, str],
+        agent_id: str,
+        round_id: int,
+        group_id: str,
+    ) -> dict[str, Any]:
+        block_ids = list(shared_blocks)
+        block_tokens = {block_id: estimate_tokens(text) for block_id, text in shared_blocks.items()}
+        return {
+            "agent_id": agent_id,
+            "round_id": round_id,
+            "private_history_tokens": estimate_tokens(private_text),
+            "shared_block_ids": block_ids,
+            "shared_block_tokens": block_tokens,
+            "shared_block_hashes": {block_id: stable_hash(text)[:16] for block_id, text in shared_blocks.items()},
+            "block_position_in_prompt": {block_id: idx for idx, block_id in enumerate(block_ids)},
+            "all_gather_group_id": group_id,
+            "round_shared_context_tokens": sum(block_tokens.values()),
+            "duplicated_shared_context_tokens": max(0, (len(block_ids) - 1) * sum(block_tokens.values())),
+            "pairwise_shared_block_similarity_proxy": 1.0 if len(block_ids) > 1 else 0.0,
+            "estimated_kv_tokens": estimate_tokens(private_text) + sum(block_tokens.values()),
+        }
+
+
+class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
+    spec = MotifSpec("tool_resume_contention_meso", ["independent", "centralized"], ["meso_workload", "tool_resume", "critical_path"], "Replay/live tool branches resume near reviewer/finalizer without controlled delay.")
+    composed_from_motifs = ["evidence_collection", "tool_specialist_team", "multi_coder_branch", "coder_reviewer"]
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Plan critical and non-critical tool-stalled branches.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], dst_node="planner", contention_role="critical_agent"))
+
+        def critical(_: int) -> tuple[str, str, str, str]:
+            code = self.llm_agent(node_id="critical_coder", node_name="Critical Coder", agent_role="coder", system_prompt="Produce critical-path candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["planner"], dst_node="critical_coder", expected_overlap_target=self.config.critical_stage_marker, contention_role="critical_agent"))
+            review = self.llm_agent(node_id="critical_reviewer", node_name="Critical Reviewer", agent_role="reviewer", system_prompt="Review the critical-path candidate.", user_prompt=code, parents=["critical_coder"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=["critical_coder"], dst_node="critical_reviewer", critical_request_marker="reviewer", nearby_background_resume_expected=True, overlap_analysis_status="observed_or_unavailable", expected_overlap_target="reviewer", contention_role="critical_agent"))
+            final = self.llm_agent(node_id="finalizer", node_name="Finalizer", agent_role="finalizer", system_prompt="Finalize from the critical review without waiting for non-critical tool branches.", user_prompt=f"Code:\n{code}\nReview:\n{review}", parents=["critical_reviewer"], criticality="critical", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="critical", stage="finalizer", parents=["critical_reviewer"], dst_node="finalizer", critical_request_marker="finalizer", contention_role="critical_agent"))
+            self.emit_edge(src_node="finalizer", dst_node="END", artifact_type="final", content=final, transfer_type="critical_path")
+            return "finalizer", code, review, final
+
+        def background_tool(i: int) -> tuple[str, str]:
+            branch = f"tool_branch_{i}"
+            tool_id = f"{branch}_search"
+            meta = self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=["planner"], dst_node=tool_id, background_branch_id=branch, tool_stalled=True, contention_role="non_critical_agent", function_call_lifecycle_stage="tool_call_wait", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, tool_trace_source=self.config.tool_mode)
+            evidence = self.search(node_id=tool_id, node_name=f"Tool Branch {i}", query=f"{self.config.query} evidence branch {i}", trace_fields=meta)
+            if not self.config.background_resume_enabled:
+                return tool_id, ""
+            resume_id = f"resume_evidence_processor_{i}"
+            out = self.llm_agent(node_id=resume_id, node_name=f"Resume Evidence Processor {i}", agent_role="evidence_processor", system_prompt="Resume after tool return and summarize evidence.", user_prompt=str(evidence)[:4000], parents=[tool_id], parallel_group="background_tool_resume", criticality="non_critical", extra_metadata=self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=[tool_id], dst_node=resume_id, contention_role="non_critical_agent", function_call_lifecycle_stage="llm_2_resume", tool_stalled=True, background_resume_request=True, resume_after_tool=True, resume_group_id="week3_tool_resume", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, intended_to_overlap_with=self.config.critical_stage_marker))
+            self.emit_edge(src_node=resume_id, dst_node="evidence_merge", artifact_type="resumed_evidence", content=out, transfer_type="aggregation", parallel_group="background_tool_resume")
+            return resume_id, out
+
+        def background_parallel(_: int) -> tuple[str, str]:
+            out = self.llm_agent(node_id="background_coder", node_name="Background Coder", agent_role="coder", system_prompt="Produce an alternate background candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], parallel_group="background_parallel", criticality="non_critical", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="non_critical", parents=["planner"], dst_node="background_coder", contention_role="non_critical_agent"))
+            self.emit_edge(src_node="background_coder", dst_node="evidence_merge", artifact_type="background_candidate", content=out, transfer_type="aggregation")
+            return "background_coder", out
+
+        items = [("critical", 0), ("parallel", 0)] + [("tool", i) for i in range(1, max(1, min(4, self.config.tool_branch_width)) + 1)]
+        def dispatch(item: tuple[str, int]) -> tuple[str, Any]:
+            kind, idx = item
+            if kind == "critical":
+                return kind, critical(idx)
+            if kind == "parallel":
+                return kind, background_parallel(idx)
+            return f"tool_{idx}", background_tool(idx)
+        results = dict(self.run_parallel(items, dispatch))
+        critical_node, code, review, final = results["critical"]
+        bg = {str(v[0]): str(v[1]) for k, v in results.items() if k != "critical" and v and v[1]}
+        self.barrier(barrier_id="late_evidence_merge_barrier", waiting_for_nodes=list(bg))
+        merged = self.llm_agent(node_id="evidence_merge", node_name="Evidence Merge", agent_role="aggregator", system_prompt="Merge late evidence and background candidates.", user_prompt="\n".join(bg.values()), parents=list(bg), criticality="merge", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="merge", parents=list(bg), dst_node="evidence_merge", fan_in_count=len(bg)))
+        self.emit_edge(src_node="evidence_merge", dst_node="finalizer", artifact_type="late_evidence", content=merged, transfer_type="late_non_blocking_context")
+        return self.workflow_end(final)
+
+
+class HierarchicalSynthesisPressureMesoMotif(Week3MesoMotif):
+    spec = MotifSpec("hierarchical_synthesis_pressure_meso", ["independent", "centralized"], ["meso_workload", "hierarchical_fanin"], "Grouped researchers/coders synthesize locally then globally.")
+    composed_from_motifs = ["researcher_synthesizer", "multi_coder_branch", "generator_verifier", "debate_reviewer"]
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        groups = max(1, self.config.group_count)
+        agents = max(1, self.config.agents_per_group)
+        plan = self.llm_agent(node_id="hier_planner", node_name="Hierarchical Planner", agent_role="planner", system_prompt="Split work into groups.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], hierarchy_depth=1, group_count=groups, agents_per_group=agents))
+
+        def group_run(g: int) -> tuple[str, str]:
+            def agent_run(i: int) -> tuple[str, str]:
+                node = f"group_{g}_agent_{i}"
+                private = f"Group {g} task:\n{plan}"
+                out = self.llm_agent(node_id=node, node_name=node, agent_role="researcher", system_prompt="Produce local group evidence.", user_prompt=private, parents=["hier_planner"], parallel_group=f"group_{g}_agents", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=["hier_planner"], group_id=g, hierarchy_depth=2, **self.block_meta(private_text=private, shared_blocks={}, agent_id=node, round_id=0, group_id=f"group_{g}")))
+                self.emit_edge(src_node=node, dst_node=f"group_{g}_synth", artifact_type="group_artifact", content=out, transfer_type="aggregation", parallel_group=f"group_{g}_agents")
+                return node, out
+            outs = dict(self.run_parallel(list(range(1, agents + 1)), agent_run))
+            self.barrier(barrier_id=f"group_{g}_barrier", waiting_for_nodes=list(outs))
+            shared_blocks = {node: text for node, text in outs.items()}
+            synth_input = "\n".join(outs.values())
+            synth = self.llm_agent(node_id=f"group_{g}_synth", node_name=f"Group {g} Synthesizer", agent_role="synthesizer", system_prompt="Synthesize group outputs.", user_prompt=synth_input, parents=list(outs), criticality="merge", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="merge", parents=list(outs), fan_in_count=len(outs), hierarchy_depth=3, group_id=g, downstream_input_tokens=estimate_tokens(synth_input), **self.block_meta(private_text="", shared_blocks=shared_blocks, agent_id=f"group_{g}_synth", round_id=1, group_id=f"group_{g}")))
+            self.emit_edge(src_node=f"group_{g}_synth", dst_node="cross_group_reviewer", artifact_type="group_summary", content=synth, transfer_type="aggregation")
+            return f"group_{g}_synth", synth
+        group_outputs = dict(self.run_parallel(list(range(1, groups + 1)), group_run))
+        self.barrier(barrier_id="cross_group_barrier", waiting_for_nodes=list(group_outputs))
+        group_blocks = {node: text for node, text in group_outputs.items()}
+        reviewer_input = "\n".join(group_outputs.values())
+        reviewer = self.llm_agent(node_id="cross_group_reviewer", node_name="Cross Group Reviewer", agent_role="reviewer", system_prompt="Review group summaries and select key evidence.", user_prompt=reviewer_input, parents=list(group_outputs), criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=list(group_outputs), fan_in_count=len(group_outputs), hierarchy_depth=4, **self.block_meta(private_text="", shared_blocks=group_blocks, agent_id="cross_group_reviewer", round_id=2, group_id="cross_group")))
+        final = self.llm_agent(node_id="global_synthesizer", node_name="Global Synthesizer", agent_role="finalizer", system_prompt="Produce global synthesis.", user_prompt=reviewer, parents=["cross_group_reviewer"], criticality="critical", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="critical", stage="finalizer", parents=["cross_group_reviewer"], hierarchy_depth=5))
+        return self.workflow_end(final)
+
+
+class DebateAllGatherPressureMesoMotif(Week3MesoMotif):
+    spec = MotifSpec("debate_allgather_pressure_meso", ["decentralized", "centralized"], ["meso_workload", "all_gather"], "Local opinions, all-gather/debate rounds, consensus/finalizer.")
+    composed_from_motifs = ["debate_reviewer", "all_gather_round"]
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        n = max(2, self.config.num_agents)
+        def produce(i: int) -> tuple[str, str]:
+            node = f"opinion_{i}"
+            out = self.llm_agent(node_id=node, node_name=node, agent_role="peer_agent", system_prompt="Produce local opinion.", user_prompt=self.config.query, parents=["START"], parallel_group="local_opinions", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=["START"], agent_count=n, **self.block_meta(private_text=self.config.query, shared_blocks={}, agent_id=node, round_id=0, group_id="all_gather")))
+            return node, out
+        messages = dict(self.run_parallel(list(range(1, n + 1)), produce))
+        for r in range(1, max(1, self.config.debate_rounds) + 1):
+            def gather(i: int) -> tuple[str, str]:
+                node = f"agent_{i}_round_{r}"
+                private_text = messages.get(f"opinion_{i}") or messages.get(f"agent_{i}_round_{r-1}") or ""
+                shared_blocks = {k: v for k, v in messages.items() if k != node}
+                ordered_blocks = dict(list(shared_blocks.items())[i - 1:] + list(shared_blocks.items())[:i - 1])
+                peer_text = "\n".join(f"{k}: {v}" for k, v in ordered_blocks.items())
+                for src, msg in messages.items():
+                    self.emit_edge(src_node=src, dst_node=node, artifact_type="peer_message", content=msg, transfer_type="broadcast", round_id=r, peer_round_id=r, parallel_group=f"all_gather_r{r}", fanout_count=n, recipient_count=n)
+                meta = self.block_meta(private_text=private_text, shared_blocks=ordered_blocks, agent_id=node, round_id=r, group_id=f"all_gather_r{r}")
+                out = self.llm_agent(node_id=node, node_name=node, agent_role="peer_agent", system_prompt="Update opinion after all gathered peers.", user_prompt=f"PRIVATE:\n{private_text}\nSHARED:\n{peer_text}", parents=list(messages), round_id=r, peer_round_id=r, parallel_group=f"all_gather_r{r}", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=list(messages), peer_messages=peer_text, agent_count=n, debate_rounds=self.config.debate_rounds, broadcast_tokens_est=estimate_tokens(peer_text) * n, duplicated_context_tokens_est=max(0, meta["round_shared_context_tokens"] * (n - 1)), **meta))
+                return node, out
+            messages = dict(self.run_parallel(list(range(1, n + 1)), gather))
+            self.barrier(barrier_id=f"all_gather_barrier_r{r}", waiting_for_nodes=list(messages), peer_round_id=r)
+        consensus = self.llm_agent(node_id="consensus_reviewer", node_name="Consensus Reviewer", agent_role="reviewer", system_prompt="Review all debate outputs and form consensus.", user_prompt="\n".join(messages.values()), parents=list(messages), criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=list(messages), fan_in_count=len(messages)))
+        final = self.finalizer(consensus, parents=["consensus_reviewer"])
+        return self.workflow_end(final)
+
+
+class RetryDebugPressureMesoMotif(Week3MesoMotif):
+    spec = MotifSpec("retry_debug_pressure_meso", ["centralized"], ["meso_workload", "retry_debug"], "Generator/coder, verifier/tester, debugger/reviser loop, finalizer.")
+    composed_from_motifs = ["coder_reviewer", "generator_verifier", "retry_debug_loop"]
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        result = self.llm_agent(node_id="generator", node_name="Generator/Coder", agent_role="generator", system_prompt="Generate candidate solution.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["START"]))
+        max_depth = max(1, self.config.max_retries or 1)
+        loop = 0
+        verifier = ""
+        for loop in range(max_depth):
+            verifier = self.llm_agent(node_id=f"verifier_r{loop}", node_name=f"Verifier R{loop}", agent_role="verifier", system_prompt="Verify candidate; provide failures to debug.", user_prompt=result, parents=["generator" if loop == 0 else f"reviser_r{loop}"], retry_count=loop, criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", retry_count=loop, debug_loop_count=loop))
+            debug = self.llm_agent(node_id=f"debugger_r{loop}", node_name=f"Debugger R{loop}", agent_role="debugger", system_prompt="Diagnose verifier feedback and propose fix.", user_prompt=verifier, parents=[f"verifier_r{loop}"], retry_count=loop + 1, criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", retry_count=loop + 1, debug_loop_count=loop + 1))
+            result = self.llm_agent(node_id=f"reviser_r{loop+1}", node_name=f"Reviser R{loop+1}", agent_role="generator", system_prompt="Revise candidate from debug feedback.", user_prompt=f"Previous:\n{result}\nDebug:\n{debug}", parents=[f"debugger_r{loop}"], retry_count=loop + 1, criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", retry_count=loop + 1, debug_loop_count=loop + 1))
+        final = self.finalizer(f"Result:\n{result}\nVerifier:\n{verifier}", parents=[f"reviser_r{loop+1}"])
+        return self.workflow_end(final)
+
+
+class SharedMemoryFaninMesoMotif(Week3MesoMotif):
+    spec = MotifSpec("shared_memory_fanin_meso", ["independent", "centralized"], ["meso_workload", "shared_memory"], "Writers/readers over shared evidence, reviewer/finalizer fan-in.")
+    composed_from_motifs = ["shared_evidence_store", "researcher_synthesizer", "generator_verifier"]
+
+    def run(self) -> dict[str, Any]:
+        self.workflow_start()
+        writers = max(1, self.config.writer_count)
+        readers = max(1, self.config.reader_count)
+        def write(i: int) -> tuple[str, str]:
+            node = f"writer_{i}"
+            evidence = self.search(node_id=f"{node}_search", node_name=f"Writer {i} Search", query=f"{self.config.query} writer {i}", trace_fields=self.week3_meta(role="background_tool_branch", criticality="background", parents=["START"], dst_node=f"{node}_search"))
+            private = str(evidence)
+            out = self.llm_agent(node_id=node, node_name=node, agent_role="writer", system_prompt="Write evidence artifact to shared store.", user_prompt=private, parents=[f"{node}_search"], parallel_group="memory_writers", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=[f"{node}_search"], memory_write=True, writer_count=writers, **self.block_meta(private_text=private, shared_blocks={}, agent_id=node, round_id=0, group_id="shared_memory_write")))
+            self.emit_edge(src_node=node, dst_node="shared_evidence_store", artifact_type="memory_write", content=out, transfer_type="memory_write", parallel_group="memory_writers")
+            self.trace.emit(event_type="memory_write", node_id=f"{node}_write", node_name=f"{node} write", node_type="memory", artifact_type="memory_write", motif_tags=self.motif_tags, shared_evidence_write_tokens_est=estimate_tokens(out), workflow_name=self.spec.name, workload_role="background_parallel_branch", criticality="background")
+            return f"evidence_{i}", out
+        store = dict(self.run_parallel(list(range(1, writers + 1)), write))
+        self.barrier(barrier_id="memory_write_barrier", waiting_for_nodes=[f"writer_{i}" for i in range(1, writers + 1)])
+        store_text = "\n".join(store.values())
+        def read(i: int) -> tuple[str, str]:
+            node = f"reader_{i}"
+            shared_blocks = {block_id: text for block_id, text in store.items()}
+            block_meta = self.block_meta(private_text=f"reader_{i}_private_state", shared_blocks=shared_blocks, agent_id=node, round_id=1, group_id="shared_memory_read")
+            self.trace.emit(event_type="memory_read", node_id=f"{node}_read", node_name=f"{node} read", node_type="memory", artifact_type="memory_read", motif_tags=self.motif_tags, shared_evidence_read_tokens_est=estimate_tokens(store_text), workflow_name=self.spec.name, workload_role="background_parallel_branch", criticality="background", **block_meta)
+            out = self.llm_agent(node_id=node, node_name=node, agent_role="reader", system_prompt="Read shared evidence and extract implications.", user_prompt=store_text, parents=["shared_evidence_store"], parallel_group="memory_readers", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=["shared_evidence_store"], memory_read=True, reader_count=readers, fan_in_count=writers, shared_evidence_read_tokens_est=estimate_tokens(store_text), **block_meta))
+            self.emit_edge(src_node=node, dst_node="memory_reviewer", artifact_type="memory_read", content=out, transfer_type="aggregation", parallel_group="memory_readers")
+            return node, out
+        read_outputs = dict(self.run_parallel(list(range(1, readers + 1)), read))
+        reviewer = self.llm_agent(node_id="memory_reviewer", node_name="Memory Reviewer", agent_role="reviewer", system_prompt="Review shared-memory reader outputs.", user_prompt="\n".join(read_outputs.values()), parents=list(read_outputs), criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=list(read_outputs), fan_in_count=len(read_outputs)))
+        final = self.finalizer(reviewer, parents=["memory_reviewer"])
+        return self.workflow_end(final)
+
+
 class RouterHandoffMotif(CompositeMotif):
     spec = MotifSpec("router_handoff", ["centralized", "single"], ["router", "handoff"], "Router -> selected specialist -> optional handoff")
 

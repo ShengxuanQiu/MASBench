@@ -72,6 +72,11 @@ class TopologyConfig:
     critical_stage_marker: str = "reviewer"
     background_resume_enabled: bool = True
     contention_labeling: bool = True
+    tool_trace_replay_path: Path | None = None
+    group_count: int = 2
+    agents_per_group: int = 2
+    writer_count: int = 2
+    reader_count: int = 2
     mode: str = "topology"
     motif_name: str = ""
     parent_motif_id: str = ""
@@ -120,6 +125,7 @@ class BaseTopology:
         self._start_backend_metrics_sampler()
         self.trace.emit(
             event_type="workflow_start",
+            workflow_name=self.config.workload_name or self.config.motif_name or self.config.topology_name,
             node_id="START",
             node_name="START",
             node_type="workflow",
@@ -129,8 +135,10 @@ class BaseTopology:
         )
 
     def workflow_end(self, final_answer: str) -> dict[str, Any]:
+        self._annotate_request_overlap_metrics()
         self.trace.emit(
             event_type="workflow_end",
+            workflow_name=self.config.workload_name or self.config.motif_name or self.config.topology_name,
             node_id="END",
             node_name="END",
             node_type="workflow",
@@ -222,6 +230,7 @@ class BaseTopology:
             "max_rounds": self.config.max_rounds,
             "force_continue_rounds": self.config.force_centralized_rounds,
             "worker_ids": [f"worker_{i}" for i in range(1, self.config.num_agents + 1)],
+            "workflow_name": self.config.workload_name or self.config.motif_name or self.config.topology_name,
         }
         if extra_metadata:
             metadata.update(extra_metadata)
@@ -235,9 +244,11 @@ class BaseTopology:
                 "round_id",
                 "manager_round_id",
                 "peer_round_id",
+                "retry_count",
                 "parents",
                 "children",
                 "criticality",
+                "parallel_group",
                 "status",
                 "duration_sec",
                 "duration_source",
@@ -245,9 +256,26 @@ class BaseTopology:
                 "node_name",
                 "node_type",
                 "event_type",
+                "workflow_name",
+                "parent_node_ids",
+                "dependency_edges",
+                "fan_in_count",
+                "fan_out_count",
+                "model_name",
+                "request_submit_ts",
+                "response_start_ts",
+                "response_end_ts",
             }
         }
         prompt = system_prompt + "\n" + user_prompt
+        submit_ts = time.time()
+        common_graph = {
+            "workflow_name": self.config.workload_name or self.config.motif_name or self.config.topology_name,
+            "parent_node_ids": parents or [],
+            "dependency_edges": trace_metadata.get("dependency_edges") or [{"src": parent, "dst": node_id} for parent in (parents or [])],
+            "fan_in_count": len(parents or []),
+            "fan_out_count": int(trace_metadata.get("fan_out_count") or 0),
+        }
         self.trace.emit(
             event_type="llm_request_start",
             node_id=node_id,
@@ -280,7 +308,11 @@ class BaseTopology:
             priority=1.0 if criticality == "critical" else 0.0,
             dispatch_policy=self.config.dispatch_policy,
             request_metadata=metadata,
+            request_submit_ts=submit_ts,
+            input_tokens=estimate_tokens(prompt),
+            model_name=self.config.model,
             extra={"prompt_preview": prompt[:1000]} if self.config.trace_level == "detailed" else {},
+            **common_graph,
             **trace_metadata,
         )
         result = self.llm.invoke(system_prompt, user_prompt, metadata)
@@ -339,7 +371,22 @@ class BaseTopology:
             backend_total_tokens=result.request_metadata.get("backend_total_tokens"),
             backend_finish_reason=result.request_metadata.get("backend_finish_reason"),
             backend_response_id=result.request_metadata.get("backend_response_id"),
+            request_submit_ts=submit_ts,
+            response_start_ts=result.generation_start_ts,
+            response_end_ts=result.generation_end_ts,
+            request_e2e_sec=round(result.duration_sec + float(result.queue_wait_sec or 0.0), 6),
+            ttft_sec=result.request_metadata.get("ttft_sec"),
+            tpot_sec=result.request_metadata.get("tpot_sec"),
+            input_tokens=estimate_tokens(prompt),
+            output_tokens=estimate_tokens(output),
+            total_tokens=estimate_tokens(prompt) + estimate_tokens(output),
+            model_name=self.config.model,
+            nearby_background_request_count_1s=0,
+            nearby_background_request_count_3s=0,
+            overlapping_background_request_count=0,
+            overlapping_background_tokens=0,
             extra={"output_preview": output[:1000]} if self.config.trace_level == "detailed" else {},
+            **common_graph,
             **trace_metadata,
         )
         self.trace.record_model_output(
@@ -353,7 +400,7 @@ class BaseTopology:
         )
         return output
 
-    def search(self, *, node_id: str, node_name: str, query: str) -> list[dict[str, Any]]:
+    def search(self, *, node_id: str, node_name: str, query: str, trace_fields: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         result = self.search_provider.search(query)
         snapshot_dir = self.config.trace_dir / "snapshots" / self.config.run_id if self.config.record_tool_results else None
         replay_policy = {
@@ -370,6 +417,13 @@ class BaseTopology:
             snapshot_dir=snapshot_dir,
             replay_policy=replay_policy,
             latency_profile=self.config.latency_profile,
+            trace_fields={
+                "workflow_name": self.config.workload_name or self.config.motif_name or self.config.topology_name,
+                "parent_node_ids": (trace_fields or {}).get("parent_node_ids") or (trace_fields or {}).get("parents") or [],
+                "dependency_edges": (trace_fields or {}).get("dependency_edges") or [],
+                "tool_trace_source": self.config.tool_mode,
+                **(trace_fields or {}),
+            },
         )
         return result.results
 
@@ -409,8 +463,12 @@ class BaseTopology:
             injected_delay_sec=round(0.0 if mode == "actual" else configured, 6),
             effective_duration_sec=round(observed, 6),
             delay_mode=mode,
-            tool_return_ts=end_wall,
+            tool_start_ts=start_wall,
+            tool_end_ts=end_wall or (start_wall + observed),
+            tool_latency_sec=round(observed, 6),
+            tool_return_ts=end_wall or (start_wall + observed),
             simulated_tool_return_ts=round(start_rel + configured, 6) if mode == "simulated" else None,
+            tool_trace_source="live" if mode == "actual" else "replay",
             external_dependency="none",
             network_dependent=False,
             deterministic=True,
@@ -628,6 +686,38 @@ class BaseTopology:
             straggler_gap_sec=round(straggler_gap, 6),
         )
 
+
+    def _event_start(self, event: dict[str, Any]) -> float:
+        return max(0.0, float(event.get("relative_time_sec") or 0.0) - float(event.get("duration_sec") or 0.0))
+
+    def _annotate_request_overlap_metrics(self) -> None:
+        llm = [e for e in self.trace.events if e.get("event_type") == "llm_request_end"]
+        background = [e for e in llm if e.get("background_resume_request") or e.get("criticality") in {"background", "non_critical"}]
+        critical = [e for e in llm if e.get("critical_path_candidate") or e.get("criticality") == "critical"]
+        for event in llm:
+            start = self._event_start(event)
+            end = float(event.get("relative_time_sec") or 0.0)
+            nearby_1 = []
+            nearby_3 = []
+            overlapping = []
+            for bg in background:
+                if bg is event:
+                    continue
+                bg_start = self._event_start(bg)
+                bg_end = float(bg.get("relative_time_sec") or 0.0)
+                if abs(bg_start - start) <= 1.0:
+                    nearby_1.append(bg)
+                if abs(bg_start - start) <= 3.0:
+                    nearby_3.append(bg)
+                if bg_start < end and bg_end > start:
+                    overlapping.append(bg)
+            event["nearby_background_request_count_1s"] = len(nearby_1)
+            event["nearby_background_request_count_3s"] = len(nearby_3)
+            event["overlapping_background_request_count"] = len(overlapping)
+            event["overlapping_background_tokens"] = sum(int(e.get("total_tokens") or e.get("total_tokens_est") or 0) for e in overlapping)
+            if event.get("background_resume_request"):
+                event["actual_overlap_with_critical"] = any(self._event_start(c) < end and float(c.get("relative_time_sec") or 0.0) > start for c in critical)
+
     def build_summary(self, final_answer: str) -> dict[str, Any]:
         events = self.trace.events
         total_llm = sum(float(e.get("duration_sec") or 0) for e in events if e.get("event_type") == "llm_request_end")
@@ -704,7 +794,7 @@ class BaseTopology:
 
     def _config_dict(self) -> dict[str, Any]:
         data = dict(self.config.__dict__)
-        for key in {"trace_dir", "repo_path", "replay_snapshot_dir"}:
+        for key in {"trace_dir", "repo_path", "replay_snapshot_dir", "tool_trace_replay_path"}:
             if data.get(key) is not None:
                 data[key] = str(data[key])
         return data

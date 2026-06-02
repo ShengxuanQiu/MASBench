@@ -242,6 +242,8 @@ def record_search_event(
         path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
         snapshot_path = str(path)
     external_dependency = "web" if result.provider_name == "tavily" else ("local_repo" if result.provider_name == "local_repo" else "none")
+    tool_end_ts = time.time()
+    tool_start_ts = tool_end_ts - float(result.effective_duration_sec or 0.0)
     trace.emit(
         event_type="tool_search",
         node_id=node_id,
@@ -263,6 +265,10 @@ def record_search_event(
         measured_duration_sec=result.measured_duration_sec,
         injected_delay_sec=result.injected_delay_sec,
         effective_duration_sec=result.effective_duration_sec,
+        tool_start_ts=tool_start_ts,
+        tool_end_ts=tool_end_ts,
+        tool_latency_sec=result.effective_duration_sec,
+        tool_return_ts=tool_end_ts,
         latency_profile=latency_profile,
         external_dependency=external_dependency,
         network_dependent=result.provider_name == "tavily",

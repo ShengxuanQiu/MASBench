@@ -93,12 +93,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--controlled-tool-delay-sec", type=float, default=3.0)
     parser.add_argument(
         "--resume-phase-policy",
-        choices=["before_critical", "overlap_reviewer", "overlap_finalizer", "after_critical"],
+        choices=["before_critical", "before_reviewer", "overlap_reviewer", "overlap_finalizer", "after_critical", "after_finalizer"],
         default="overlap_reviewer",
     )
     parser.add_argument("--critical-stage-marker", choices=["reviewer", "finalizer"], default="reviewer")
     parser.add_argument("--background-resume-enabled", default="true")
     parser.add_argument("--contention-labeling", default="true")
+    parser.add_argument("--tool-trace-replay-path", default="")
+    parser.add_argument("--group-count", type=int, default=2)
+    parser.add_argument("--agents-per-group", type=int, default=2)
+    parser.add_argument("--writer-count", type=int, default=2)
+    parser.add_argument("--reader-count", type=int, default=2)
     return parser.parse_args()
 
 
@@ -214,6 +219,11 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         else:
             raise ValueError(f"Unknown workload: {workload_arg}")
     workload_name = args.motif if args.mode == "motif" else args.topology
+    replay_snapshot_dir = Path(args.replay_snapshot_dir).expanduser().resolve() if args.replay_snapshot_dir else None
+    tool_trace_replay_path = Path(args.tool_trace_replay_path).expanduser().resolve() if args.tool_trace_replay_path else None
+    if replay_snapshot_dir is None and tool_trace_replay_path is not None:
+        replay_snapshot_dir = tool_trace_replay_path
+
     return TopologyConfig(
         topology_name=workload_name,
         run_id=run_id,
@@ -237,7 +247,7 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         task_source=task_source,
         trace_dir=Path(args.trace_dir),
         repo_path=repo_path,
-        replay_snapshot_dir=Path(args.replay_snapshot_dir).expanduser().resolve() if args.replay_snapshot_dir else None,
+        replay_snapshot_dir=replay_snapshot_dir,
         record_tool_results=str_bool(args.record_tool_results),
         search_provider=provider,
         manager_policy=args.manager_policy,
@@ -268,6 +278,11 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         critical_stage_marker=args.critical_stage_marker,
         background_resume_enabled=str_bool(args.background_resume_enabled),
         contention_labeling=str_bool(args.contention_labeling),
+        tool_trace_replay_path=tool_trace_replay_path,
+        group_count=args.group_count,
+        agents_per_group=args.agents_per_group,
+        writer_count=args.writer_count,
+        reader_count=args.reader_count,
         mode=args.mode,
         motif_name=args.motif if args.mode == "motif" else "",
     )

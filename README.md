@@ -129,6 +129,14 @@ python -m app.main --topology hybrid --max-rounds 4 --peer-rounds 2 \
 - `router_handoff`: 由 centralized router 加 selected specialist/handoff 组成，记录 route selection。
 - `tool_resume_contention_meso`: 由已有 tool/evidence、parallel coder、coder/reviewer 和 finalizer/merge motif 语义组合出的 meso workload。它用于暴露 tool-stalled branches 在工具返回后 resume，并与 reviewer/finalizer 等 critical-path stage 形成潜在 backend contention window 的结构条件。
 
+Meso workload 是由已有 composite motif 继续拼接出的更大 workflow，不作为新的基础 topology：
+
+- `tool_resume_contention_meso`: critical/non-critical tool-resume contention workload，由 `evidence_collection` / `tool_specialist_team` + `multi_coder_branch` + `coder_reviewer` + finalizer 组合而来。Critical path 标记 planner/coder/reviewer/finalizer；non-critical tool branch 标记 function-call stall 和 resume request，用于观察潜在 tool-resume contention window。
+- `hierarchical_synthesis_pressure_meso`: 多个 `researcher_synthesizer` / `multi_coder_branch` 子组 + cross-group reviewer + global synthesizer/finalizer，用于观察 multi-level fan-in context pressure，并记录 shared output blocks。
+- `debate_allgather_pressure_meso`: round-level all-gather context redundancy workload，由 `debate_reviewer` + `all_gather_round` 组合而来。每轮记录 private history、shared output blocks、block hashes 和 sibling prompt overlap proxy。
+- `retry_debug_pressure_meso`: `coder_reviewer` + `generator_verifier` + `retry_debug_loop`，用于观察 review/debug loop 对 request、token 和 makespan 的放大。
+- `shared_memory_fanin_meso`: `shared_evidence_store` + `researcher_synthesizer` + `generator_verifier`，用于观察 shared artifact read/write 造成的 token movement。
+
 基础拓扑和复合子图的关系：
 
 - 基础 topology 描述通用连接模式，例如 single、independent、centralized、decentralized、hybrid。
@@ -194,6 +202,48 @@ mas_workflow/scripts/validate_week2_meso_contention_structure.sh
 ```
 
 `tool_resume_contention_meso` 不修改 scheduler 或 KV manager。它只在 workload/trace 层标记潜在 overlap window；真实 contention、queueing、batching、KV residency 和 cache behavior 需要后续在真实 backend trace 中验证。
+
+运行 meso workload trace：
+
+```bash
+REPLAY_SNAPSHOT_DIR=traces/snapshots/20260524_125251_140579 \
+TRACE_DIR=traces/meso \
+REPEAT=1 \
+mas_workflow/scripts/run_week3_meso_traces.sh
+```
+
+也可以单独运行一个 meso workload：
+
+```bash
+python -m mas_workflow.app.main \
+  --mode motif \
+  --workload tool_resume_contention_meso \
+  --motif tool_resume_contention_meso \
+  --task-source manual \
+  --query "检查工具分支 resume 与 critical review 的潜在 overlap" \
+  --llm-mode openai_compatible \
+  --backend-base-url http://127.0.0.1:8000/v1 \
+  --model local-mas-model \
+  --tool-mode replay \
+  --search-provider recorded \
+  --tool-trace-replay-path traces/snapshots/20260524_125251_140579 \
+  --tool-branch-width 2 \
+  --resume-phase-policy overlap_reviewer \
+  --critical-stage-marker reviewer \
+  --collect-backend-metrics true
+```
+
+生成 meso insight 图表和汇总：
+
+```bash
+python -m mas_workflow.app.analyze_week3_meso_insights \
+  --trace-root traces/meso \
+  --progress-dir reports/meso
+```
+
+该分析会生成 critical-path contention figures（critical/non-critical DAG、overlap timeline、critical latency vs overlap、KV idle proxy、running/waiting requests）和 round-level shared-context figures（all-gather prompt structure、shared block similarity heatmap、multi-agent context pressure、collective reuse proxy）。KV idle、shared block similarity 和 collective reuse 都是 proxy；真实 KV residency、batch membership 和 prefix cache hit/miss 需要 backend instrumentation。
+
+`tool_resume_contention_meso` 不注入人为 sleep；工具返回时序来自 live tool 或 replay snapshot。它仍不修改 scheduler/KV manager；真实 contention、queueing、batching 和 KV residency 需要真实 vLLM trace 与相应 backend instrumentation 支撑。
 
 运行全部 motif 的真实 trace 检查：
 
@@ -309,7 +359,7 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 
 - 身份：`schema_version`、`event_id`、`run_id`、`mode`、`topology`、`topology_role`、`instance_id`、`workflow_id`
 - 时间：`timestamp`、`relative_time_sec`、`duration_sec`、`duration_source`
-- 结构：`node_id`、`node_name`、`node_type`、`parents`、`children`、`parallel_group`、`criticality`
+- 结构：`workflow_name`、`node_id`、`node_name`、`node_type`、`parents`、`children`、`parent_node_ids`、`dependency_edges`、`parallel_group`、`barrier_id`、`fan_in_count`、`fan_out_count`、`criticality`
 - 轮次：`round_id`、`manager_round_id`、`peer_round_id`
 - 复现：`replay_policy`、`environment_id`、`random_seed`、`trace_level`
 - 语义：`motif_name`、`motif_instance_id`、`parent_motif_id`、`composed_from_topologies`、`motif_tags`、`status`、`extra`
@@ -325,19 +375,23 @@ Composite motif 会额外尽量补充：
 `tool_resume_contention_meso` 会在相关 event payload 中补充结构化 metadata：
 
 - workload 组成：`meso_workload_name`、`composed_from_motifs`、`composed_from_topologies`
-- graph role：`workload_role`、`criticality`、`critical_path_candidate`、`critical_stage`
-- delayed tool resume：`background_branch_id`、`tool_stalled`、`resume_after_tool`、`resume_group_id`
-- overlap plan：`resume_phase_policy`、`controlled_tool_delay_sec`、`observed_tool_delay_sec`、`expected_overlap_target`、`expected_overlap_window_sec`
+- graph role：`workload_role`、`criticality=critical|non_critical|background|merge|unknown`、`critical_path_candidate`、`critical_stage`
+- delayed tool resume：`background_branch_id`、`tool_stalled`、`resume_after_tool`、`resume_group_id`、`background_resume_request`、`function_call_lifecycle_stage`
+- overlap plan：`resume_phase_policy`、`controlled_tool_delay_sec`、`observed_tool_delay_sec`、`expected_overlap_target`、`expected_overlap_window_sec`、`actual_overlap_with_critical`
 - dependency/linkage：`request_id_for_backend`、`node_id`、`parent_node_ids`、`dependency_edges`
 - critical request markers：`critical_request_marker`、`nearby_background_resume_expected`、`overlap_analysis_status`
 - background resume request markers：`background_resume_request`、`resumed_from_tool_event_id`、`intended_to_overlap_with`、`expected_resume_to_critical_delta_sec`
+- Round-level shared-context fields：`round_id`、`agent_id`、`private_history_tokens`、`shared_block_ids`、`shared_block_tokens`、`shared_block_hashes`、`block_position_in_prompt`、`all_gather_group_id`、`round_shared_context_tokens`、`duplicated_shared_context_tokens`、`pairwise_shared_block_similarity_proxy`
 
 LLM event 记录：
 
 - `agent_id`、`agent_role`、`prompt_template`
 - `llm_mode`、`backend_base_url`、`model`
 - `llm_request_id`、`request_id_for_backend`
-- `input_tokens_est`、`output_tokens_est`、`total_tokens_est`
+- `request_submit_ts`、`response_start_ts`、`response_end_ts`、`request_e2e_sec`
+- `ttft_sec`、`tpot_sec`；如果 backend 不暴露则为 unavailable/空值，不做伪造
+- `input_tokens`/`input_tokens_est`、`output_tokens`/`output_tokens_est`、`total_tokens`/`total_tokens_est`
+- `nearby_background_request_count_1s`、`nearby_background_request_count_3s`、`overlapping_background_request_count`、`overlapping_background_tokens`
 - `system_prompt_tokens_est`、`user_prompt_tokens_est`、`shared_context_tokens_est`
 - `peer_message_tokens_est`、`manager_instruction_tokens_est`
 - `queue_wait_sec`、dispatch/generation timestamps
@@ -350,7 +404,9 @@ Tool event 记录：
 
 - `tool_name`、`tool_mode`、`tool_query`
 - `result_snapshot_id`、`tool_result_hash`
+- `tool_start_ts`、`tool_end_ts`、`tool_latency_sec`、`tool_return_ts`
 - `measured_duration_sec`、`injected_delay_sec`、`effective_duration_sec`
+- `tool_trace_source=live|replay|synthetic`
 - `latency_profile`、`external_dependency`、`network_dependent`、`deterministic`
 - `result_count`、输出大小和 token 估算
 - ReAct tool call 还会记录 `agent_id`、`agent_role`、`tool_call_id`、round/manager/peer round 和 `parallel_group`

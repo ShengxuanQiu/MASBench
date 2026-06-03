@@ -862,9 +862,32 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
 
         def background_tool(i: int) -> tuple[str, str]:
             branch = f"tool_branch_{i}"
+            pre_id = f"{branch}_tool_agent"
+            pre = self.llm_agent(
+                node_id=pre_id,
+                node_name=f"Tool Agent {i} LLM-1",
+                agent_role="tool_agent",
+                system_prompt="Prepare a non-critical tool query before function call.",
+                user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}\nPrepare evidence query for branch {i}.",
+                parents=["planner"],
+                parallel_group="background_tool_prepare",
+                criticality="non_critical",
+                extra_metadata=self.week3_meta(
+                    role="background_tool_branch",
+                    criticality="non_critical",
+                    parents=["planner"],
+                    dst_node=pre_id,
+                    background_branch_id=branch,
+                    contention_role="non_critical_agent",
+                    function_call_lifecycle_stage="llm_1_pre_tool",
+                    tool_stalled=False,
+                    resume_after_tool=False,
+                    expected_overlap_target=self.config.critical_stage_marker,
+                ),
+            )
             tool_id = f"{branch}_search"
-            meta = self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=["planner"], dst_node=tool_id, background_branch_id=branch, tool_stalled=True, contention_role="non_critical_agent", function_call_lifecycle_stage="tool_call_wait", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, tool_trace_source=self.config.tool_mode)
-            evidence = self.search(node_id=tool_id, node_name=f"Tool Branch {i}", query=f"{self.config.query} evidence branch {i}", trace_fields=meta)
+            meta = self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=[pre_id], dst_node=tool_id, background_branch_id=branch, tool_stalled=True, contention_role="non_critical_agent", function_call_lifecycle_stage="tool_call_wait", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, tool_trace_source=self.config.tool_mode)
+            evidence = self.search(node_id=tool_id, node_name=f"Tool Branch {i}", query=f"MAS workflow tracing simulator graph-aware serving evidence branch {i}", trace_fields=meta)
             if not self.config.background_resume_enabled:
                 return tool_id, ""
             resume_id = f"resume_evidence_processor_{i}"
@@ -877,7 +900,7 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
             self.emit_edge(src_node="background_coder", dst_node="evidence_merge", artifact_type="background_candidate", content=out, transfer_type="aggregation")
             return "background_coder", out
 
-        items = [("critical", 0), ("parallel", 0)] + [("tool", i) for i in range(1, max(1, min(4, self.config.tool_branch_width)) + 1)]
+        items = [("critical", 0), ("parallel", 0)] + [("tool", i) for i in range(1, max(1, min(8, self.config.tool_branch_width)) + 1)]
         def dispatch(item: tuple[str, int]) -> tuple[str, Any]:
             kind, idx = item
             if kind == "critical":
@@ -902,7 +925,8 @@ class HierarchicalSynthesisPressureMesoMotif(Week3MesoMotif):
         self.workflow_start()
         groups = max(1, self.config.group_count)
         agents = max(1, self.config.agents_per_group)
-        plan = self.llm_agent(node_id="hier_planner", node_name="Hierarchical Planner", agent_role="planner", system_prompt="Split work into groups.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], hierarchy_depth=1, group_count=groups, agents_per_group=agents))
+        web_context = self.search(node_id="hier_web_context_search", node_name="Hierarchical Web Context Search", query=f"{self.config.query} multi-agent workflow tracing graph-aware simulator", trace_fields=self.week3_meta(role="background_tool_branch", criticality="background", parents=["START"], dst_node="hier_web_context_search", tool_stalled=True, tool_trace_source=self.config.tool_mode))
+        plan = self.llm_agent(node_id="hier_planner", node_name="Hierarchical Planner", agent_role="planner", system_prompt="Split work into groups.", user_prompt=f"Task:\n{self.config.query}\nWeb context:\n{web_context}", parents=["hier_web_context_search"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["hier_web_context_search"], hierarchy_depth=1, group_count=groups, agents_per_group=agents, retrieved_tool_context_tokens_est=estimate_tokens(str(web_context))))
 
         def group_run(g: int) -> tuple[str, str]:
             def agent_run(i: int) -> tuple[str, str]:
@@ -934,9 +958,11 @@ class DebateAllGatherPressureMesoMotif(Week3MesoMotif):
     def run(self) -> dict[str, Any]:
         self.workflow_start()
         n = max(2, self.config.num_agents)
+        web_context = self.search(node_id="debate_web_context_search", node_name="Debate Web Context Search", query=f"{self.config.query} debate all-gather multi-agent context redundancy", trace_fields=self.week3_meta(role="background_tool_branch", criticality="background", parents=["START"], dst_node="debate_web_context_search", tool_stalled=True, tool_trace_source=self.config.tool_mode))
         def produce(i: int) -> tuple[str, str]:
             node = f"opinion_{i}"
-            out = self.llm_agent(node_id=node, node_name=node, agent_role="peer_agent", system_prompt="Produce local opinion.", user_prompt=self.config.query, parents=["START"], parallel_group="local_opinions", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=["START"], agent_count=n, **self.block_meta(private_text=self.config.query, shared_blocks={}, agent_id=node, round_id=0, group_id="all_gather")))
+            private_prompt = f"Task:\n{self.config.query}\nWeb context:\n{web_context}"
+            out = self.llm_agent(node_id=node, node_name=node, agent_role="peer_agent", system_prompt="Produce local opinion.", user_prompt=private_prompt, parents=["debate_web_context_search"], parallel_group="local_opinions", criticality="background", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="background", parents=["debate_web_context_search"], agent_count=n, retrieved_tool_context_tokens_est=estimate_tokens(str(web_context)), **self.block_meta(private_text=private_prompt, shared_blocks={}, agent_id=node, round_id=0, group_id="all_gather")))
             return node, out
         messages = dict(self.run_parallel(list(range(1, n + 1)), produce))
         for r in range(1, max(1, self.config.debate_rounds) + 1):
@@ -964,7 +990,8 @@ class RetryDebugPressureMesoMotif(Week3MesoMotif):
 
     def run(self) -> dict[str, Any]:
         self.workflow_start()
-        result = self.llm_agent(node_id="generator", node_name="Generator/Coder", agent_role="generator", system_prompt="Generate candidate solution.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["START"]))
+        web_context = self.search(node_id="retry_web_context_search", node_name="Retry Web Context Search", query=f"{self.config.query} review loop debugging prefix reuse", trace_fields=self.week3_meta(role="background_tool_branch", criticality="background", parents=["START"], dst_node="retry_web_context_search", tool_stalled=True, tool_trace_source=self.config.tool_mode))
+        result = self.llm_agent(node_id="generator", node_name="Generator/Coder", agent_role="generator", system_prompt="Generate candidate solution.", user_prompt=f"Task:\n{self.config.query}\nWeb context:\n{web_context}", parents=["retry_web_context_search"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["retry_web_context_search"], retrieved_tool_context_tokens_est=estimate_tokens(str(web_context))))
         max_depth = max(1, self.config.max_retries or 1)
         loop = 0
         verifier = ""

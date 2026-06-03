@@ -241,7 +241,12 @@ python -m mas_workflow.app.analyze_week3_meso_insights \
   --progress-dir reports/meso
 ```
 
-该分析会生成 critical-path contention figures（critical/non-critical DAG、overlap timeline、critical latency vs overlap、KV idle proxy、running/waiting requests）和 round-level shared-context figures（all-gather prompt structure、shared block similarity heatmap、multi-agent context pressure、collective reuse proxy）。KV idle、shared block similarity 和 collective reuse 都是 proxy；真实 KV residency、batch membership 和 prefix cache hit/miss 需要 backend instrumentation。
+该分析会生成两类 motivation-style figures，而不是普通 makespan/request count 图：
+
+- critical-path contention figures：critical/non-critical MAS DAG、overlap events over time、non-critical KV occupancy proxy、tool-call KV lifecycle、critical latency vs overlap count。
+- round-level shared-context figures：all-gather prompt structure、multi-agent vs independent context pressure、pairwise shared block similarity、all-gather growth with agent count、per-request vs collective reuse work proxy。
+
+KV occupancy、idle interval、shared block similarity 和 collective reuse 都是 proxy；真实 KV residency、batch membership、queue wait 和 prefix cache hit/miss 需要 backend instrumentation。
 
 `tool_resume_contention_meso` 不注入人为 sleep；工具返回时序来自 live tool 或 replay snapshot。它仍不修改 scheduler/KV manager；真实 contention、queueing、batching 和 KV residency 需要真实 vLLM trace 与相应 backend instrumentation 支撑。
 
@@ -363,6 +368,21 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 - 轮次：`round_id`、`manager_round_id`、`peer_round_id`
 - 复现：`replay_policy`、`environment_id`、`random_seed`、`trace_level`
 - 语义：`motif_name`、`motif_instance_id`、`parent_motif_id`、`composed_from_topologies`、`motif_tags`、`status`、`extra`
+
+标准化 simulator-ready trace tables 可以由 raw JSONL 和 `_backend_metrics.json` 后处理得到：
+
+- Workflow table：`workflow_run_id`、`workflow_name`、`workflow_type`、`motif_type`、`composed_subgraphs`、`task_id`、`prompt_id`、`start_time`、`end_time`、`end_to_end_latency`、`status`、backend endpoint/model、run-level backend metrics。
+- Graph/Node table：`node_id`、`agent_id`、`agent_role`、`node_type`、`parent_node_ids`、`child_node_ids`、`dependency_type`、`branch_id`、`round_id`、`loop_iteration_id`、`is_critical_path`。
+- LLM Query table：`request_id`、`workflow_run_id`、`node_id`、`agent_id`、`role`、`model_name`、submit/finish time、TTFT/TPOT if exposed、input/prefill tokens、output/decode tokens、prompt segment token breakdown、`prompt_hash`、`segment_hashes`、sampling params、status。
+- Tool table：`tool_call_id`、`tool_name`、start/end time、latency、input/output size、status、retry count、whether written to shared context。
+- Barrier table：`barrier_id`、`barrier_type`、participants、release time、per-node wait proxy、straggler gap、downstream nodes。
+- Prefix/cache table：offline `potential_prefix_match_tokens`、`potential_prefix_reuse_rate`、`intra_workflow_prefix_match_tokens`、`inter_workflow_prefix_match_tokens`、`shared_context_reuse_tokens`、`private_context_reuse_tokens`、`dynamic_context_new_tokens`。
+
+Cache terminology is strict:
+
+- Actual backend cache metrics come only from vLLM `/metrics` or backend instrumentation, such as run-level `max_gpu_cache_usage_perc` and prefix/cache counters if exposed.
+- Offline prefix overlap uses `potential prefix reuse`, `ideal prefix overlap`, or `simulator-side reusable prefix`; it is not reported as actual cache hit rate.
+- If vLLM does not expose per-request queue, prefill, decode, or KV residency timestamps, normalized tables mark those fields as `unavailable` instead of estimating them.
 
 Composite motif 会额外尽量补充：
 

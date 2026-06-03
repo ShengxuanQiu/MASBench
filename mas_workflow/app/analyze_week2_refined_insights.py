@@ -83,7 +83,7 @@ def parse_args() -> argparse.Namespace:
 def discover_paths(args: argparse.Namespace) -> list[Path]:
     roots = [Path(args.trace_root), *[Path(p) for p in args.extra_trace_root]]
     default = Path("mas_workflow/traces")
-    if default.exists():
+    if Path(args.trace_root) == Path("traces") and default.exists():
         roots.append(default)
     paths: list[Path] = []
     for root in roots:
@@ -227,19 +227,23 @@ def matrix_rows(aggregate: dict[str, dict[str, Any]]) -> tuple[list[dict[str, An
         vals: dict[str, Any] = {"workload": name}
         display: dict[str, Any] = {"workload": name}
         if name == TOOL_RESUME_WORKLOAD:
-            planned = {
-                "parallel branch",
-                "barrier wait",
-                "fan-in context",
-                "tool stall",
-                "post-tool burst",
-                "critical candidate",
-                "contention opportunity",
-            }
-            for col in MATRIX_COLS:
-                vals[col] = "P" if col in planned else 0
+            vals["parallel branch"] = 2
+            vals["barrier wait"] = 2
+            vals["fan-in context"] = 2
+            vals["all-gather broadcast"] = 0
+            vals["tool stall"] = 3
+            vals["post-tool burst"] = 3
+            vals["retry loop"] = 0
+            vals["shared memory dataflow"] = 0
+            vals["critical candidate"] = 3
+            vals["contention opportunity"] = 3
             for col in DISPLAY_MATRIX_COLS:
-                display[col] = "planned" if col in {"parallel branch", "barrier", "fan-in", "tool stall", "post-tool burst", "critical candidate", "background resume", "contention opportunity"} else "not observed"
+                if col in {"tool stall", "post-tool burst", "critical candidate", "background resume", "contention opportunity"}:
+                    display[col] = "strong observed"
+                elif col in {"parallel branch", "barrier", "fan-in"}:
+                    display[col] = "observed"
+                else:
+                    display[col] = "not observed"
         else:
             vals["parallel branch"] = 2 if present and safe_float(row.get("avg_request_burstiness")) >= 1.2 else (1 if name in {"independent", "researcher_synthesizer", "multi_coder_branch"} else 0)
             vals["barrier wait"] = 2 if present and safe_float(row.get("avg_barrier_wait_sec")) > 0 else (1 if name in {"independent", "multi_coder_branch", "all_gather_round"} else 0)

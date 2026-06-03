@@ -89,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-selected-agents", type=int, default=1)
     parser.add_argument("--max-selected-agents", type=int, default=3)
     parser.add_argument("--orchestrator-stop-confidence", type=float, default=0.78)
-    parser.add_argument("--tool-branch-width", type=int, choices=[1, 2, 4], default=2)
+    parser.add_argument("--tool-branch-width", type=int, choices=[1, 2, 4, 8], default=2)
     parser.add_argument("--controlled-tool-delay-sec", type=float, default=3.0)
     parser.add_argument(
         "--resume-phase-policy",

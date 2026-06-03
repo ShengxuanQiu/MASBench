@@ -69,7 +69,7 @@ class HybridTopology(BaseTopology):
                     evidence = self.search(
                         node_id=f"{node}_search",
                         node_name=f"{agent['name']}-Search-MR{manager_round}",
-                        query=f"{self.config.query}\n{agent_instruction}",
+                        query=f"MASBench graph-aware simulator tracing {agent['capability']} round {manager_round}",
                     )
                     user_prompt = f"Manager instruction: {agent_instruction}\nTask: {self.config.query}\nSpecialty: {agent['capability']}\nSearch evidence:\n{evidence}"
                 message = self.call_agent(

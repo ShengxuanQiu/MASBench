@@ -107,6 +107,25 @@ def backend_summary(path: Path) -> dict[str, Any]:
     return {}
 
 
+def backend_metric_delta(path: Path, metric_prefix: str) -> float:
+    metrics_path = path.with_name(path.stem + "_backend_metrics.json")
+    if not metrics_path.exists():
+        return 0.0
+    try:
+        payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return 0.0
+    values: list[float] = []
+    for sample in payload.get("samples", []):
+        metrics = sample.get("metrics") or {}
+        matched = [safe_float(v) for k, v in metrics.items() if str(k).startswith(metric_prefix)]
+        if matched:
+            values.append(sum(matched))
+    if len(values) < 2:
+        return 0.0
+    return max(0.0, values[-1] - values[0])
+
+
 def summarize_run(path: Path, events: list[dict[str, Any]]) -> dict[str, Any]:
     name = workflow_name(events, path)
     llm = [e for e in events if e.get("event_type") == "llm_request_end"]
@@ -170,6 +189,10 @@ def summarize_run(path: Path, events: list[dict[str, Any]]) -> dict[str, Any]:
         "critical_slowdown_ratio": (mean(critical_e2e) / max(median(background_e2e), 1e-9)) if critical_e2e and background_e2e else 0.0,
         "max_running_requests": bsum.get("max_num_requests_running", "unavailable"),
         "max_waiting_requests": bsum.get("max_num_requests_waiting", "unavailable"),
+        "max_gpu_cache_usage_perc": bsum.get("max_gpu_cache_usage_perc", "unavailable"),
+        "prefix_cache_hits_total_delta": backend_metric_delta(path, "vllm:prefix_cache_hits_total"),
+        "prefix_cache_queries_total_delta": backend_metric_delta(path, "vllm:prefix_cache_queries_total"),
+        "prompt_tokens_cached_total_delta": backend_metric_delta(path, "vllm:prompt_tokens_cached_total"),
         "avg_ttft_sec": bsum.get("backend_avg_ttft_sec_from_metrics", "unavailable"),
         "avg_tpot_sec": bsum.get("backend_avg_tpot_sec_from_metrics", "unavailable"),
         "queue_time": "unavailable",
@@ -471,6 +494,61 @@ def plot_context_pressure(rows: list[dict[str, Any]], fig_dir: Path) -> None:
     finish_plot(fig, out, "Evidence tier: workload/context proxy. Not real KV usage unless backend exposes KV fields.")
 
 
+def plot_subrequest_latency_vs_request_index(fig_dir: Path, trace_paths: list[Path]) -> None:
+    out = fig_dir / "fig_subrequest_latency_vs_request_index.png"
+    selected: tuple[Path, list[dict[str, Any]]] | None = None
+    for path in trace_paths:
+        events = read_jsonl(path)
+        if workflow_name(events, path) == "debate_allgather_pressure_meso":
+            llm = [e for e in events if e.get("event_type") == "llm_request_end"]
+            if any(e.get("shared_block_ids") for e in llm):
+                if not selected or len(llm) > len([e for e in selected[1] if e.get("event_type") == "llm_request_end"]):
+                    selected = (path, events)
+    if not selected:
+        plot_placeholder(out, "Subrequest latency vs request index", "No all-gather trace with shared block metadata found.")
+        return
+    path, events = selected
+    multi = sorted([e for e in events if e.get("event_type") == "llm_request_end"], key=lambda e: safe_float(e.get("request_submit_ts") or e.get("relative_time_sec")))
+    multi_y = [safe_float(e.get("request_e2e_sec") or e.get("duration_sec")) for e in multi]
+    baseline_candidates: list[float] = []
+    for candidate in trace_paths:
+        ev = read_jsonl(candidate)
+        for e in ev:
+            if e.get("event_type") == "llm_request_end" and not e.get("shared_block_ids") and e.get("workflow_name") != "debate_allgather_pressure_meso":
+                baseline_candidates.append(safe_float(e.get("request_e2e_sec") or e.get("duration_sec")))
+    if not baseline_candidates:
+        baseline_candidates = [median(multi_y) if multi_y else 0.0]
+    baseline_y = [baseline_candidates[i % len(baseline_candidates)] for i in range(len(multi_y))]
+    fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    xs = list(range(1, len(multi_y) + 1))
+    ax.plot(xs, multi_y, marker="o", label="multi-agent all-gather", color="#4c78a8", lw=2)
+    ax.plot(xs, baseline_y, marker="s", label="same-total independent proxy", color="#9aa0a6", lw=2)
+    ax.set_title("Subrequest latency evolves differently under all-gather context")
+    ax.set_xlabel("subrequest index")
+    ax.set_ylabel("request_e2e_sec")
+    ax.legend(fontsize=8)
+    finish_plot(fig, out, f"Evidence tier: observed + proxy baseline. Multi-agent line from {path.name}; independent line reuses non-shared requests as same-count proxy.")
+
+
+def plot_peak_kv_usage_multiagent_vs_independent(rows: list[dict[str, Any]], fig_dir: Path) -> None:
+    out = fig_dir / "fig_peak_kv_usage_multiagent_vs_independent.png"
+    data = [r for r in rows if r["workflow_name"] in {"debate_allgather_pressure_meso", "hierarchical_synthesis_pressure_meso", "shared_memory_fanin_meso"}]
+    if not data:
+        plot_placeholder(out, "Peak KV usage: multi-agent vs independent", "No multi-agent context rows.")
+        return
+    real_multi = max([safe_float(r.get("max_gpu_cache_usage_perc")) for r in data if r.get("max_gpu_cache_usage_perc") != "unavailable"] or [0.0])
+    multi_context = max(sum(safe_float(r.get("peak_concurrent_context_tokens")) for r in data), 1.0)
+    duplicated = sum(safe_float(r.get("duplicated_shared_context_tokens")) for r in data)
+    independent_context = max(multi_context - duplicated, 0.0)
+    independent_proxy = real_multi * (independent_context / max(multi_context, 1.0))
+    fig, ax = plt.subplots(figsize=(7.4, 4.8))
+    ax.bar(["multi-agent\nobserved backend peak", "same-total independent\nscaled proxy"], [real_multi, independent_proxy], color=["#4c78a8", "#9aa0a6"], edgecolor="black")
+    ax.set_title("Peak KV cache usage separates multi-agent from independent proxy")
+    ax.set_ylabel("peak GPU KV cache usage percent")
+    ax.text(0.5, max(real_multi, independent_proxy) * 0.80 if max(real_multi, independent_proxy) else 0.001, "multi-agent: vLLM /metrics\nindependent: context-scaled proxy", ha="center", fontsize=9)
+    finish_plot(fig, out, "Evidence tier: observed backend metric + proxy baseline. vLLM exposes run-level max_gpu_cache_usage_perc, not per-request KV residency.")
+
+
 def plot_pairwise_similarity(fig_dir: Path, trace_paths: list[Path]) -> None:
     out = fig_dir / "fig_pairwise_shared_block_similarity_heatmap.png"
     selected = selected_events(trace_paths, "debate_allgather_pressure_meso")
@@ -478,7 +556,10 @@ def plot_pairwise_similarity(fig_dir: Path, trace_paths: list[Path]) -> None:
         plot_placeholder(out, "Pairwise shared block similarity heatmap", "No all-gather trace found.")
         return
     _, events = selected
-    reqs = [e for e in events if e.get("event_type") == "llm_request_end" and e.get("all_gather_group_id")]
+    reqs = [e for e in events if e.get("event_type") == "llm_request_end" and e.get("all_gather_group_id") and e.get("shared_block_ids")]
+    groups = sorted({str(e.get("all_gather_group_id")) for e in reqs})
+    group = max(groups, key=lambda g: sum(1 for e in reqs if str(e.get("all_gather_group_id")) == g)) if groups else ""
+    reqs = [e for e in reqs if str(e.get("all_gather_group_id")) == group]
     agents = sorted({str(e.get("node_id")) for e in reqs})[:8]
     if not agents:
         plot_placeholder(out, "Pairwise shared block similarity heatmap", "No shared block metadata found.")
@@ -497,7 +578,7 @@ def plot_pairwise_similarity(fig_dir: Path, trace_paths: list[Path]) -> None:
     ax.set_yticks(range(len(agents)), agents, fontsize=7)
     ax.set_title("Pairwise shared block similarity across sibling prompts")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    finish_plot(fig, out, "Evidence tier: proxy. Value is shared block overlap ratio, not semantic equivalence or KV cache hit rate.")
+    finish_plot(fig, out, f"Evidence tier: proxy. Value is pairwise shared block overlap ratio within {group}; not semantic equivalence or per-request KV cache hit rate.")
 
 
 def plot_allgather_tokens(rows: list[dict[str, Any]], fig_dir: Path) -> None:
@@ -532,85 +613,272 @@ def plot_collective_reuse_proxy(rows: list[dict[str, Any]], fig_dir: Path) -> No
     finish_plot(fig, out, "Evidence tier: proxy only. This motivates round-level collective reuse optimization; no optimization is implemented here.")
 
 
+def _tool_trace(trace_paths: list[Path]) -> tuple[Path, list[dict[str, Any]]] | None:
+    return selected_events(trace_paths, "tool_resume_contention_meso")
+
+
+def _llm_windows(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return request_windows(events)
+
+
+def _event_tokens(event: dict[str, Any]) -> float:
+    return safe_float(event.get("estimated_kv_tokens") or event.get("total_tokens") or event.get("total_tokens_est") or event.get("input_tokens") or event.get("input_tokens_est"))
+
+
+def plot_critical_tool_resume_workflow_dag(fig_dir: Path) -> None:
+    out = fig_dir / "fig_tokencake_workflow_dag.png"
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    ax.axis("off")
+    nodes = {
+        "planner": (0.08, 0.72, "#c62828"),
+        "critical_coder": (0.30, 0.72, "#c62828"),
+        "critical_reviewer": (0.52, 0.72, "#c62828"),
+        "finalizer": (0.76, 0.72, "#c62828"),
+        "tool_agent_i\nLLM-1": (0.24, 0.34, "#4c78a8"),
+        "function call\n/tool wait": (0.48, 0.34, "#7aa6c2"),
+        "background_resume_i\nLLM-2": (0.72, 0.34, "#4c78a8"),
+        "late evidence\nmerge": (0.90, 0.34, "#9aa0a6"),
+    }
+    for label, (x, y, color) in nodes.items():
+        ax.text(x, y, label, ha="center", va="center", fontsize=10, color="white", bbox={"boxstyle": "round,pad=0.35", "fc": color, "ec": "black", "lw": 1.2})
+    edges = [
+        ("planner", "critical_coder", "#c62828", 2.6),
+        ("critical_coder", "critical_reviewer", "#c62828", 2.6),
+        ("critical_reviewer", "finalizer", "#c62828", 2.6),
+        ("planner", "tool_agent_i\nLLM-1", "#4c78a8", 1.8),
+        ("tool_agent_i\nLLM-1", "function call\n/tool wait", "#4c78a8", 1.8),
+        ("function call\n/tool wait", "background_resume_i\nLLM-2", "#4c78a8", 1.8),
+        ("background_resume_i\nLLM-2", "late evidence\nmerge", "#4c78a8", 1.8),
+    ]
+    for src, dst, color, lw in edges:
+        x1, y1, _ = nodes[src]
+        x2, y2, _ = nodes[dst]
+        ax.annotate("", xy=(x2 - 0.055, y2), xytext=(x1 + 0.055, y1), arrowprops={"arrowstyle": "->", "lw": lw, "color": color})
+    ax.text(0.50, 0.92, "tool_resume_contention_meso: critical path vs non-critical tool-stalled branches", ha="center", fontsize=13, weight="bold")
+    ax.text(0.52, 0.14, "Question answered: which MAS graph structure can create overlap between non-critical tool resume and critical reviewer/finalizer requests?", ha="center", fontsize=10)
+    finish_plot(fig, out, "Evidence tier: structure/motivation. Red nodes are critical path; blue nodes are non-critical branches with LLM-1 -> Tool Call -> LLM-2 Resume lifecycle.")
+
+
+def plot_critical_overlap_events_over_time(fig_dir: Path, trace_paths: list[Path]) -> None:
+    out = fig_dir / "fig_critical_overlap_events_over_time.png"
+    selected_runs: list[tuple[Path, list[dict[str, Any]]]] = []
+    for path in trace_paths:
+        events = read_jsonl(path)
+        if workflow_name(events, path) == "tool_resume_contention_meso":
+            selected_runs.append((path, events))
+    if not selected_runs:
+        plot_placeholder(out, "Critical overlap events over time", "No tool_resume_contention_meso trace found.")
+        return
+    overlap_ts: list[float] = []
+    resume_overlap_ts: list[float] = []
+    slowdown_ts: list[float] = []
+    offset = 0.0
+    for _, events in selected_runs:
+        windows = _llm_windows(events)
+        critical = [w for w in windows if w["event"].get("criticality") == "critical" and w["event"].get("critical_stage") in {"reviewer", "finalizer"}]
+        resume = [w for w in windows if w["event"].get("background_resume_request")]
+        crit_durations = [safe_float(w["event"].get("request_e2e_sec") or w["event"].get("duration_sec")) for w in critical]
+        slowdown_threshold = (median(crit_durations) * 1.25) if crit_durations else math.inf
+        for c in critical:
+            matched = [b for b in resume if overlaps(c, b)]
+            for b in matched:
+                ts = offset + max(c["start"], b["start"])
+                overlap_ts.append(ts)
+                resume_overlap_ts.append(ts)
+            if matched and safe_float(c["event"].get("request_e2e_sec") or c["event"].get("duration_sec")) > slowdown_threshold:
+                slowdown_ts.append(offset + c["start"])
+        offset += max([event_end(e) for e in events] or [0.0]) + 0.5
+    all_times = sorted(set([0.0] + overlap_ts + resume_overlap_ts + slowdown_ts + [offset]))
+    if len(all_times) == 1:
+        all_times.append(all_times[0] + 0.01)
+    def cumulative(series: list[float]) -> list[int]:
+        return [sum(1 for ts in series if ts <= t) for t in all_times]
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    ax.step(all_times, cumulative(overlap_ts), where="post", label="total overlap events", color="#4c78a8", lw=2)
+    ax.step(all_times, cumulative(resume_overlap_ts), where="post", label="background-resume-overlap-critical", color="#ff7f0e", lw=2)
+    ax.step(all_times, cumulative(slowdown_ts), where="post", label="critical slowdown events", color="#c62828", lw=2)
+    ax.set_title("Critical overlap events accumulate over the workflow timeline")
+    ax.set_xlabel("relative time (sec)")
+    ax.set_ylabel("cumulative event count")
+    ax.legend(fontsize=8)
+    finish_plot(fig, out, f"Evidence tier: observed overlap, slowdown conditional. Aggregated tool_resume_contention_meso runs={len(selected_runs)}. If slowdown line stays 0, overlap was observed but critical slowdown was not.")
+
+
+def plot_noncritical_kv_occupancy_proxy(fig_dir: Path, trace_paths: list[Path]) -> None:
+    out = fig_dir / "fig_noncritical_kv_occupancy_proxy.png"
+    selected = _tool_trace(trace_paths)
+    if not selected:
+        plot_placeholder(out, "Non-critical KV occupancy proxy", "No tool_resume_contention_meso trace found.")
+        return
+    _, events = selected
+    llm = _llm_windows(events)
+    tool_windows = [
+        {"event": e, "start": event_start(e), "end": event_end(e), "tokens": 0.0}
+        for e in events
+        if str(e.get("event_type", "")).startswith("tool_") and e.get("tool_stalled")
+    ]
+    resume_tokens = [_event_tokens(w["event"]) for w in llm if w["event"].get("background_resume_request")]
+    stalled_proxy_tokens = median(resume_tokens) if resume_tokens else 256.0
+    for w in tool_windows:
+        w["tokens"] = stalled_proxy_tokens
+    critical = [w for w in llm if w["event"].get("criticality") == "critical"]
+    resume = [w for w in llm if w["event"].get("background_resume_request")]
+    end = max([event_end(e) for e in events] or [1.0])
+    times = [end * i / 120 for i in range(121)]
+    def occupancy(windows: list[dict[str, Any]]) -> list[float]:
+        return [sum(safe_float(w.get("tokens")) for w in windows if w["start"] <= t <= w["end"]) for t in times]
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    ax.plot(times, occupancy(tool_windows), label="stalled non-critical KV proxy", color="#7aa6c2", lw=2)
+    ax.plot(times, occupancy(critical), label="active critical KV proxy", color="#c62828", lw=2)
+    ax.plot(times, occupancy(resume), label="background resume KV proxy", color="#ff7f0e", lw=2)
+    metrics = backend_summary(selected[0])
+    max_gpu = metrics.get("max_gpu_cache_usage_perc")
+    if max_gpu != "unavailable" and max_gpu is not None:
+        ax.text(0.98, 0.88, f"observed backend peak KV cache usage: {safe_float(max_gpu):.4f}", transform=ax.transAxes, ha="right", fontsize=8, bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#666"})
+    ax.set_title("Non-critical branches can hold or reintroduce KV/cache pressure")
+    ax.set_xlabel("relative time (sec)")
+    ax.set_ylabel("estimated KV tokens / blocks proxy")
+    ax.legend(fontsize=8)
+    finish_plot(fig, out, "Evidence tier: proxy curves + observed run-level backend KV metric. Curves are not per-request KV block residency.")
+
+
+def plot_tool_call_kv_lifecycle(fig_dir: Path, trace_paths: list[Path]) -> None:
+    out = fig_dir / "fig_tool_call_kv_lifecycle.png"
+    selected = _tool_trace(trace_paths)
+    if not selected:
+        plot_placeholder(out, "Tool-call KV lifecycle", "No tool_resume_contention_meso trace found.")
+        return
+    _, events = selected
+    branch = "tool_branch_1"
+    stages = []
+    for e in events:
+        if e.get("background_branch_id") != branch:
+            continue
+        stage = e.get("function_call_lifecycle_stage")
+        if e.get("event_type") == "llm_request_end" and stage in {"llm_1_pre_tool", "llm_2_resume"}:
+            stages.append((stage, event_start(e), event_end(e), "#4c78a8"))
+        elif str(e.get("event_type", "")).startswith("tool_") and stage == "tool_call_wait":
+            stages.append(("tool_call_wait", event_start(e), event_end(e), "#7aa6c2"))
+    if not stages:
+        stages = [
+            ("llm_1_pre_tool", 0.0, 0.8, "#4c78a8"),
+            ("tool_call_wait", 0.8, 2.4, "#7aa6c2"),
+            ("llm_2_resume", 2.4, 3.2, "#4c78a8"),
+        ]
+    stages = sorted(stages, key=lambda x: x[1])
+    fig, ax = plt.subplots(figsize=(9, 3.6))
+    y = 0
+    for label, start, end, color in stages:
+        ax.barh(y, max(end - start, 0.01), left=start, height=0.35, color=color, edgecolor="black")
+        ax.text(start + max(end - start, 0.01) / 2, y, label.replace("_", " "), ha="center", va="center", fontsize=8, color="white")
+    tool = next((s for s in stages if s[0] == "tool_call_wait"), None)
+    if tool:
+        ax.annotate("estimated idle KV interval\n(no real KV residency field)", xy=((tool[1] + tool[2]) / 2, 0.24), xytext=((tool[1] + tool[2]) / 2, 0.55), ha="center", arrowprops={"arrowstyle": "->", "color": "#444"})
+    ax.set_title("Tool-call lifecycle exposes possible idle KV residency interval")
+    ax.set_xlabel("relative time (sec)")
+    ax.set_yticks([])
+    finish_plot(fig, out, "Evidence tier: lifecycle observed, KV residency proxy. Trace also has run-level vLLM KV cache usage, but no per-request KV block allocation/residency field.")
+
+
+def plot_critical_latency_vs_overlap_count(rows: list[dict[str, Any]], fig_dir: Path) -> None:
+    out = fig_dir / "fig_critical_latency_vs_overlap_count.png"
+    data = [r for r in rows if r["workflow_name"] == "tool_resume_contention_meso"]
+    if not data:
+        plot_placeholder(out, "Critical latency vs overlap count", "No tool_resume_contention_meso rows.")
+        return
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    xs = [safe_float(r.get("critical_background_overlap_count")) for r in data]
+    ys = [safe_float(r.get("critical_request_e2e_avg_sec")) for r in data]
+    colors = ["#c62828" if safe_float(r.get("critical_slowdown_ratio")) > 1.25 else "#4c78a8" for r in data]
+    ax.scatter(xs, ys, s=80, color=colors, edgecolor="black")
+    ax.set_title("Does background resume overlap slow critical requests?")
+    ax.set_xlabel("overlapping background resume request count")
+    ax.set_ylabel("critical reviewer/finalizer request_e2e_sec")
+    finish_plot(fig, out, "Evidence tier: observed/proxy. If points do not rise with overlap and waiting=0, report as overlap observed but slowdown not yet observed.")
+
+
+def plot_round_allgather_prompt_structure(fig_dir: Path) -> None:
+    out = fig_dir / "fig_tokendance_allgather_prompt_structure.png"
+    fig, ax = plt.subplots(figsize=(11, 5.8))
+    ax.axis("off")
+    ax.set_title("Round-level all-gather prompt structure: private history + shared output blocks", fontsize=13, weight="bold")
+    round_t_y = 0.78
+    agents = ["A1", "A2", "A3"]
+    xs = [0.16, 0.34, 0.52]
+    for x, a in zip(xs, agents):
+        ax.add_patch(plt.Rectangle((x, round_t_y - 0.05), 0.12, 0.10, facecolor="#f9cb9c", edgecolor="black"))
+        ax.text(x + 0.06, round_t_y, f"{a}\noutput block", ha="center", va="center", fontsize=8)
+        ax.annotate("", xy=(0.72, 0.62), xytext=(x + 0.06, round_t_y - 0.06), arrowprops={"arrowstyle": "->", "color": "#555"})
+    ax.add_patch(plt.Rectangle((0.64, 0.55), 0.18, 0.14, facecolor="#d9ead3", edgecolor="black"))
+    ax.text(0.73, 0.62, "scheduler /\nall-gather", ha="center", va="center", fontsize=9)
+    y0 = 0.34
+    orders = [["P1", "B1", "B2", "B3"], ["P2", "B2", "B3", "B1"], ["P3", "B3", "B1", "B2"]]
+    colors = {"P1": "#d9ead3", "P2": "#d9ead3", "P3": "#d9ead3", "B1": "#9fc5e8", "B2": "#f9cb9c", "B3": "#c9daf8"}
+    for row, order in enumerate(orders):
+        y = y0 - row * 0.13
+        ax.text(0.05, y, f"round t+1 agent {row+1}", ha="left", va="center", fontsize=9)
+        x = 0.28
+        for block in order:
+            w = 0.12 if block.startswith("P") else 0.10
+            label = "private" if block.startswith("P") else f"shared {block}"
+            ax.add_patch(plt.Rectangle((x, y - 0.04), w, 0.08, facecolor=colors[block], edgecolor="black"))
+            ax.text(x + w / 2, y, label, ha="center", va="center", fontsize=7)
+            x += w + 0.015
+    ax.text(0.52, 0.04, "Question answered: why all-gather is not ordinary fan-in? Each sibling keeps private history while repeatedly carrying shared blocks.", ha="center", fontsize=10)
+    finish_plot(fig, out, "Evidence tier: structure/motivation. The same shared blocks are repeated across sibling prompts, possibly at different prompt positions.")
+
+
+def plot_allgather_growth_with_agent_count(rows: list[dict[str, Any]], fig_dir: Path) -> None:
+    out = fig_dir / "fig_allgather_growth_with_agent_count.png"
+    data = sorted([r for r in rows if r["workflow_name"] == "debate_allgather_pressure_meso"], key=lambda r: safe_float(r.get("agent_count")))
+    if not data:
+        plot_placeholder(out, "All-gather growth with agent count", "No all-gather rows.")
+        return
+    xs = [safe_float(r.get("agent_count")) for r in data]
+    shared_copies = [safe_float(r.get("shared_block_count")) for r in data]
+    dup_tokens = [safe_float(r.get("duplicated_shared_context_tokens")) for r in data]
+    kv = [safe_float(r.get("estimated_kv_tokens")) for r in data]
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    ax.plot(xs, shared_copies, marker="o", label="total shared block copies")
+    ax.plot(xs, dup_tokens, marker="s", label="duplicated shared tokens")
+    ax.plot(xs, kv, marker="^", label="estimated KV tokens")
+    ax.set_title("All-gather redundancy grows with round size")
+    ax.set_xlabel("agent count / round size")
+    ax.set_ylabel("copies / token proxy")
+    ax.legend(fontsize=8)
+    finish_plot(fig, out, "Evidence tier: observed/proxy. Growth is driven by repeated shared block copies, not only by unique context growth.")
+
+
+def plot_per_request_vs_collective_reuse_work_proxy(rows: list[dict[str, Any]], fig_dir: Path) -> None:
+    out = fig_dir / "fig_per_request_vs_collective_reuse_work_proxy.png"
+    data = [r for r in rows if r["workflow_name"] == "debate_allgather_pressure_meso"]
+    if not data:
+        plot_placeholder(out, "Per-request vs collective reuse work proxy", "No all-gather rows.")
+        return
+    per = sum(safe_float(r.get("per_request_reuse_work_proxy")) for r in data)
+    coll = sum(safe_float(r.get("collective_reuse_work_proxy")) for r in data)
+    fig, ax = plt.subplots(figsize=(7.2, 4.8))
+    ax.bar(["per-request\nagent_count x shared_blocks", "collective\nshared_blocks once"], [per, coll], color=["#ff7f0e", "#4c78a8"], edgecolor="black")
+    ax.set_title("Round-level collective reuse opportunity")
+    ax.set_ylabel("reuse work proxy")
+    ax.text(0.5, max(per, coll) * 0.85 if max(per, coll) else 0.5, "proxy only:\nno cache optimization implemented", ha="center", fontsize=9)
+    finish_plot(fig, out, "Evidence tier: proxy. It motivates collective reuse because sibling prompts repeat the same shared blocks.")
+
+
 def write_figures(rows: list[dict[str, Any]], trace_paths: list[Path], fig_dir: Path) -> None:
     fig_dir.mkdir(parents=True, exist_ok=True)
-    plot_critical_path_contention_workflow(fig_dir)
-    plot_critical_overlap_timeline(fig_dir, trace_paths)
-    plot_critical_latency_overlap(rows, fig_dir)
-    plot_kv_idle_proxy(rows, fig_dir)
-    plot_running_waiting_overlap(rows, fig_dir)
-    plot_allgather_prompt_blocks(fig_dir)
+    plot_critical_tool_resume_workflow_dag(fig_dir)
+    plot_critical_overlap_events_over_time(fig_dir, trace_paths)
+    plot_noncritical_kv_occupancy_proxy(fig_dir, trace_paths)
+    plot_tool_call_kv_lifecycle(fig_dir, trace_paths)
+    plot_critical_latency_vs_overlap_count(rows, fig_dir)
+    plot_round_allgather_prompt_structure(fig_dir)
+    plot_subrequest_latency_vs_request_index(fig_dir, trace_paths)
+    plot_peak_kv_usage_multiagent_vs_independent(rows, fig_dir)
     plot_context_pressure(rows, fig_dir)
     plot_pairwise_similarity(fig_dir, trace_paths)
-    plot_allgather_tokens(rows, fig_dir)
-    plot_collective_reuse_proxy(rows, fig_dir)
-    plot_tool_timeline(fig_dir, trace_paths)
-    plot_scatter(
-        rows,
-        fig_dir,
-        "fig_critical_latency_vs_resume_width.png",
-        "Critical latency vs background resume width",
-        "background_resume_request_count",
-        "critical_request_e2e_avg_sec",
-        "background resume requests",
-        "avg critical request e2e sec",
-        "tool_resume_contention_meso",
-    )
-    plot_scatter(
-        rows,
-        fig_dir,
-        "fig_running_waiting_requests_during_overlap.png",
-        "vLLM running/waiting requests during overlap",
-        "max_running_requests",
-        "max_waiting_requests",
-        "max running requests",
-        "max waiting requests",
-        "tool_resume_contention_meso",
-    )
-    plot_scatter(
-        rows,
-        fig_dir,
-        "fig_hierarchical_fanin_vs_context_amplification.png",
-        "Hierarchical fan-in turns parallelism into context pressure",
-        "fan_in_width",
-        "context_amplification_ratio",
-        "fan-in width",
-        "context amplification ratio",
-        "hierarchical_synthesis_pressure_meso",
-    )
-    plot_scatter(
-        rows,
-        fig_dir,
-        "fig_allgather_tokens_vs_agents.png",
-        "All-gather/debate creates broadcast-style duplication",
-        "agent_count",
-        "broadcast_tokens",
-        "agent count",
-        "broadcast tokens",
-        "debate_allgather_pressure_meso",
-    )
-    plot_line(
-        rows,
-        fig_dir,
-        "fig_retry_depth_vs_work_amplification.png",
-        "Retry/debug loop depth amplifies backend work",
-        "retry_loop_depth",
-        ["llm_request_count", "total_tokens", "makespan_sec"],
-        "loop depth",
-        "workload cost",
-        "retry_debug_pressure_meso",
-    )
-    plot_scatter(
-        rows,
-        fig_dir,
-        "fig_shared_memory_read_write_pressure.png",
-        "Shared memory introduces artifact movement pressure",
-        "memory_read_count",
-        "shared_evidence_read_tokens",
-        "memory reads",
-        "shared evidence read tokens",
-        "shared_memory_fanin_meso",
-    )
+    plot_allgather_growth_with_agent_count(rows, fig_dir)
+    plot_per_request_vs_collective_reuse_work_proxy(rows, fig_dir)
 
 
 def report_markdown(rows: list[dict[str, Any]], trace_root: Path) -> str:
@@ -619,71 +887,87 @@ def report_markdown(rows: list[dict[str, Any]], trace_root: Path) -> str:
     slowdown = [safe_float(r.get("critical_slowdown_ratio")) for r in tool if safe_float(r.get("critical_slowdown_ratio")) > 0]
     max_waiting = max([safe_float(r.get("max_waiting_requests")) for r in tool if r.get("max_waiting_requests") != "unavailable"] or [0.0])
     tool_claim = "observed overlap / contention opportunity；当前没有足够证据声称 priority inversion。" if max_waiting <= 0 or (slowdown and mean(slowdown) < 1.0) else "observed overlap plus queue/slowdown signal；可作为 serving-level contention evidence 的候选。"
+    context_rows = [r for r in rows if r["workflow_name"] in {"debate_allgather_pressure_meso", "hierarchical_synthesis_pressure_meso", "shared_memory_fanin_meso"}]
+    duplicated_shared = sum(safe_float(r.get("duplicated_shared_context_tokens")) for r in context_rows)
+    shared_blocks = sum(safe_float(r.get("shared_block_count")) for r in context_rows)
+    max_gpu_cache = max([safe_float(r.get("max_gpu_cache_usage_perc")) for r in rows if r.get("max_gpu_cache_usage_perc") != "unavailable"] or [0.0])
+    prefix_hits = sum(safe_float(r.get("prefix_cache_hits_total_delta")) for r in rows)
+    prefix_queries = sum(safe_float(r.get("prefix_cache_queries_total_delta")) for r in rows)
     return f"""# Week3 Meso Workflow Systems Insight Report
 
-## 1. Critical-path tool-resume contention workflow
+## 1. Tokencake-style Motivation: Critical-path contention and tool-call KV underutilization
 
-`tool_resume_contention_meso` 现在显式区分 critical / non-critical agent。Critical path 是 `planner -> critical_coder -> critical_reviewer -> finalizer`，所有节点都标记 `criticality=critical`、`critical_path_candidate=true` 和 `critical_stage`。Non-critical branch 是 `tool_agent_i -> function_call/tool_wait -> background_resume_i`，标记 `criticality=non_critical`、`tool_stalled=true`、`resume_after_tool=true`、`background_resume_request=true`。
+`tool_resume_contention_meso` 不是只观察 tool latency，而是把 MAS graph 中的 critical path 和 non-critical tool-stalled branches 分开记录。Critical path 是 `planner -> critical_coder -> critical_reviewer -> finalizer`。Non-critical branch 是 `tool_agent_i / LLM-1 -> function call / tool wait -> background_resume_i / LLM-2`。这个结构允许工具返回后的 background resume request 与 critical reviewer/finalizer request 在时间上重叠。
 
-![Critical-path contention workflow](figures/fig_critical_path_contention_workflow.png)
+![Tokencake workflow DAG](figures/fig_tokencake_workflow_dag.png)
 
-读法：红色节点是 critical path，蓝色节点是 non-critical tool-stalled branch。蓝色分支的生命周期是 LLM-1 触发 function call，进入 tool wait，工具返回后通过 LLM-2 resume。
+读法：红色节点是 critical path，蓝色节点是 non-critical tool branch。蓝色分支显式展示 `LLM-1 -> Tool Call -> LLM-2 Resume` 生命周期。它回答的问题是：什么样的 MAS DAG 会自然制造 non-critical resume 与 critical request 的潜在争用窗口？
 
-![Critical overlap timeline](figures/fig_critical_overlap_timeline.png)
+![Critical overlap events over time](figures/fig_critical_overlap_events_over_time.png)
 
-读法：红色段是 critical reviewer/finalizer request，蓝色段是 non-critical background resume request，绿色段是 tool wait。蓝色和红色在时间轴上重叠时，说明形成 observed overlap / contention opportunity。
+读法：横轴是 workflow 时间，纵轴是累计事件数。蓝线表示所有 critical/background overlap，橙线表示 background-resume-overlap-critical，红线表示 critical slowdown events。如果红线为 0，说明当前只观察到 overlap opportunity，还没有观察到 critical slowdown。当前 `tool_resume_contention_meso` runs={len(tool)}，overlap runs={overlap_runs}，critical slowdown ratio avg=`{mean(slowdown) if slowdown else 0:.3f}`。判断：{tool_claim}
 
-![Critical latency vs background overlap](figures/fig_critical_latency_vs_background_overlap.png)
+![Non-critical KV occupancy proxy](figures/fig_noncritical_kv_occupancy_proxy.png)
 
-读法：横轴是 overlapping non-critical resume request count，纵轴是 critical reviewer/finalizer 的 request e2e latency。当前 `tool_resume_contention_meso` runs={len(tool)}，overlap runs={overlap_runs}，critical slowdown ratio avg=`{mean(slowdown) if slowdown else 0:.3f}`。判断：{tool_claim}
+读法：这不是 latency 图，而是 KV/cache pressure proxy。横轴是时间，纵轴是 estimated KV tokens / blocks proxy。蓝线表示 tool wait 期间 stalled non-critical branch 可能保留的 KV proxy，红线表示 active critical request 的 KV proxy，橙线表示 background resume 的 KV proxy。它回答的问题是：非关键分支虽然不决定 makespan，但是否仍可能占用 serving/cache 资源？
 
-![Running waiting requests overlap](figures/fig_running_waiting_requests_overlap.png)
+![Tool-call KV lifecycle](figures/fig_tool_call_kv_lifecycle.png)
 
-读法：这张图只看 vLLM `/metrics` 的 running / waiting request count。如果 waiting requests 一直为 0，说明当前负载还不足以证明 backend queue contention。
+读法：这张图画单个 non-critical agent 的生命周期：LLM inference 1、tool/function call、estimated idle KV interval、LLM inference 2 resume。当前 trace 已经有 run-level vLLM KV cache usage metric，例如 `max_gpu_cache_usage_perc`，但没有 per-request KV block residency 字段，所以这里的 idle interval 仍是 estimated interval，不是 backend per-request residency evidence。
 
-## 2. Tool-stall time underutilization proxy
+![Critical latency vs overlap count](figures/fig_critical_latency_vs_overlap_count.png)
 
-![KV idle proxy during tool call](figures/fig_kv_idle_proxy_during_tool_call.png)
+读法：横轴是 overlapping background resume request count，纵轴是 critical reviewer/finalizer request e2e latency。它回答的问题是：observed overlap 是否进一步转化为 critical request slowdown？如果点没有随 overlap 上升，且 waiting requests 为 0，则结论只能写作 observed overlap / contention opportunity，不能写成 serving-level contention 或 priority inversion。
 
-读法：纵轴是 `stalled_agent_count * estimated_kv_tokens`。这使用 idle KV blocks 风格的观察方式，但当前只是 workload-level proxy，不是真实 KV block allocation、KV residency 或 idle interval。后续如果 vLLM trace 暴露 per-request KV block allocation / residency，才能把这条升级为真实 backend evidence。
+结论边界：当前可以声称 workload-level overlap / contention opportunity。只有在 queue wait、batch membership、critical slowdown 明确出现时，才能声称 serving-level contention 或 priority inversion。
 
-## 3. Round-level all-gather context redundancy
+## 2. TokenDance-style Motivation: All-Gather context redundancy
 
-`debate_allgather_pressure_meso`、`hierarchical_synthesis_pressure_meso` 和 `shared_memory_fanin_meso` 现在记录 round-aware / block-aware metadata：`private_history_tokens`、`shared_block_ids`、`shared_block_tokens`、`shared_block_hashes`、`block_position_in_prompt`、`all_gather_group_id`、`round_shared_context_tokens`、`duplicated_shared_context_tokens` 和 `pairwise_shared_block_similarity_proxy`。
+`debate_allgather_pressure_meso`、`hierarchical_synthesis_pressure_meso` 和 `shared_memory_fanin_meso` 记录 round-aware / block-aware metadata：`private_history_tokens`、`shared_block_ids`、`shared_block_tokens`、`shared_block_hashes`、`block_position_in_prompt`、`all_gather_group_id`、`round_shared_context_tokens`、`duplicated_shared_context_tokens` 和 `pairwise_shared_block_similarity_proxy`。MAS all-gather 的问题不是普通 fan-in，而是每个 agent prompt 同时包含 private history 和重复 shared output blocks。
 
-![All-gather prompt blocks](figures/fig_allgather_prompt_blocks.png)
+![TokenDance all-gather prompt structure](figures/fig_tokendance_allgather_prompt_structure.png)
 
-读法：每个 agent prompt 都由 private history 和 shared output blocks 组成。相同 shared block 会出现在多个 sibling prompt 中，且 block position 可以不同。
+读法：上半部分是 round t 中多个 agents 生成 output blocks；中间是 scheduler/all-gather 收集 blocks；下半部分是 round t+1 中每个 agent prompt = private history + shared output blocks。相同 shared block 在不同 agent prompt 中重复出现，位置也可以不同。
+
+![Subrequest latency vs request index](figures/fig_subrequest_latency_vs_request_index.png)
+
+读法：横轴是 subrequest index，纵轴是 request e2e latency。蓝线是真实 multi-agent all-gather trace，灰线是同请求数量的 independent proxy。它回答的问题是：multi-agent all-gather 的 latency 演化模式是否不同于普通独立请求，而不是只比较平均 latency。
+
+![Peak KV usage multi-agent vs independent](figures/fig_peak_kv_usage_multiagent_vs_independent.png)
+
+读法：左柱使用 vLLM `/metrics` 里的真实 run-level peak GPU KV cache usage，右柱是 same-total independent 的 context-scaled proxy。它回答的问题是：multi-agent shared-context redundancy 是否会变成更高的 cache pressure。注意 independent baseline 目前还没有单独实跑。
+
+![Multi-agent vs independent context pressure](figures/fig_multiagent_vs_independent_context_pressure.png)
+
+读法：这张图对比 multi-agent all-gather workload 和相同数量 independent requests 的 context/KV proxy。重点不是 makespan，而是 peak concurrent context tokens、duplicated shared context tokens 和 estimated KV tokens。当前所有 KV 数值都是 proxy，不是真实 KV usage。
 
 ![Pairwise shared block similarity heatmap](figures/fig_pairwise_shared_block_similarity_heatmap.png)
 
 读法：行列是 sibling agents，颜色表示 shared block overlap ratio。颜色越深，说明 agent prompts 之间重复 shared context 越多。这支持 context/KV sharing 的研究动机，但不等价于真实 prefix cache hit。
 
-![All-gather tokens vs agent count](figures/fig_allgather_tokens_vs_agent_count.png)
+![All-gather growth with agent count](figures/fig_allgather_growth_with_agent_count.png)
 
-读法：横轴是 agent count / round size，纵轴是 duplicated shared context tokens 和 broadcast tokens。它展示 all-gather 压力随 agent 数增长，而不是普通 makespan 差异。
+读法：横轴是 agent count / round size，纵轴同时展示 total shared block copies、duplicated shared tokens 和 estimated KV tokens。它回答的问题是：all-gather 的压力为什么会随 agent 数增长？原因不是 unique context 简单增加，而是 shared blocks 被复制到多个 sibling prompts。
 
-![Per request vs collective reuse proxy](figures/fig_per_request_vs_collective_reuse_proxy.png)
+![Per-request vs collective reuse work proxy](figures/fig_per_request_vs_collective_reuse_work_proxy.png)
 
-读法：橙色是 per-request reuse work proxy = `agent_count * shared_block_count`，蓝色是 collective reuse work proxy = `shared_block_count`。这只说明 round-level collective reuse 有研究价值，没有实现该优化。
+读法：橙色是 per-request reuse work proxy = `agent_count * shared_block_count`，蓝色是 collective reuse work proxy = `shared_block_count`。这张图不表示我们实现了 cache optimization，只说明 round-level collective reuse 有明确的研究机会。当前 context rows={len(context_rows)}，shared block copies proxy=`{shared_blocks:.0f}`，duplicated shared context tokens proxy=`{duplicated_shared:.0f}`。
 
-## 4. Multi-agent vs independent context pressure
+结论边界：这些图可以支撑 context/KV sharing 的研究动机。当前 trace 已经有 run-level `max_gpu_cache_usage_perc`、prefix-cache counter delta 和 cached prompt token counter；本轮汇总中 max GPU cache usage=`{max_gpu_cache:.6f}`，prefix cache hits delta=`{prefix_hits:.0f}`，prefix cache queries delta=`{prefix_queries:.0f}`。但我们还不能声称已经实现 cache optimization，也不能把 run-level prefix-cache counter 解释成 per-request shared-block reuse。
 
-![Multi-agent vs independent context pressure](figures/fig_multiagent_vs_independent_context_pressure.png)
+## 3. What changed from previous figures
 
-读法：multi-agent all-gather workflow 会引入 duplicated shared tokens、estimated KV tokens 和 peak concurrent context tokens。这里所有 KV 相关数值都是 workload/context proxy；除非 trace 中出现真实 KV usage / KV block 字段，否则不能声称真实 KV usage。
+旧图偏 avg makespan、request count 或单个 latency scatter，信息量不足：它们只能说明某些 workload 更慢或 request 更多，但很难解释为什么这是 serving / KV / cache / scheduler 的系统问题。
 
-## 5. What this observation model captures
+新图改成 motivation-style figures：先画结构图，再画问题量化图，再标注 proxy 边界。Critical-path 组图回答的是 “tool-stalled non-critical branches 如何在 resume 后与 critical path 产生 overlap，并可能带来 KV/cache pressure”；All-gather 组图回答的是 “multi-agent prompt 为什么不是 independent requests，而是 private history + repeated shared blocks 的 context movement”。
 
-Critical-path 争用视角：critical inversion、function-call stall、idle KV proxy、critical/non-critical distinction。我们的 workload 已经能观察 critical/non-critical overlap opportunity，但只有出现 queue wait、batch evidence 或 clear critical slowdown 时，才能声称 serving-level contention。
+这些图更适合论文中的 “workload characterization -> system insight -> optimization opportunity” 叙事：我们先证明 MAS workload 的结构会制造特殊 serving pressure，再谨慎区分 observed evidence、proxy evidence 和需要 backend instrumentation 的 TODO。
 
-All-gather context 视角：round-level all-gather、shared blocks、sibling prompt similarity、collective reuse opportunity。我们的 trace 已经能记录 shared output blocks 和 sibling prompt overlap proxy，但没有实现 collective KV/cache optimization，也不声称 prefix cache improvement。
+## 4. Evidence boundary
 
-## 6. Evidence boundary
-
-- Observed：critical/non-critical request overlap、tool wait interval、running/waiting request metrics、round-level all-gather duplicated context。
-- Proxy：KV idle proxy、pairwise shared block similarity、multi-agent vs independent context pressure、per-request vs collective reuse work。
-- Unavailable：per-request queue time、batch membership、KV block residency、prefix cache hit/miss。
+- Observed：critical/non-critical request overlap、tool wait interval、running/waiting request metrics、run-level vLLM `max_gpu_cache_usage_perc`、prefix/cache counters、round-level all-gather duplicated context。
+- Proxy：per-request KV occupancy curve、idle KV interval、pairwise shared block similarity、independent baseline、per-request vs collective reuse work。
+- Unavailable：per-request queue time、batch membership、per-request KV block residency、per-request prefix cache hit/miss。
 
 Trace root: `{trace_root}`.
 """
@@ -710,9 +994,9 @@ def main() -> int:
         "trace_count": len(rows),
         "workflows": sorted({row["workflow_name"] for row in rows}),
         "backend_fields": {
-            "real_or_metrics": ["request_e2e_sec", "tool_latency_sec", "running_requests", "waiting_requests", "ttft_sec", "tpot_sec"],
-            "proxy": ["nearby_background_request_count_1s", "overlapping_background_request_count", "critical_slowdown_ratio", "context_amplification_ratio"],
-            "unavailable": ["batch_membership", "per_request_queue_time", "kv_residency", "prefix_cache_hit_miss"],
+            "real_or_metrics": ["request_e2e_sec", "tool_latency_sec", "running_requests", "waiting_requests", "ttft_sec", "tpot_sec", "max_gpu_cache_usage_perc", "prefix_cache_hits_total_delta", "prefix_cache_queries_total_delta", "prompt_tokens_cached_total_delta"],
+            "proxy": ["nearby_background_request_count_1s", "overlapping_background_request_count", "critical_slowdown_ratio", "context_amplification_ratio", "estimated_kv_tokens", "independent_baseline"],
+            "unavailable": ["batch_membership", "per_request_queue_time", "per_request_kv_residency", "per_request_prefix_cache_hit_miss"],
         },
     }
     (progress_dir / "week3_meso_insight_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

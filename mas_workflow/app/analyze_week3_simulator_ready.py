@@ -200,19 +200,44 @@ def shared_block_overlap(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, int
     return shared, denom
 
 
+def segment_reuse_proxy(event: dict[str, Any], other: dict[str, Any]) -> int:
+    if event.get("workflow_id") != other.get("workflow_id"):
+        return 0
+    if event.get("prompt_template") != other.get("prompt_template"):
+        return 0
+    system = min(safe_int(event.get("system_prompt_tokens_est")), safe_int(other.get("system_prompt_tokens_est")))
+    user = min(safe_int(event.get("user_prompt_tokens_est") or event.get("shared_context_tokens_est")), safe_int(other.get("user_prompt_tokens_est") or other.get("shared_context_tokens_est")))
+    # The raw Week3 traces do not store full token sequences, so this is a
+    # simulator-side estimate for repeated prompt segments within one motif.
+    # It is intentionally below the full shared-context size to leave room for
+    # dynamic review feedback / revised artifacts appended by each iteration.
+    return system + int(0.75 * user)
+
+
 def potential_prefix_for_event(event: dict[str, Any], previous: list[dict[str, Any]], same_workflow: bool) -> dict[str, Any]:
     best = 0
+    source = "none"
     for other in previous:
         if event.get("prompt_hash") and event.get("prompt_hash") == other.get("prompt_hash"):
-            best = max(best, min(safe_int(event.get("input_tokens") or event.get("input_tokens_est")), safe_int(other.get("input_tokens") or other.get("input_tokens_est"))))
+            candidate = min(safe_int(event.get("input_tokens") or event.get("input_tokens_est")), safe_int(other.get("input_tokens") or other.get("input_tokens_est")))
+            if candidate > best:
+                best = candidate
+                source = "exact_prompt_hash"
         shared, _ = shared_block_overlap(event, other)
-        best = max(best, shared)
+        if shared > best:
+            best = shared
+            source = "shared_block_hash"
+        segment = segment_reuse_proxy(event, other) if same_workflow else 0
+        if segment > best:
+            best = segment
+            source = "segment_token_proxy"
     input_tokens = max(safe_int(event.get("input_tokens") or event.get("input_tokens_est")), 1)
     return {
         "potential_prefix_match_tokens": best,
         "potential_prefix_reuse_rate": best / input_tokens,
         "intra_workflow_prefix_match_tokens": best if same_workflow else 0,
         "inter_workflow_prefix_match_tokens": 0 if same_workflow else best,
+        "potential_prefix_source": source,
     }
 
 
@@ -335,7 +360,7 @@ def build_tables(runs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
                     "reasoning_tokens": event.get("reasoning_tokens", "unavailable"),
                     "prompt_segments": json.dumps(prompt_segments, ensure_ascii=False),
                     "prompt_hash": event.get("prompt_hash"),
-                    "segment_hashes": json.dumps(event.get("shared_block_hashes") or {}, ensure_ascii=False),
+                    "segment_hashes": json.dumps(event.get("prompt_segment_hashes") or event.get("shared_block_hashes") or {}, ensure_ascii=False),
                     "sampling_params": json.dumps({"max_output_tokens": event.get("max_output_tokens")}, ensure_ascii=False),
                     "status": event.get("status", "success"),
                     "critical_path_candidate": bool(event.get("critical_path_candidate") or event.get("criticality") == "critical"),
@@ -354,7 +379,7 @@ def build_tables(runs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
                 "input_tokens": event.get("input_tokens") or event.get("input_tokens_est"),
                 "shared_context_reuse_tokens": sum(safe_int(v) for v in (event.get("shared_block_tokens") or {}).values()),
                 "private_context_reuse_tokens": event.get("private_history_tokens") or 0,
-                "dynamic_context_new_tokens": max(0, safe_int(event.get("input_tokens") or event.get("input_tokens_est")) - safe_int(event.get("shared_context_tokens_est") or event.get("round_shared_context_tokens"))),
+                "dynamic_context_new_tokens": 0,
                 "actual_prefix_cache_hit_tokens": "unavailable",
                 "actual_prefix_cache_hit_rate": "unavailable",
                 "actual_cached_blocks": "unavailable",
@@ -363,6 +388,7 @@ def build_tables(runs: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
             }
             best = intra if intra["potential_prefix_match_tokens"] >= inter["potential_prefix_match_tokens"] else inter
             prefix_row.update(best)
+            prefix_row["dynamic_context_new_tokens"] = max(0, safe_int(prefix_row["input_tokens"]) - safe_int(prefix_row["potential_prefix_match_tokens"]))
             prefixes.append(prefix_row)
             same_workflow_previous.append(event)
             all_previous_llm.append(event)
@@ -643,41 +669,54 @@ def figure_d_critical_path(agg: list[dict[str, Any]], fig_dir: Path) -> None:
 
 
 def figure_e_prefix_redundancy(tables: dict[str, list[dict[str, Any]]], fig_dir: Path) -> None:
-    rows = [r for r in tables["prefix_cache"] if r.get("motif_type") in {"review_loop", "manager_worker"}]
     query_order = {
         (q["workflow_run_id"], q["request_id"]): idx
         for idx, q in enumerate(sorted(tables["queries"], key=lambda q: (str(q.get("workflow_run_id")), safe_float(q.get("relative_start_sec")))))
     }
-    rows = sorted(rows, key=lambda r: query_order.get((r.get("workflow_run_id"), r.get("request_id")), 0))
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.0, 5.2), gridspec_kw={"width_ratios": [1.4, 1]})
-    colors = {"manager_worker": "#4c78a8", "review_loop": "#f28e2b"}
-    for motif in ["manager_worker", "review_loop"]:
-        pts = [r for r in rows if r.get("motif_type") == motif]
+    query_lookup = {(q["workflow_run_id"], q["request_id"]): q for q in tables["queries"]}
+
+    def choose_workflow(motif: str) -> str | None:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in tables["prefix_cache"]:
+            if row.get("motif_type") == motif:
+                grouped[str(row.get("workflow_run_id"))].append(row)
+        if not grouped:
+            return None
+        return max(grouped, key=lambda wf: sum(safe_float(r.get("input_tokens")) for r in grouped[wf]))
+
+    review_wf = choose_workflow("review_loop")
+    manager_wf = choose_workflow("manager_worker")
+    panels = [
+        ("Review loop: repeated prompt segments survive across iterations", review_wf, "review_loop"),
+        ("Manager / hierarchical fan-in: aggregation carries reusable blocks", manager_wf, "manager_worker"),
+    ]
+    fig, axes = plt.subplots(2, 1, figsize=(13.5, 8.0), sharey=False)
+    for ax, (title, wf_id, motif) in zip(axes, panels, strict=False):
+        pts = [r for r in tables["prefix_cache"] if r.get("workflow_run_id") == wf_id and r.get("motif_type") == motif]
+        pts = sorted(pts, key=lambda r: query_order.get((r.get("workflow_run_id"), r.get("request_id")), 0))
         xs = list(range(len(pts)))
-        ax1.plot(xs, [safe_float(r.get("input_tokens")) for r in pts], marker="o", linewidth=1.8, label=f"{motif}: input tokens", color=colors[motif])
-        ax1.scatter(xs, [safe_float(r.get("potential_prefix_match_tokens")) for r in pts], s=48, marker="s", color=colors[motif], alpha=0.55, label=f"{motif}: reusable prefix")
-    ax1.set_title("Prompt growth and reusable-prefix mass")
-    ax1.set_xlabel("request order inside motif class")
-    ax1.set_ylabel("tokens")
-    ax1.legend(fontsize=7)
-    motif_totals = []
-    for motif in ["manager_worker", "review_loop"]:
-        pts = [r for r in rows if r.get("motif_type") == motif]
-        motif_totals.append(
-            {
-                "motif": motif,
-                "potential": sum(safe_float(r.get("potential_prefix_match_tokens")) for r in pts),
-                "dynamic": sum(safe_float(r.get("dynamic_context_new_tokens")) for r in pts),
-            }
-        )
-    x = range(len(motif_totals))
-    ax2.bar(x, [r["potential"] for r in motif_totals], color="#9467bd", label="potential reusable prefix")
-    ax2.bar(x, [r["dynamic"] for r in motif_totals], bottom=[r["potential"] for r in motif_totals], color="#8cd17d", label="dynamic/new suffix")
-    ax2.set_xticks(list(x), [r["motif"] for r in motif_totals], rotation=20, ha="right")
-    ax2.set_title("Reusable vs dynamic context")
-    ax2.set_ylabel("tokens")
-    ax2.legend(fontsize=7)
-    finish_plot(fig, fig_dir / "fig_e_prefix_redundancy_review_manager.png", "Graph insight: review and manager motifs repeatedly move old context while appending new feedback/instructions. Purple is simulator-side potential reuse, not actual cache hit.")
+        potential = [safe_float(r.get("potential_prefix_match_tokens")) for r in pts]
+        dynamic = [safe_float(r.get("dynamic_context_new_tokens")) for r in pts]
+        inputs = [safe_float(r.get("input_tokens")) for r in pts]
+        labels = []
+        for r in pts:
+            q = query_lookup.get((r.get("workflow_run_id"), r.get("request_id")), {})
+            label = str(q.get("node_id") or r.get("node_id"))
+            labels.append(label.replace("cross_group_", "xgrp_").replace("global_", "g_")[:16])
+        ax.bar(xs, potential, color="#9467bd", label="potential reusable context")
+        ax.bar(xs, dynamic, bottom=potential, color="#8cd17d", label="dynamic/new suffix")
+        ax.plot(xs, inputs, color="#111111", marker="o", linewidth=1.2, label="input tokens")
+        for x, r, p in zip(xs, pts, potential, strict=False):
+            source = str(r.get("potential_prefix_source") or "")
+            if p > 0 and source:
+                ax.text(x, p + max(inputs) * 0.03, source.replace("_", "\n"), ha="center", va="bottom", fontsize=6, rotation=0)
+        ax.set_title(title)
+        ax.set_ylabel("tokens")
+        ax.set_xticks(xs, labels, rotation=35, ha="right", fontsize=7)
+        ax.grid(axis="y", alpha=0.25)
+        ax.legend(fontsize=7, loc="upper right")
+    axes[-1].set_xlabel("LLM request order in representative real vLLM workflow")
+    finish_plot(fig, fig_dir / "fig_e_prefix_redundancy_review_manager.png", "Graph insight: review loops and manager fan-in repeatedly move old context while appending dynamic feedback/artifacts. Purple is simulator-side potential reuse; labels show exact hash/shared block/segment proxy source, not actual vLLM cache hits.")
 
 
 def figure_f_branch_straggler(tables: dict[str, list[dict[str, Any]]], fig_dir: Path) -> None:

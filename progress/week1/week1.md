@@ -1,165 +1,185 @@
-# Week 1 Progress: 基础 MAS 拓扑与 vLLM Backend Metrics 验证
+# Week 1 Progress: Dynamic Orchestrator + vLLM Trace Evidence
 
-## 1. 本周目标
+## 1. 本轮目标
 
-本轮重新生成 Week 1 阶段性报告，重点不是继续美化原来的 workflow-level 图，而是把 vLLM `/metrics` 接入 MAS trace，重新跑真实 backend trace，并用 backend token、request、scheduler、TTFT/TPOT、KV cache 指标支撑 insight。
+本轮替换旧的 Week 1 汇报内容，使用最新 dynamic orchestrator 逻辑重新采集真实 trace，并生成可以直接用于汇报的系统侧 insight。
 
-本轮仍然没有新增 meso workflow，没有设计 full workflow，也没有修改 vLLM scheduler/KV manager。vLLM 只作为 OpenAI-compatible backend 运行，MAS 侧通过 Prometheus `/metrics` 做窗口级采样。
+本轮没有新增 meso workflow，没有设计 full workflow，也没有修改 vLLM scheduler/KV manager。所有结论都来自同一个 SWE-bench Lite 实例 `astropy__astropy-12907`，使用本地 vLLM OpenAI-compatible backend、LangGraph ReAct agent、Tavily live search、模型输出 sidecar 和 vLLM `/metrics` sidecar。
 
-## 2. Trace Inventory
+旧的 trace schema 总览图已删除。本报告不再把“字段存在”作为主要 insight，而是聚焦真实 backend work amplification、dynamic fanout、tool time、peer communication 和 KV/cache time series。
 
-本轮删除了旧 `mas_workflow/traces` 和旧 `progress/week1`，重新跑了 5 条真实 SWE-bench Lite trace。任务实例均为 `astropy__astropy-12907`。
+## 2. Trace Collection Setup
 
-| topology | instance_id | run_id | JSONL | backend metrics | metric samples | model outputs | model output records |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| single | astropy__astropy-12907 | 20260518_214631_753380 | yes | yes | 67 | yes | 4 |
-| independent | astropy__astropy-12907 | 20260518_214718_766802 | yes | yes | 190 | yes | 8 |
-| centralized | astropy__astropy-12907 | 20260518_214911_852572 | yes | yes | 150 | yes | 11 |
-| decentralized | astropy__astropy-12907 | 20260518_215041_675435 | yes | yes | 247 | yes | 20 |
-| hybrid | astropy__astropy-12907 | 20260518_215305_746547 | yes | yes | 200 | yes | 28 |
+运行环境：
 
-每个 run 同目录包含：`.jsonl`、`_summary.json`、`_spans.json`、`_otel.json`、`_jaeger.json`、`_viewer.html`、`_backend_metrics.json`、`_model_outputs.json`。
+- vLLM backend: `local-mas-model`, Qwen3.5-4B, `http://127.0.0.1:8000/v1`
+- `--llm-mode openai_compatible`
+- `--agent-execution react`
+- `--tool-mode live`
+- `--search-provider tavily`
+- `--max-output-tokens 4096`
+- `--collect-backend-metrics true`
+- `--record-model-outputs true`
+- `--trace-level detailed`
+- `--latency-profile none`
+- centralized/hybrid: `--agent-pool-size 10 --max-selected-agents 4`
 
-## 3. 验证设置
+说明：
 
-- vLLM server: `Qwen3.5-4B`, `CUDA_VISIBLE_DEVICES=0`, `--gpu-memory-utilization 0.80`, `--max-model-len 32768`。
-- 启动时可用 KV cache: 日志显示约 `231,264` tokens，最大 32,768-token request concurrency 约 `25.42x`。
-- MAS config: `--llm-mode openai_compatible`, `--agent-execution react`, `--tool-mode live`, `--search-provider tavily`, `--max-output-tokens 4096`。
-- Trace config: `--collect-backend-metrics true`, `--record-model-outputs true`, `--trace-level detailed`, `--latency-profile none`。
-- 本轮真实运行使用 Tavily live search，没有注入 synthetic latency。
+- `datasets` 包未安装，因此 SWE-bench Lite metadata 通过 Hugging Face rows API 读取；任务仍是真实 `astropy__astropy-12907`。
+- 第一次 hybrid 运行中 Tavily 出现一次 HTTPS connection reset，未把半截 trace 计入结果。随后给 Tavily provider 增加有限重试，清理 hybrid partial trace 后重新运行成功。重试不会伪造结果，也不会注入人工延迟；成功 run 中没有 retry warning。
+- 本轮所有 tool time 都来自 live Tavily measured duration，`latency_profile=none`。
 
-## 4. Trace Schema 与 Backend Metrics 接入
+## 3. Trace Inventory
 
-![](insight_1_trace_schema_backend.png)
+| topology | run_id | wall s | JSONL | summary | viewer | backend metrics | model outputs |
+|---|---:|---:|---|---|---|---|---|
+| single | `20260520_185908_021014` | 72.2 | yes | yes | yes | yes | yes |
+| independent | `20260520_190023_893436` | 100.0 | yes | yes | yes | yes | yes |
+| centralized | `20260520_190205_926854` | 95.4 | yes | yes | yes | yes | yes |
+| decentralized | `20260520_190344_677199` | 134.9 | yes | yes | yes | yes | yes |
+| hybrid | `20260520_191025_651195` | 218.0 | yes | yes | yes | yes | yes |
 
-本轮新增 `_backend_metrics.json` sidecar。它按 0.5s 采样 vLLM `/metrics`，并在 `_summary.json` 中写入窗口级 delta：`prompt_tokens_total_delta`、`generation_tokens_total_delta`、`request_success_total_delta`、`e2e_request_latency_seconds_sum_delta`、`backend_avg_ttft_sec_from_metrics`、`backend_avg_tpot_sec_from_metrics`、`max_num_requests_running`、`max_num_requests_waiting`、`max_gpu_cache_usage_perc`。
+Trace 路径：
 
-注意：这些是 Prometheus window-level metrics，不是逐 request prefill/decode trace。它足以说明 topology 对 backend workload 的宏观压力，但还不能替代 vLLM 内部 per-request scheduler/KV trace。
+- `mas_workflow/traces/<topology>/astropy__astropy-12907/<run_id>.jsonl`
+- `mas_workflow/traces/<topology>/astropy__astropy-12907/<run_id>_summary.json`
+- `mas_workflow/traces/<topology>/astropy__astropy-12907/<run_id>_backend_metrics.json`
+- `mas_workflow/traces/<topology>/astropy__astropy-12907/<run_id>_model_outputs.json`
+- `mas_workflow/traces/<topology>/astropy__astropy-12907/<run_id>_viewer.html`
 
-## 5. Backend Metrics 总表
+## 4. Summary Table
 
-| topology | wall latency s | prompt token delta | generation token delta | request delta | max running | max waiting | max KV cache % | avg TTFT s | avg TPOT s |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| single | 34.71 | 11456 | 4584 | 8.0 | 1.0 | 0.0 | 0.571 | 0.220101 | 1.2e-05 |
-| independent | 99.98 | 20820 | 21981 | 16.0 | 3.0 | 0.0 | 1.483 | 0.094785 | 5e-06 |
-| centralized | 78.6 | 33604 | 15297 | 22.0 | 3.0 | 0.0 | 1.426 | 0.084356 | 1.1e-05 |
-| decentralized | 129.51 | 68726 | 34689 | 40.0 | 3.0 | 0.0 | 1.597 | 0.122446 | 9e-06 |
-| hybrid | 104.9 | 83048 | 27864 | 56.0 | 3.0 | 0.0 | 1.198 | 0.074527 | 1.5e-05 |
+| topology | prompt tokens | generation tokens | requests | LLM events | tool events | tool time s | peer edges | peer tokens | max running | max waiting | max KV % |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| single | 6,314 | 14,163 | 6 | 3 | 1 | 2.50 | 0 | 0 | 1 | 0 | 0.0068 |
+| independent | 20,696 | 23,139 | 16 | 8 | 3 | 10.00 | 0 | 0 | 3 | 0 | 0.0154 |
+| centralized | 51,448 | 24,081 | 34 | 17 | 8 | 20.29 | 0 | 0 | 4 | 0 | 0.0200 |
+| decentralized | 90,324 | 37,563 | 44 | 22 | 11 | 27.63 | 12 | 3,644 | 3 | 0 | 0.0171 |
+| hybrid | 253,552 | 65,010 | 94 | 47 | 32 | 68.01 | 28 | 11,047 | 4 | 0 | 0.0262 |
 
-## 6. 阶段性 Insights
+## 5. Insight 1: Topology Choice Directly Amplifies Backend Work
 
-### Insight 1: 统一 trace 已覆盖 MAS 层和 backend metrics sidecar
+![](backend_work_amplification.png)
 
-![](insight_1_trace_schema_backend.png)
+现象：不同 MAS topology 对 vLLM backend 的 token work 和 request volume 放大非常明显。
 
-现象：五个 topology 都同时产出 MAS canonical JSONL、可视化导出、模型输出 sidecar 和 vLLM metrics sidecar。
+证据：
 
-证据：每个 topology 都有 `_backend_metrics.json`，采样数从 `67` 到 `247` 不等；每次 LLM response 也进入 `_model_outputs.json`。
+- single prompt tokens: `6,314`
+- decentralized prompt tokens: `90,324`, 是 single 的 `14.3x`
+- hybrid prompt tokens: `253,552`, 是 single 的 `40.2x`
+- hybrid completed requests: `94`, 是 single 的 `15.7x`
+- hybrid wall time: `218.0s`, 是 single 的 `3.0x`
 
-解释：当前 trace 已经能把 MAS topology 结构和 backend serving 窗口指标放到同一个 run 目录下，适合做 topology-level system analysis。
+解释：wall time 没有按 prompt tokens 线性增长，因为 worker/peer 阶段存在并发，且 vLLM 没有形成 waiting queue。但 backend 确实处理了多得多的 prompt/generation tokens 和 requests。对 architecture 研究而言，这比单看 workflow graph 更有价值：它说明 topology 会把 MAS 层的通信、聚合和 ReAct tool loop 转化为 serving backend 的实际 workload。
 
-下一步：如果要做更强 request-level 结论，需要在 vLLM 侧输出 per-request prefill/decode/KV/scheduler event，并通过 `X-Request-Id` 对齐。
+## 6. Insight 2: 当前耗时主要来自 Decode，Tool Time 在 Hybrid 中变得可见
 
-### Insight 2: MAS topology 会显著放大 backend token work
+![](insight_2_backend_phase_breakdown.png)
 
-![](insight_2_backend_work_amplification.png)
+现象：在本轮真实 backend trace 中，decode accumulated time 是主要 LLM 侧耗时；live tool time 在 hybrid 中已经不可忽略。
 
-现象：复杂 topology 对 vLLM 后端造成的 token work 明显高于 single baseline。
+证据：
 
-证据：single 的 prompt token delta 为 `11456`，decentralized 为 `68726`，hybrid 为 `83048`。hybrid 相比 single 的 prompt-token work 放大约 `7.25x`，decentralized 相比 single 放大约 `6.00x`。
+- hybrid vLLM prefill time sum: `9.30s`
+- hybrid vLLM decode time sum: `325.32s`
+- hybrid live tool measured time: `68.01s`
+- decentralized decode time sum: `184.86s`
+- single decode time sum: `67.23s`
 
-解释：这不是单纯 wall-clock 变慢，而是 backend 实际处理的 prefill/prompt tokens 变多。Debate 和 hybrid 的 peer messages、manager instructions、聚合上下文都会转化为后端 prompt workload。
+解释：当前 workload 的输出较长，且 `max-output-tokens=4096`，所以 decode 成本是主要 backend 时间来源。Tool time 不是人工 stall：hybrid 有 `32` 个 live search tool events，累计 `68.01s` measured time。后续如果要区分 prefill-bound vs decode-bound MAS workload，需要同时控制 prompt context growth 和 per-agent output length。
 
-下一步：后续 meso workflow 应该把 prompt/context growth 作为一等优化目标，而不是只看 agent 数量。
+## 7. Insight 3: Dynamic Orchestrator 已经解除固定 Fanout 限制
 
-### Insight 3: 当前 4B 单卡服务没有明显 scheduler queue buildup，瓶颈更像 workload amplification
+![](insight_3_dynamic_orchestrator_fanout.png)
 
-![](insight_3_scheduler_concurrency.png)
+现象：centralized 和 hybrid 不再固定激活 `num_agents` 个下游 worker，而是在 10 个候选 specialist pool 中按 manager round 选择实际 subagents。
 
-现象：多 agent topology 能把 `max_num_requests_running` 提到 3，但 `max_num_requests_waiting` 仍为 0。
+证据：
 
-证据：independent/centralized/decentralized/hybrid 的 `max_num_requests_running=3`，而五个 topology 的 `max_num_requests_waiting=0`。
+- centralized candidate pool: `10`
+- centralized actual fanout by round: `[2, 4, 0]`
+- centralized selected roles:
+  - round 0: `issue_triage`, `repo_search`
+  - round 1: `code_localization`, `api_doc`, `test_reasoning`, `judge`
+  - round 2: `finish`, no worker fanout
+- hybrid candidate pool: `10`
+- hybrid actual fanout by round: `[4, 2]`
+- hybrid selected roles:
+  - round 0: `issue_triage`, `repo_search`, `code_localization`, `tool_heavy`
+  - round 1: `test_reasoning`, `patch_planning`
 
-解释：在本轮 4B 模型、单任务、3-agent 并发下，vLLM capacity 足够，没有形成 scheduler waiting queue。因此现阶段的主要证据不是“排队瓶颈”，而是 topology 造成的 request/token work amplification。这个结论比原先 workflow-only 图更强，因为它来自 backend scheduler metrics。
+解释：旧 trace 中 `max running=3` 很大程度来自上层固定激活宽度。新逻辑把“候选 pool 大小”和“实际激活宽度”分开记录：`available_agent_count`、`selected_agent_count`、`selected_agent_roles`、`not_selected_agents`、`dynamic_fanout_count`。这让后续研究可以观察 orchestrator policy 如何影响 backend 并发、tool pressure 和 token work。
 
-补充：这条观察也暴露了旧 centralized/hybrid 原型的局限：上层 topology 激活宽度固定，导致 `max running` 很容易被写死的 agent 数量限制。当前代码已经把 centralized/hybrid 改成 dynamic orchestrator：manager 从更大的 specialist pool 中选择本轮实际调用的 subagents，并记录 `available_agent_count`、`selected_agent_count`、`selected_agent_roles`、`dynamic_fanout_count`。因此后续真实 backend trace 可以区分“候选 pool 大小”和“实际激活宽度”。
+## 8. Insight 4: Peer Communication 是 Context Growth 的直接来源
 
-下一步：如果要观察 scheduler contention，需要增加并发任务数、agent 数、round 数或降低 serving capacity，而不是只换图表。
+![](insight_4_peer_communication_overhead.png)
 
-### Insight 4: TTFT/TPOT 和 KV cache 指标说明本轮还没有压到 KV/cache 瓶颈
+现象：没有 peer communication 的 topology 不产生 peer edge tokens；decentralized/hybrid 的 peer rounds 直接带来 message passing 和 context growth。
 
-![](insight_4_latency_cache_metrics.png)
+证据：
 
-![](insight_6_kv_cache_pipeline.png)
+- decentralized peer edges: `12`
+- decentralized peer tokens: `3,644`
+- hybrid peer edges: `28`
+- hybrid peer tokens: `11,047`
+- hybrid prompt token delta: `253,552`
 
-现象：TTFT/TPOT 可采集，KV cache usage 峰值很低。新增的 pipeline 曲线把 hybrid run 的 KV cache usage 时间序列与 MAS-level LLM spans、tool spans、peer communication edge、manager decision/barrier event 叠加在一张图里。
+解释：decentralized 的 all-to-all debate 和 hybrid 的 manager-selected peer discussion 都会把 peer messages 带回下一轮 prompt。Hybrid 的 peer tokens 更高，是因为它同时包含 manager instruction、selected worker evidence、peer rounds 和 manager collection。后续 meso workflow 如果需要可控系统负载，必须把 peer communication topology 和 peer round count 作为一等参数，而不是只调 agent 数。
 
-证据：本轮最大 KV cache usage 最高约 `1.597%`。在 pipeline 曲线中，KV usage 只在 LLM 活跃 span 附近轻微上升，并没有随 peer communication 或 manager collect 出现明显堆积；同时 `max_num_requests_waiting=0`。TTFT 在不同 topology 间变化，但 KV/cache 还没有成为主要压力源。
+## 9. Insight 5: KV Cache 当前仍不是瓶颈，但动态曲线说明了原因
 
-解释：虽然 max model len 和 KV cache capacity 很大，但单个 SWE-bench instance 的实际上下文还远远没有压满 KV cache。此前只看 `max_gpu_cache_usage_perc` 单个标量太单薄；现在的动态曲线更清楚地说明：metrics path 已经接通，但本轮 workload 还没有触发持续 KV pressure。
+![](insight_5_hybrid_kv_pipeline.png)
 
-下一步：要研究 KV/cache，应该构造长上下文、多轮 debate、多实例并发，或者接入 vLLM 细粒度 KV block metrics。尤其需要用 dynamic orchestrator 放大真实激活宽度，而不是固定 3 个 agent。
+现象：hybrid 是本轮最重的 topology，但 KV cache usage 仍然很低，且没有 waiting requests。
 
-### Insight 5: Hybrid/Decentralized 的开销来自 control/dataflow 嵌套，而不仅是 agent 数
+证据：
 
-![](insight_5_control_dataflow_overhead.png)
+- hybrid max KV cache usage: `0.0262%`
+- hybrid max running requests: `4`
+- hybrid max waiting requests: `0`
+- hybrid prompt tokens: `253,552`
+- hybrid requests: `94`
 
-现象：hybrid 和 decentralized 的 backend prompt token delta 高，和 peer/message/round 结构一致。
+解释：图中 KV 曲线与 LLM spans、tool spans、peer message events、manager decision/barrier event 对齐。可以看到请求密集阶段和 peer communication 阶段确实拉高了 backend activity，但没有形成持续 KV pressure 或 scheduler queue。当前 bottleneck 更像是 decode/token work amplification 和 tool/LLM pipeline length，而不是 KV capacity。要研究 KV/cache，需要构造更长上下文、多实例并发、更多 simultaneous active agents，或在 vLLM fork 中接入 per-request KV block trace。
 
-证据：decentralized 的 `debate_rounds_actual=2`，hybrid 的 `manager_rounds_actual=2`、`peer_rounds_actual=1`，hybrid 的 `peer_message_tokens_est=710`。这些 MAS 层 dataflow 指标和 backend prompt token 增长方向一致。
+## 10. Search / Tool Use Validation
 
-解释：hybrid 同时叠加 manager 控制路径和 peer communication；decentralized 没有 manager，但 all-gather/debate context 会膨胀。backend metrics 把这种结构性开销转化成更直观的 token work 证据。
+![](search_tool_validation.png)
 
-下一步：设计 meso workflow 时应重点控制 peer communication 范围、manager round 次数和 aggregation 输入规模。
+本轮使用 LangGraph ReAct agent，工具调用由模型在 agent loop 内自主触发，不是固定 workflow 强行 search。所有成功 trace 中的 search 都是 Tavily live search：
 
-### Insight 6: Tool use 可见，但本轮复杂 topology 的主要压力仍在 LLM/backend token work
+| topology | live search events | measured tool time s | retry warnings |
+|---|---:|---:|---:|
+| single | 1 | 2.50 | 0 |
+| independent | 3 | 10.00 | 0 |
+| centralized | 8 | 20.29 | 0 |
+| decentralized | 11 | 27.63 | 0 |
+| hybrid | 32 | 68.01 | 0 |
 
-![](search_tool_backend_gap.png)
+本轮没有使用 synthetic latency，也没有 replay 工具结果。工具结果 snapshots 存在于 `mas_workflow/traces/snapshots/<run_id>/`，可用于后续 replay。
 
-| topology | tool_search events | sum Tavily tool time s | snapshot count |
-| --- | --- | --- | --- |
-| single | 2 | 7.44 | 2 |
-| independent | 3 | 12.6 | 3 |
-| centralized | 5 | 26.62 | 5 |
-| decentralized | 9 | 31.59 | 9 |
-| hybrid | 13 | 29.58 | 13 |
+## 11. 当前结论
 
-现象：每个 topology 都有真实 Tavily tool use 和 snapshot，但复杂 topology 的 backend request/token work 增长更显著。
+- 新 dynamic orchestrator trace 比旧 trace 更适合汇报：它把固定 fanout 限制拆成了 candidate pool 和实际激活宽度。
+- 真实 vLLM metrics 显示 topology 会显著放大 backend token work 和 request volume。
+- Hybrid 是当前最重 topology：prompt tokens `253,552`、requests `94`、live tool time `68.01s`、peer tokens `11,047`。
+- 当前没有观察到 vLLM waiting queue，也没有观察到 KV cache pressure；这不是“没有瓶颈”，而是说明瓶颈主要在 decode/token work、tool/LLM pipeline length 和 MAS dataflow amplification。
+- Tool use 已经是真实 Tavily live search，并由 ReAct agent 自主触发。
 
-证据：所有 run 都生成了 `tool_search` event 和 snapshot；同时 backend prompt/generation token delta 随 topology 复杂度显著上升。
+## 12. Limitations
 
-解释：工具调用时间是真实外部 stall，但本轮真正能解释 topology 差异的是 LLM request 数、prompt token、generation token 和 round/dataflow 结构。
+- 本轮只跑了一个 SWE-bench Lite instance，因此结论是阶段性系统观察，不是统计结论。
+- vLLM `/metrics` 是窗口级采样，不是 per-request prefill/decode/KV/scheduler event。
+- KV 图来自 Prometheus sampling，可以说明趋势和低压力状态，但不能替代 KV block-level trace。
+- Tavily live search 依赖外部网络；本轮增加了有限重试以处理临时 connection reset。
+- 当前仍不评估 SWE-bench 修复成功率。
+- full workflow 和 case study 尚未定义。
 
-下一步：后续要分别研究 tool-stall dominated workload 和 LLM-serving dominated workload。
+## 13. 下一步
 
-## 7. SWE-bench Lite Trace Collection
-
-本轮每个 topology 重新采集 1 条 SWE-bench Lite trace，均为 `astropy__astropy-12907`。当前仍不评估修复成功率，只采集 execution trace、tool snapshot、model outputs 和 backend metrics。
-
-`mas_workflow/traces/summary_week1_backend_metrics.json` 保存了本轮汇总。
-
-## 8. 当前结论
-
-- vLLM backend metrics 已接入 MAS trace，并写入每个 run 的 `_backend_metrics.json` 和 `_summary.json`。
-- 新 trace 比原 trace 更有说服力：能直接看到 topology 对 backend prompt/generation tokens、request volume、running/waiting requests、TTFT/TPOT、KV cache usage 的影响。
-- 本轮最强证据是 work amplification：hybrid/decentralized 显著增加 backend prompt token work。
-- 本轮没有观察到 scheduler queue buildup，也没有观察到 KV/cache 压力；这不是失败，而是说明当前 workload 还不够压迫 serving 系统。
-- 旧 trace 中 `max running=3` 主要反映固定激活宽度；当前代码已经将 centralized/hybrid 改为 dynamic orchestrator，从候选 agent pool 中按轮选择不同 subagents，后续 backend run 应以该版本重新采集。
-
-## 9. 当前问题与风险
-
-- `/metrics` 是窗口级 aggregate，不是 per-request prefill/decode/KV/scheduler trace。
-- `request_success_total_delta` 是 vLLM metrics 窗口计数，和 MAS `llm_request_end` event 数不一定一一相等；强 per-request 对齐仍需要 vLLM 侧 request trace。
-- 本轮只有一个 SWE-bench instance，结论是阶段性系统观察，不是统计结论。
-- dynamic orchestrator 已通过 mock/synthetic smoke test 验证，但本报告表格中的 vLLM backend 数值来自上一轮真实 backend trace，尚未全量重跑 dynamic orchestrator backend trace。
-- live search 依赖 Tavily API key。
-- full workflow 尚未定义，case study 尚未开始。
-- 没有修改 vLLM scheduler/KV manager。
-
-## 10. 下一步计划
-
-- 构造能触发 scheduler queue 的 workload：提高并发实例数、agent 数、round 数，或降低 serving capacity。
-- 用 dynamic orchestrator 版本重跑 centralized/hybrid backend trace，观察实际激活宽度、候选 pool 大小、scheduler running/waiting 和 token work 的关系。
-- 构造长上下文 debate/hybrid workload，观察 KV cache usage 是否上升，并继续使用 pipeline 曲线叠加 spans/communication/barrier。
-- 在 vLLM fork 中增加 per-request prefill/decode/KV/scheduler event，并用 `X-Request-Id` 对齐 MAS trace。
-- 基于当前 observation 设计 2-3 个 meso workflow。
+- 用 dynamic orchestrator 构造更强 stress run：更多同时实例、更大 `max_selected_agents`、更多 peer rounds。
+- 设计 2-3 个 meso workflow，分别覆盖 control bottleneck、peer communication bottleneck 和 tool-heavy bottleneck。
+- 对接 vLLM per-request trace，按 `X-Request-Id` 记录 prefill/decode/scheduler/KV block 事件。
+- 构造长上下文 hybrid/debate workload，专门观察 KV cache pressure 是否出现。

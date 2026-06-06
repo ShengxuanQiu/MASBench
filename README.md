@@ -369,19 +369,19 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 - 复现：`replay_policy`、`environment_id`、`random_seed`、`trace_level`
 - 语义：`motif_name`、`motif_instance_id`、`parent_motif_id`、`composed_from_topologies`、`motif_tags`、`status`、`extra`
 
-标准化 simulator-ready trace tables 可以由 raw JSONL 和 `_backend_metrics.json` 后处理得到：
+Raw JSONL 默认会在原始事件后追加 `simulator_ready_*` 标准化记录，使 trace 本身可以直接作为 simulator-ready 输入；分析脚本仍可从 raw JSONL 和 `_backend_metrics.json` 导出同构 CSV tables 方便画图和批量分析：
 
 - Workflow table：`workflow_run_id`、`workflow_name`、`workflow_type`、`motif_type`、`composed_subgraphs`、`task_id`、`prompt_id`、`start_time`、`end_time`、`end_to_end_latency`、`status`、backend endpoint/model、run-level backend metrics。
 - Graph/Node table：`node_id`、`agent_id`、`agent_role`、`node_type`、`parent_node_ids`、`child_node_ids`、`dependency_type`、`branch_id`、`round_id`、`loop_iteration_id`、`is_critical_path`。
 - LLM Query table：`request_id`、`workflow_run_id`、`node_id`、`agent_id`、`role`、`model_name`、submit/finish time、TTFT/TPOT if exposed、input/prefill tokens、output/decode tokens、prompt segment token breakdown、`prompt_hash`、`segment_hashes`、sampling params、status。
 - Tool table：`tool_call_id`、`tool_name`、start/end time、latency、input/output size、status、retry count、whether written to shared context。
 - Barrier table：`barrier_id`、`barrier_type`、participants、release time、per-node wait proxy、straggler gap、downstream nodes。
-- Prefix/cache table：offline `potential_prefix_match_tokens`、`potential_prefix_reuse_rate`、`intra_workflow_prefix_match_tokens`、`inter_workflow_prefix_match_tokens`、`shared_context_reuse_tokens`、`private_context_reuse_tokens`、`dynamic_context_new_tokens`。
+- Prefix/cache table：offline `potential_prefix_match_tokens`、`potential_prefix_reuse_rate`、`potential_prefix_source`、`intra_workflow_prefix_match_tokens`、`inter_workflow_prefix_match_tokens`、`shared_context_reuse_tokens`、`private_context_reuse_tokens`、`dynamic_context_new_tokens`。
 
 Cache terminology is strict:
 
 - Actual backend cache metrics come only from vLLM `/metrics` or backend instrumentation, such as run-level `max_gpu_cache_usage_perc` and prefix/cache counters if exposed.
-- Offline prefix overlap uses `potential prefix reuse`, `ideal prefix overlap`, or `simulator-side reusable prefix`; it is not reported as actual cache hit rate.
+- Offline prefix overlap uses `potential prefix reuse`, `ideal prefix overlap`, or `simulator-side reusable prefix`; it is not reported as actual cache hit rate. `potential_prefix_source` records whether the estimate came from an exact prompt hash, shared-block hash, or segment-token proxy.
 - If vLLM does not expose per-request queue, prefill, decode, or KV residency timestamps, normalized tables mark those fields as `unavailable` instead of estimating them.
 
 Composite motif 会额外尽量补充：

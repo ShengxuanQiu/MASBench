@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .backend_adapters import BackendTraceAdapter
+
 
 METRIC_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+([-+eE0-9.]+)$")
 
@@ -129,6 +131,7 @@ class BackendMetricsSampler:
     interval_sec: float = 0.5
     timeout_sec: float = 2.0
     start_perf: float = field(default_factory=time.perf_counter)
+    adapter: BackendTraceAdapter | None = None
     samples: list[dict[str, Any]] = field(default_factory=list)
     _stop: threading.Event = field(default_factory=threading.Event)
     _thread: threading.Thread | None = None
@@ -151,7 +154,12 @@ class BackendMetricsSampler:
         rel = round(time.perf_counter() - self.start_perf, 6)
         try:
             metrics = fetch_prometheus_metrics(self.url, timeout=self.timeout_sec)
-            self.samples.append({"timestamp_unix": ts, "relative_time_sec": rel, "status": "success", "metrics": metrics})
+            sample: dict[str, Any] = {"timestamp_unix": ts, "relative_time_sec": rel, "status": "success", "metrics": metrics}
+            if self.adapter is not None:
+                sample["serving_metrics"] = self.adapter.serving_sample(metrics)
+                sample["cache_memory_metrics"] = self.adapter.cache_memory_sample(metrics)
+                sample["device_metrics"] = self.adapter.collect_device_metrics()
+            self.samples.append(sample)
         except Exception as exc:
             self.samples.append({"timestamp_unix": ts, "relative_time_sec": rel, "status": "error", "error": str(exc)})
 

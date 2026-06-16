@@ -14,6 +14,7 @@ from ..llm_backends import MockLLM, OpenAICompatibleLLM
 from ..search_providers import BaseSearchProvider, record_search_event
 from ..trace_export import export_trace_views
 from ..tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
+from ..backend_adapters import BackendTraceAdapter, build_backend_trace_adapter
 from ..backend_metrics import BackendMetricsSampler, metrics_url_from_base_url, summarize_backend_metrics
 
 
@@ -33,7 +34,7 @@ class TopologyConfig:
     latency_profile: str = "none"
     latency_scale: float = 1.0
     random_seed: int = 42
-    max_concurrent_llm_calls: int = 2
+    max_concurrent_llm_calls: int = 32
     dispatch_policy: str = "fcfs"
     backend_base_url: str = "http://127.0.0.1:8000/v1"
     model: str = "local-mas-model"
@@ -61,6 +62,7 @@ class TopologyConfig:
     collect_backend_metrics: bool = False
     backend_metrics_url: str = ""
     backend_metrics_interval_sec: float = 0.5
+    backend_trace_adapter: str = "vllm_gpu"
     agent_pool_size: int = 8
     min_selected_agents: int = 1
     max_selected_agents: int = 3
@@ -112,6 +114,7 @@ class BaseTopology:
         self.trace = trace
         self.artifacts: dict[str, str] = {}
         self.backend_metrics_sampler: BackendMetricsSampler | None = None
+        self.backend_trace_adapter: BackendTraceAdapter = build_backend_trace_adapter(config.backend_trace_adapter)
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         old_query = self.config.query
@@ -169,6 +172,7 @@ class BaseTopology:
             output_path=path,
             interval_sec=max(0.1, float(self.config.backend_metrics_interval_sec or 0.5)),
             start_perf=self.trace.start_perf,
+            adapter=self.backend_trace_adapter,
         )
         self.backend_metrics_sampler = sampler
         sampler.start()
@@ -183,11 +187,100 @@ class BaseTopology:
             backend_metrics_path=str(path),
             backend_metrics_interval_sec=sampler.interval_sec,
         )
+        self.trace.emit(
+            event_type="backend_device",
+            node_id="backend_device",
+            node_name="Backend Device",
+            node_type="backend",
+            motif_tags=self.motif_tags,
+            status="active",
+            metrics_source="backend_trace_adapter",
+            **self.backend_trace_adapter.backend_device_metadata(),
+        )
 
     def _stop_backend_metrics_sampler(self) -> None:
         if self.backend_metrics_sampler is None:
             return
         self.backend_metrics_sampler.stop()
+        for sample in self.backend_metrics_sampler.samples:
+            metrics = sample.get("metrics") or {}
+            def latest(*needles: str) -> float | None:
+                values = [float(value) for name, value in metrics.items() if any(needle in name for needle in needles)]
+                return max(values) if values else None
+
+            def config_label(label: str) -> float | None:
+                marker = f'{label}="'
+                for name in metrics:
+                    if marker not in name:
+                        continue
+                    value = name.split(marker, 1)[1].split('"', 1)[0]
+                    try:
+                        return float(value)
+                    except ValueError:
+                        return None
+                return None
+
+            usage = latest("kv_cache_usage_perc", "gpu_cache_usage_perc", "gpu_cache_usage")
+            blocks = config_label("num_gpu_blocks")
+            block_size = config_label("block_size")
+            self.trace.emit(
+                event_type="backend_metric_sample",
+                node_id="vllm_backend",
+                node_name="vLLM Backend Metric Sample",
+                node_type="backend",
+                status=sample.get("status", "error"),
+                relative_time_sec=sample.get("relative_time_sec"),
+                kv_cache_usage_perc=usage,
+                num_requests_running=latest("num_requests_running", "num_running_requests"),
+                num_requests_waiting=latest("num_requests_waiting", "num_waiting_requests"),
+                num_gpu_blocks=blocks,
+                kv_block_size_tokens=block_size,
+                kv_cache_used_blocks=(usage * blocks) if usage is not None and blocks is not None else None,
+                kv_cache_used_tokens_capacity=(usage * blocks * block_size) if usage is not None and blocks is not None and block_size is not None else None,
+                metrics_source="vllm_prometheus_endpoint",
+                evidence_scope="aggregate_server_observed",
+                error=sample.get("error", ""),
+            )
+            serving_metrics = sample.get("serving_metrics") or self.backend_trace_adapter.serving_sample(metrics)
+            self.trace.emit(
+                event_type="serving_metric_sample",
+                node_id="serving_backend",
+                node_name="Serving Metric Sample",
+                node_type="backend",
+                status=sample.get("status", "error"),
+                relative_time_sec=sample.get("relative_time_sec"),
+                metrics_source="backend_trace_adapter",
+                backend_runtime=self.backend_trace_adapter.runtime,
+                device_type=self.backend_trace_adapter.device_type,
+                **serving_metrics,
+            )
+            cache_metrics = sample.get("cache_memory_metrics") or self.backend_trace_adapter.cache_memory_sample(metrics)
+            self.trace.emit(
+                event_type="cache_memory_sample",
+                node_id="cache_memory_backend",
+                node_name="Cache/Memory Metric Sample",
+                node_type="backend",
+                status=sample.get("status", "error"),
+                relative_time_sec=sample.get("relative_time_sec"),
+                metrics_source="backend_trace_adapter",
+                backend_runtime=self.backend_trace_adapter.runtime,
+                device_type=self.backend_trace_adapter.device_type,
+                **cache_metrics,
+            )
+            device_metrics = sample.get("device_metrics") or self.backend_trace_adapter.collect_device_metrics()
+            device_payload = {key: value for key, value in device_metrics.items() if key not in {"status", "source"}}
+            self.trace.emit(
+                event_type="device_metric_sample",
+                node_id="xpu_device",
+                node_name="xPU Device Metric Sample",
+                node_type="backend",
+                status=device_metrics.get("status", sample.get("status", "error")),
+                relative_time_sec=sample.get("relative_time_sec"),
+                metrics_source=device_metrics.get("source", "backend_trace_adapter"),
+                backend_runtime=self.backend_trace_adapter.runtime,
+                device_type=self.backend_trace_adapter.device_type,
+                **device_payload,
+            )
         summary = summarize_backend_metrics(self.backend_metrics_sampler.samples)
         self.trace.backend_metrics_summary = summary
         self.trace.emit(

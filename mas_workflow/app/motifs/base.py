@@ -264,7 +264,9 @@ class ResearcherSynthesizerMotif(CompositeMotif):
         def run_researcher(i: int) -> tuple[str, str]:
             node = f"researcher_{i}"
             evidence = self.maybe_tool_evidence(node_id=node, node_name=f"Researcher-{i}", query=f"{self.config.query}\nresearch angle {i}")
-            out = self.llm_agent(node_id=node, node_name=f"Researcher-{i}", agent_role="researcher", system_prompt=f"Research angle {i} independently.", user_prompt=f"Task:\n{self.config.query}\nEvidence:\n{evidence}", parents=["START"], parallel_group="researchers")
+            depth = ["very concise", "concise", "moderately detailed", "detailed", "exhaustive"][min(i - 1, 4)]
+            budget = [192, 256, 384, 512, 768][min(i - 1, 4)]
+            out = self.llm_agent(node_id=node, node_name=f"Researcher-{i}", agent_role="researcher", system_prompt=f"Research angle {i} independently. Produce a {depth} analysis; vary depth materially from other researchers.", user_prompt=f"Task:\n{self.config.query}\nEvidence:\n{evidence}", parents=["START"], parallel_group="researchers", extra_metadata={"request_max_output_tokens": budget, "research_depth": depth})
             self.emit_edge(src_node=node, dst_node="synthesizer", artifact_type="research_artifact", content=out, transfer_type="aggregation", parallel_group="researchers")
             return node, out
 
@@ -446,7 +448,7 @@ class SharedEvidenceStoreMotif(CompositeMotif):
 
     def run(self) -> dict[str, Any]:
         self.workflow_start()
-        writer_count = max(2, min(self.config.num_agents, 4))
+        writer_count = max(2, min(self.config.writer_count or self.config.num_agents, 8))
 
         def write(i: int) -> tuple[str, str]:
             node = f"writer_{i}"
@@ -467,7 +469,8 @@ class SharedEvidenceStoreMotif(CompositeMotif):
             self.emit_edge(src_node=node, dst_node="finalizer", artifact_type="memory_read", content=out, transfer_type="aggregation", parallel_group="store_readers")
             return node, out
 
-        readers = dict(self.run_parallel([1, 2], read))
+        reader_count = max(2, min(self.config.reader_count, 16))
+        readers = dict(self.run_parallel(list(range(1, reader_count + 1)), read))
         final = self.finalizer("\n".join(readers.values()), parents=list(readers))
         return self.workflow_end(final)
 

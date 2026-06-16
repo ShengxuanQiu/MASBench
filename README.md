@@ -16,6 +16,7 @@
 │   │   ├── motifs/                  # 复合 MAS 子图模式库和 registry
 │   │   ├── tracing.py               # JSONL trace context、token、latency helper
 │   │   ├── trace_export.py          # arch spans / OTel / Jaeger / HTML viewer 导出
+│   │   ├── backend_adapters.py      # GPU/TPU/NPU backend trace adapter 与 xPU 字段归一化
 │   │   ├── backend_metrics.py       # vLLM /metrics sampler 与窗口级 backend 指标汇总
 │   │   ├── search_providers.py      # Tavily / synthetic / recorded / local repo search
 │   │   ├── langgraph_agents/        # LangGraph ReAct agent + traced real tools
@@ -174,7 +175,8 @@ python -m app.main \
   --search-provider tavily \
   --trace-level arch \
   --export-trace-views true \
-  --collect-backend-metrics true
+  --collect-backend-metrics true \
+  --backend-trace-adapter vllm_gpu
 ```
 
 运行 tool resume contention meso workload 的 dry-run/mock 结构检查：
@@ -230,7 +232,8 @@ python -m mas_workflow.app.main \
   --tool-branch-width 2 \
   --resume-phase-policy overlap_reviewer \
   --critical-stage-marker reviewer \
-  --collect-backend-metrics true
+  --collect-backend-metrics true \
+  --backend-trace-adapter vllm_gpu
 ```
 
 生成 meso insight 图表和汇总：
@@ -355,7 +358,7 @@ traces/<topology>/<instance_id>/<run_id>_model_outputs.json
 - `_otel.json` 是 OpenTelemetry-like span 格式。
 - `_jaeger.json` 可导入 Jaeger 类工具。
 - `_viewer.html` 是本地静态 timeline，用颜色区分 LLM、tool、dataflow、barrier、control、workflow span。LLM/tool 是持续时间条；edge、manager decision、workflow start 这类瞬时事件显示为 marker，避免把零时长事件误读成 pipeline 气泡。
-- `_backend_metrics.json` 是可选的 vLLM metrics sidecar。打开后，MAS runner 会周期性采样 vLLM `/metrics`，保存原始 Prometheus metric samples，并把窗口级 delta 汇总进 `_summary.json`。
+- `_backend_metrics.json` 是可选的 backend metrics sidecar。打开后，MAS runner 会周期性采样 vLLM `/metrics`，保存原始 Prometheus metric samples，并通过 backend trace adapter 写出 normalized serving/cache/device metrics。窗口级 delta 会汇总进 `_summary.json`。
 - `_model_outputs.json` 是可选的模型输出 sidecar。默认不生成；打开后保存每次 LLM response 的全文、hash、node/agent/round、backend request id、token 估算和 backend usage。主 JSONL 仍只保存 `model_output_artifact_id`、`model_output_path`、`model_output_hash` 等引用字段，避免 canonical trace 因文本 payload 变得过大。
 
 ## Trace Schema 的仿真字段
@@ -377,6 +380,21 @@ Raw JSONL 默认会在原始事件后追加 `simulator_ready_*` 标准化记录�
 - Tool table：`tool_call_id`、`tool_name`、start/end time、latency、input/output size、status、retry count、whether written to shared context。
 - Barrier table：`barrier_id`、`barrier_type`、participants、release time、per-node wait proxy、straggler gap、downstream nodes。
 - Prefix/cache table：offline `potential_prefix_match_tokens`、`potential_prefix_reuse_rate`、`potential_prefix_source`、`intra_workflow_prefix_match_tokens`、`inter_workflow_prefix_match_tokens`、`shared_context_reuse_tokens`、`private_context_reuse_tokens`、`dynamic_context_new_tokens`。
+
+### Cross-platform Backend/xPU Fields
+
+打开 `--collect-backend-metrics true` 后，canonical JSONL 除了 MAS-level event，还会写入 backend/xPU event。目标是让同一份 trace 同时表达 MAS graph、serving runtime 和设备侧压力，供后续 architecture simulator 或离线建模使用。
+
+- `backend_device`: 每个 run 一个设备/后端描述事件。字段包括 `device_type=gpu|tpu|npu`、`vendor`、`device_model`、`backend_runtime`、`precision`、`parallelism`、`adapter_status`。`parallelism` 当前使用 `{"tp": 1, "pp": 1, "dp": 1}` 作为默认结构，后续接入真实 launch config 后可记录 tensor/pipeline/data parallel 的实际数量。
+- `serving_metric_sample`: serving-level 时间序列采样。字段包括 `num_requests_running`、`num_requests_waiting`、`request_success_total`、`prompt_tokens_total`、`generation_tokens_total`、`ttft_seconds_sum`、`tpot_seconds_sum`、`itl_seconds_sum`、`e2e_latency_seconds_sum`、`metric_scope=aggregate_backend_observed`。这些是 backend aggregate，不是 per-request 阶段 trace。
+- `cache_memory_sample`: cache/memory 抽象采样。字段包括 `cache_unit_type`、`cache_used_ratio`、`cache_total_units`、`cache_unit_token_capacity`、`cache_used_units`、`cache_used_token_capacity`、`prefix_cache_hit_units`、`prefix_cache_query_units`、`evicted_units`、`recomputed_tokens`。GPU/vLLM adapter 把 cache unit 标为 `kv_block`；没有暴露的字段写 `unavailable`，不做估算。
+- `device_metric_sample`: xPU 设备采样。GPU/vLLM adapter 当前通过 `nvidia-smi` 记录 `device_utilization_percent`、`memory_utilization_percent`、`memory_used_mib`、`memory_total_mib`、`memory_used_bytes`、`memory_total_bytes`、`power_watts`、`temperature_c`。如果本机无 GPU、无 `nvidia-smi` 或采样失败，则该 event 仍写入但 `status=unavailable`。
+
+当前 adapter：
+
+- `--backend-trace-adapter vllm_gpu`: 面向 NVIDIA GPU + vLLM。serving/cache 来自 vLLM Prometheus `/metrics`，设备侧来自 `nvidia-smi`。这是当前可用的 observed 路径。
+- `--backend-trace-adapter tpu`: TPU schema placeholder。当前只写 metadata 和 unavailable device metrics，等待 TPU runtime metrics 接入。
+- `--backend-trace-adapter npu`: NPU schema placeholder。当前只写 metadata 和 unavailable device metrics，等待 Ascend/其他 NPU runtime metrics 接入。
 
 Cache terminology is strict:
 
@@ -554,7 +572,20 @@ python -m app.main \
 - `--llm-mode openai_compatible`: 调用本地 vLLM/OpenAI-compatible endpoint。trace 会生成 `request_id_for_backend`，并通过 `X-Request-Id` 对齐后端日志。
 - `--max-output-tokens`: 控制每次 LLM request 的输出上限，默认 `4096`。不要用 endpoint 健康检查脚本里的 `128` 作为 workload 上限；正式 trace 会在 LLM event 中记录 `max_output_tokens`。
 
-当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。Week 1 报告中的 KV 曲线图来自 `_backend_metrics.json` sidecar，会把 vLLM cache usage 曲线和 MAS spans / peer communication / manager events 对齐展示，但它仍是 metrics 采样级别，不是 vLLM 内核级 per-request event。
+当前 MAS trace 记录每次 LLM request 的总耗时和 backend usage：`backend_prompt_tokens`、`backend_completion_tokens`、`backend_total_tokens`、`backend_finish_reason`、`request_id_for_backend`。HTML viewer 目前展示 LLM/tool request 粗粒度 span，不展示 vLLM 内部 prefill/decode/KV/scheduler 子阶段。
+
+打开 backend metrics 后，JSONL 会额外写入 `serving_metric_sample`、`cache_memory_sample` 和 `device_metric_sample`。这能把 MAS spans / peer communication / manager events 和 vLLM aggregate serving/KV pressure、GPU 显存/utilization/power 时间序列对齐。注意：这仍不是 vLLM 内核级 per-request KV block allocation/free trace；凡是 backend 未暴露的字段都会写成 `unavailable`。
+
+如果使用本仓库 `vllm/` fork 并设置 `VLLM_MAS_TRACE_PATH=/path/to/vllm_mas_backend_trace.jsonl`，vLLM 还会额外输出 opt-in server-side JSONL：
+
+- `scheduler_batch`: 每个 scheduler step 的 batch membership、scheduled tokens、context/decode request ids、waiting/running queue size、preemption/finish set。
+- `model_execute_batch`: 每个 GPU model execution batch 的 request ids、prefill/decode request count、batch token count、DP rank/size、CUDA graph mode、duration。
+- `kv_cache_event`: KV block store/remove/clear event，包含 block count、block size、token count、medium/group、block hash sample。`BlockStored -> BlockRemoved` 可以离线计算 KV block residency；没有真实 eviction/recompute event 的路径仍不伪造。
+
+`scripts/start_vllm_qwen35_or_qwen3.sh` 会自动写：
+
+- `${LOG_DIR}/vllm_launch_config.json`: vLLM launch config，MAS adapter 会通过 `MAS_VLLM_LAUNCH_CONFIG_PATH` 读入并写到 `backend_device`。
+- `${LOG_DIR}/vllm_mas_backend_trace.jsonl`: vLLM fork 的 server-side backend trace，路径也会写入 `backend_device.vllm_mas_trace_path`。
 
 ### vLLM Backend Metrics Sidecar
 
@@ -564,6 +595,7 @@ python -m app.main \
 --collect-backend-metrics true
 --backend-metrics-url http://127.0.0.1:8000/metrics
 --backend-metrics-interval-sec 0.5
+--backend-trace-adapter vllm_gpu
 ```
 
 开启后，每个 run 会生成 `_backend_metrics.json`，并在 `_summary.json` 中写入窗口级 backend 指标：
@@ -580,7 +612,7 @@ python -m app.main \
 - `max_num_requests_waiting`
 - `max_gpu_cache_usage_perc`
 
-这些指标来自 vLLM Prometheus `/metrics`，是 run window 级别的 aggregate，不是逐 request prefill/decode/KV/scheduler trace。它适合判断 topology 是否放大 backend token work、request volume、scheduler queue 和 KV cache pressure；如果要做 request-level 对齐，后续仍需要在 vLLM fork 中按 `X-Request-Id` 输出 per-request prefill/decode/KV/scheduler event。
+这些指标来自 vLLM Prometheus `/metrics` 和 GPU 设备采样，是 run window 或采样点级别的 aggregate。若同时打开 `VLLM_MAS_TRACE_PATH`，本仓库 vLLM fork 会提供逐 scheduler/model-batch/KV-event JSONL；它比 `/metrics` 更细，但仍不是 CUDA kernel 级 trace。
 
 真实 backend trace 示例：
 
@@ -599,7 +631,36 @@ python -m app.main \
   --search-provider tavily \
   --record-model-outputs true \
   --collect-backend-metrics true \
-  --backend-metrics-url http://127.0.0.1:8000/metrics
+  --backend-metrics-url http://127.0.0.1:8000/metrics \
+  --backend-metrics-interval-sec 0.1 \
+  --backend-trace-adapter vllm_gpu
+```
+
+TPU/NPU 暂时没有本机 runtime，但 schema 和启动参数已经占位。当前命令会写入对应 `backend_device` metadata，并把设备采样标为 `unavailable`：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --mode motif \
+  --motif evidence_collection \
+  --task-source manual \
+  --query "收集 MAS benchmark 的相关证据" \
+  --llm-mode openai_compatible \
+  --backend-base-url http://127.0.0.1:8000/v1 \
+  --model local-mas-model \
+  --collect-backend-metrics true \
+  --backend-trace-adapter tpu
+
+python -m app.main \
+  --mode motif \
+  --motif evidence_collection \
+  --task-source manual \
+  --query "收集 MAS benchmark 的相关证据" \
+  --llm-mode openai_compatible \
+  --backend-base-url http://127.0.0.1:8000/v1 \
+  --model local-mas-model \
+  --collect-backend-metrics true \
+  --backend-trace-adapter npu
 ```
 
 ## SWE-bench Lite Trace Collection
@@ -647,13 +708,28 @@ done
 scripts/run_motif_real_trace_tests.sh
 ```
 
-## 当前 Non-goals
+## 当前状态与 TODO
+
+已完成：
+
+- MAS-level trace 已覆盖 agent timeline、dependency、fan-in/fan-out、barrier、tool stall、critical-path candidate、token flow 和 replay/source metadata。
+- GPU/vLLM backend trace 已接入 aggregate serving metrics、KV block/cache pressure proxy、prefix cache counters，以及 `nvidia-smi` 设备级 utilization/memory/power/temperature 采样。
+- vLLM fork 已支持 opt-in `VLLM_MAS_TRACE_PATH`，输出 per-step scheduler batch、GPU model execution batch 和 KV block store/remove/clear JSONL event，可通过 `X-Request-Id` 派生出的 OpenAI request id 与 MAS `request_id_for_backend` 对齐。
+- vLLM launch config 已可写入 `backend_device.parallelism`，包括 TP/PP/DP、GPU count、dtype、max model len、KV block size 和 GPU memory utilization。
+- Cross-platform backend adapter 已定义 `gpu`、`tpu`、`npu` 的统一 schema；TPU/NPU 当前是 placeholder，不伪造没有机器支撑的 runtime metrics。
+- CLI 已支持 `--backend-trace-adapter vllm_gpu|tpu|npu` 和 `--backend-metrics-interval-sec`，后续 sweep 可以直接复用。
+
+下一步优先级：
+
+- 将当前 server-side JSONL 与 MAS trace 自动 merge 到同一 trace directory，减少手工对齐。
+- 继续细化 vLLM hook：补 request enqueue/admission timestamp、per-request prefill/decode phase duration、显式 KV alloc/free/residency summary、真实 eviction/recompute reason。
+- 增加 GPU profiler case study：Nsight/PyTorch profiler 采样少量 representative motif，补 CUDA kernel、SM utilization、HBM bandwidth、memory timeline，用于校准 simulator 参数，不要求每次 sweep 都采。
+- 等 TPU/NPU 机器可用后实现对应 adapter：TPU 优先接入 XLA/Cloud TPU profiler 的 step time、HBM utilization、collective/all-reduce、infeed/outfeed；NPU 优先接入 Ascend/CANN/torch-npu profiler 的 op timeline、HBM/DDR、AICore utilization、communication event。
+- GPU 空闲后重新 sweep motif，生成包含 MAS-level、serving-level、device-level 对齐事件的真实 trace，再更新 Week4/后续 insight 图。
+
+仍然不是当前目标：
 
 - 不追求 SWE-bench 解题成功率。
 - 不设计 final full workflow。
-- 不修改 vLLM scheduler。
-- 不修改 vLLM 内部 KV/cache manager，也不声称已有 per-request KV block trace；当前只接入 vLLM `/metrics` 采样级 KV cache usage。
-- 不做最终 case study。
-- 不追求 SWE-bench 修复成功率。
-- 本轮只补齐复合 motif library 并采集真实 trace。
+- 不声称已有 CUDA kernel 级常态化 trace；当前 GPU 路径是 vLLM `/metrics` aggregate、`nvidia-smi` device sampling 和 opt-in vLLM scheduler/model-batch/KV-event JSONL。
 - 不把 Motus runtime 直接搬进来；只吸收 hook、extractor、span/export/viewer 这类 trace 工程化思路。

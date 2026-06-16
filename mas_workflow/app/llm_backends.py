@@ -110,7 +110,8 @@ class OpenAICompatibleLLM:
         headers_metadata = dict(metadata)
         headers_metadata["X-Request-Id"] = request_id
         generation_start = time.time()
-        content, response_metadata = self.client.invoke_with_metadata(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=self.max_tokens)
+        request_max_tokens = int(metadata.get("request_max_output_tokens") or self.max_tokens)
+        content, response_metadata = self.client.invoke_with_metadata(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=request_max_tokens)
         end = time.time()
         usage = response_metadata.get("usage") or {}
         return LLMResult(
@@ -130,7 +131,7 @@ class OpenAICompatibleLLM:
                 "backend_completion_tokens": usage.get("completion_tokens"),
                 "backend_total_tokens": usage.get("total_tokens"),
                 "backend_system_fingerprint": response_metadata.get("system_fingerprint"),
-                "max_output_tokens": self.max_tokens,
+                "max_output_tokens": request_max_tokens,
             },
         )
 

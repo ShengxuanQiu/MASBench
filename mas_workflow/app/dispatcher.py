@@ -33,7 +33,7 @@ class LLMDispatcher:
         llm_client: LocalLLMClient,
         *,
         workflow_id: str,
-        max_concurrent_llm_calls: int = 2,
+        max_concurrent_llm_calls: int = 32,
         dispatch_policy: str = "fcfs",
     ) -> None:
         if dispatch_policy not in {"fcfs", "criticality"}:

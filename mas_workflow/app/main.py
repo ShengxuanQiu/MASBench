@@ -68,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend-base-url", "--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--model", default="local-mas-model")
     parser.add_argument("--max-output-tokens", type=int, default=4096)
-    parser.add_argument("--max-concurrent-llm-calls", type=int, default=2)
+    parser.add_argument("--max-concurrent-llm-calls", type=int, default=32)
     parser.add_argument("--dispatch-policy", choices=["fcfs", "criticality"], default="fcfs")
     parser.add_argument("--trace-dir", default="traces")
     parser.add_argument("--force-live-search-test", default="false")
@@ -85,6 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--collect-backend-metrics", default="false")
     parser.add_argument("--backend-metrics-url", default="")
     parser.add_argument("--backend-metrics-interval-sec", type=float, default=0.5)
+    parser.add_argument("--backend-trace-adapter", choices=["vllm_gpu", "tpu", "npu"], default="vllm_gpu")
     parser.add_argument("--agent-pool-size", type=int, default=8)
     parser.add_argument("--min-selected-agents", type=int, default=1)
     parser.add_argument("--max-selected-agents", type=int, default=3)
@@ -267,6 +268,7 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         collect_backend_metrics=str_bool(args.collect_backend_metrics),
         backend_metrics_url=args.backend_metrics_url,
         backend_metrics_interval_sec=args.backend_metrics_interval_sec,
+        backend_trace_adapter=args.backend_trace_adapter,
         agent_pool_size=args.agent_pool_size,
         min_selected_agents=args.min_selected_agents,
         max_selected_agents=args.max_selected_agents,

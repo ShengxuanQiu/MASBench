@@ -12,8 +12,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .full_workflows import FULL_WORKFLOW_NAMES
+from .full_workflows import build_workflow as build_full_workflow
 from .motifs import MOTIF_NAMES
 from .motifs import build_workflow as build_motif_workflow
+from .swebench_adapter import load_swebench_instances
 from .topologies import TopologyConfig
 from .topologies import build_workflow as build_topology_workflow
 from .tracing import now_ts
@@ -39,17 +42,22 @@ def str_bool(value: str | bool) -> bool:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MASBench-Arch topology and composite motif runner")
-    parser.add_argument("--mode", choices=["topology", "motif"], default="topology")
+    parser.add_argument("--mode", choices=["topology", "motif", "full"], default="topology")
     parser.add_argument("--topology", choices=["single", "independent", "centralized", "decentralized", "hybrid"], default="single")
     parser.add_argument("--motif", choices=MOTIF_NAMES, default="planner_executor")
-    parser.add_argument("--workload", default="", help="Alias for a composite meso workload without changing --mode topology|motif.")
-    parser.add_argument("--task-source", choices=["manual", "swebench_lite"], default="manual")
+    parser.add_argument("--full-workflow", choices=FULL_WORKFLOW_NAMES, default="issue_to_verified_patch")
+    parser.add_argument("--workload", default="", help="Alias for a motif or full workflow without changing the rest of the CLI.")
+    parser.add_argument("--task-source", choices=["manual", "swebench_lite", "swebench_local"], default="manual")
+    parser.add_argument("--swebench-task-file", default="", help="Local SWE-bench json/jsonl file for full software workflows.")
     parser.add_argument("--swebench-split", default="test")
     parser.add_argument("--swebench-start-index", type=int, default=0)
     parser.add_argument("--swebench-num-instances", type=int, default=1)
     parser.add_argument("--swebench-instance-ids", default="")
     parser.add_argument("--query", default="")
     parser.add_argument("--repo", default="")
+    parser.add_argument("--test-command", default="")
+    parser.add_argument("--dry-run-patch", default="true")
+    parser.add_argument("--dry-run-tests", default="true")
     parser.add_argument("--num-agents", type=int, default=3)
     parser.add_argument("--max-rounds", type=int, default=2)
     parser.add_argument("--debate-rounds", type=int, default=2)
@@ -217,9 +225,15 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         if workload_arg in MOTIF_NAMES:
             args.mode = "motif"
             args.motif = workload_arg
+        elif workload_arg in FULL_WORKFLOW_NAMES:
+            args.mode = "full"
+            args.full_workflow = workload_arg
         else:
             raise ValueError(f"Unknown workload: {workload_arg}")
-    workload_name = args.motif if args.mode == "motif" else args.topology
+    if args.mode == "full":
+        workload_name = args.full_workflow
+    else:
+        workload_name = args.motif if args.mode == "motif" else args.topology
     replay_snapshot_dir = Path(args.replay_snapshot_dir).expanduser().resolve() if args.replay_snapshot_dir else None
     tool_trace_replay_path = Path(args.tool_trace_replay_path).expanduser().resolve() if args.tool_trace_replay_path else None
     if replay_snapshot_dir is None and tool_trace_replay_path is not None:
@@ -291,7 +305,12 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
 
 
 def run_one(config: TopologyConfig) -> dict[str, Any]:
-    workflow = build_motif_workflow(config) if config.mode == "motif" else build_topology_workflow(config)
+    if config.mode == "full":
+        workflow = build_full_workflow(config)
+    elif config.mode == "motif":
+        workflow = build_motif_workflow(config)
+    else:
+        workflow = build_topology_workflow(config)
     return workflow.run()
 
 
@@ -300,7 +319,30 @@ def main() -> int:
     args = parse_args()
     run_id = now_ts()
     summaries = []
-    if args.task_source == "manual":
+    if args.swebench_task_file:
+        instances = load_swebench_instances(
+            args.swebench_task_file,
+            instance_ids=[item.strip() for item in args.swebench_instance_ids.split(",") if item.strip()] or None,
+            limit=args.swebench_num_instances,
+        )
+        for instance in instances:
+            repo_path = repo_for_instance(args, instance)
+            config = config_for(
+                args,
+                query=str(instance.get("problem_statement") or ""),
+                instance_id=str(instance.get("instance_id")),
+                task_source="swebench_local",
+                repo_path=repo_path,
+                run_id=run_id,
+            )
+            config.extra["swebench"] = instance
+            config.extra["test_command"] = args.test_command
+            config.extra["dry_run_patch"] = str_bool(args.dry_run_patch)
+            config.extra["dry_run_tests"] = str_bool(args.dry_run_tests)
+            if repo_path is None:
+                config.extra["setup_error"] = "repo checkout unavailable; tool wrappers will emit skipped tool events"
+            summaries.append(run_one(config))
+    elif args.task_source == "manual":
         query = args.query or "分析 MAS benchmark 的研究意义"
         instance_id = manual_instance_id(query)
         repo_path = Path(args.repo).expanduser().resolve() if args.repo else None
@@ -308,6 +350,9 @@ def main() -> int:
             print(f"WARNING: repo path does not exist; continuing without repo: {repo_path}", file=sys.stderr)
             repo_path = None
         config = config_for(args, query=query, instance_id=instance_id, task_source="manual", repo_path=repo_path, run_id=run_id)
+        config.extra["test_command"] = args.test_command
+        config.extra["dry_run_patch"] = str_bool(args.dry_run_patch)
+        config.extra["dry_run_tests"] = str_bool(args.dry_run_tests)
         summaries.append(run_one(config))
     else:
         instances = load_swebench_lite(args)
@@ -322,6 +367,9 @@ def main() -> int:
                 run_id=run_id,
             )
             config.extra["swebench"] = instance
+            config.extra["test_command"] = args.test_command
+            config.extra["dry_run_patch"] = str_bool(args.dry_run_patch)
+            config.extra["dry_run_tests"] = str_bool(args.dry_run_tests)
             if repo_path is None:
                 config.extra["setup_error"] = "repo clone/checkout unavailable; using no_repo synthetic tool path"
             summaries.append(run_one(config))

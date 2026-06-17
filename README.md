@@ -1,6 +1,6 @@
 # MASBench-Arch 基础拓扑与架构 Trace 原型
 
-本仓库是 MASBench-Arch 的早期原型，当前重点不是解 SWE-bench，也不是设计最终 full workflow，而是构建可控的基础 MAS 拓扑库，并采集面向系统/体系结构研究的 trace。正式 workload 位于 `mas_workflow/`，旧 demo workflow 仍保留在源码中作为 prompts、dispatcher、tool wrapper、analysis 等实现参考。
+本仓库是 MASBench-Arch 的早期原型，核心是构建可控的基础 MAS 拓扑库、可组合 composite motif，以及面向系统/体系结构研究的 trace。正式 workload 位于 `mas_workflow/`，旧 demo workflow 仍保留在源码中作为 prompts、dispatcher、tool wrapper、analysis 等实现参考。
 
 首要目标：生成能被 architecture 研究员用于仿真的 trace。也就是说，trace 必须稳定描述 workload 的逻辑结构，同时明确记录 token、依赖、artifact 传递、并发组、barrier、tool/LLM 时间、replay policy 和 latency source。真实 wall-clock 只是某次运行的测量实例，不能和 workload 定义混为一谈。
 
@@ -14,6 +14,7 @@
 │   │   ├── main.py                  # 正式 CLI 入口
 │   │   ├── topologies/              # 五个基础拓扑和 registry
 │   │   ├── motifs/                  # 复合 MAS 子图模式库和 registry
+│   │   ├── full_workflows/           # 端到端 full workflow，由 motif 组合而来
 │   │   ├── tracing.py               # JSONL trace context、token、latency helper
 │   │   ├── trace_export.py          # arch spans / OTel / Jaeger / HTML viewer 导出
 │   │   ├── backend_adapters.py      # GPU/TPU/NPU backend trace adapter 与 xPU 字段归一化
@@ -143,7 +144,92 @@ Meso workload 是由已有 composite motif 继续拼接出的更大 workflow，�
 - 基础 topology 描述通用连接模式，例如 single、independent、centralized、decentralized、hybrid。
 - composite motif 描述有任务语义的局部子图，例如 evidence collection、code review、debug loop。
 - composite motif 应尽量由基础 topology 的 `build_motif(config)` 组合而来，而不是重新定义一套独立 trace/runtime。
-- motif 可以直接作为 workload 跑 trace，也可以嵌入后续 full workflow；本轮不设计最终 full workflow。
+- motif 可以直接作为 workload 跑 trace，也可以嵌入 full workflow。full workflow 不是 motif；它是由多个 motif 组合而来的端到端任务图。
+
+## Full Software Workflow: Issue-to-Verified-Patch
+
+`issue_to_verified_patch` 是面向 SWE-bench 软件工程任务的 full workflow。它不是新的基础 topology，也不是新的 motif，而是把已有 motif 组合成接近真实软件修复任务的端到端 workflow：
+
+```text
+SWE-bench issue
+  -> Manager planning
+  -> Codebase evidence collection
+  -> Evidence synthesis
+  -> Diagnosis / fix strategy
+  -> Parallel patch generation
+  -> Patch selection / integration
+  -> Test execution
+  -> Review-debug loop
+  -> Final verification / report
+```
+
+阶段与复用 motif 的关系：
+
+| Full workflow stage | Reused motif / graph pattern | Exposed bottleneck |
+| --- | --- | --- |
+| Manager planning | `planner_executor` / centralized manager-worker | manager 位于 critical path |
+| Codebase evidence collection | `evidence_collection` | 多 searcher fan-out/fan-in |
+| Evidence synthesis | `researcher_synthesizer` | synthesizer 长上下文 prefill |
+| Diagnosis / fix strategy | `debate_reviewer` | 多假设冲突与汇聚判断 |
+| Parallel patch generation | `multi_coder_branch` | 多 coder 候选 patch 与冗余 tokens |
+| Patch selection | selector / all-gather / fan-in | selector 读取所有候选，长 prompt |
+| Test execution | tool-heavy branch / tool stall | `run_tests` 阻塞并形成 resume burst |
+| Review-debug loop | `retry_debug_loop` | 失败日志进入下一轮，prompt 增长和 prefix 重复 |
+| Final report | final synthesizer / fan-in | patch、测试、review 信息最终聚合 |
+
+该 full workflow 重点不是 solve rate，而是暴露 motif interaction bottleneck：
+
+- `multi_coder -> selector` fan-in 放大：trace 记录 `candidate_tokens_total`、`selected_candidate_tokens`、`discarded_candidate_tokens`。
+- selector / candidate 被 debug loop 再读：trace 记录每轮 debug prompt 的 `input_tokens`、`reread_sources` 和上游 patch/evidence 依赖。
+- evidence collection -> synthesizer 长上下文 fan-in：trace 记录 `fan_in_sources`、`fan_in_tokens`、`synthesizer_input_tokens`。
+- test tool stall -> resume burst：`run_tests` 作为 tool event，记录 `tool_wait_ms`、`resume_agents`、`post_tool_resume_burst_size`。
+- review-debug loop prefix redundancy：trace 记录 `stable_prefix_tokens`、`dynamic_suffix_tokens`、`potential_reusable_prefix_tokens`。
+
+运行 dry-run，不需要 GPU，不会修改 repo，也不会真实执行 pytest：
+
+```bash
+mas_workflow/scripts/run_issue_to_verified_patch_dry_run.sh
+```
+
+直接通过 CLI 运行：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --mode full \
+  --full-workflow issue_to_verified_patch \
+  --task-source manual \
+  --query "Fix a parser regression and produce a verified patch report." \
+  --repo /path/to/local/checkout \
+  --llm-mode mock \
+  --tool-mode synthetic \
+  --search-provider local_repo \
+  --dry-run-patch true \
+  --dry-run-tests true \
+  --trace-dir traces/full_workflows
+```
+
+从本地 SWE-bench json/jsonl 加载 instance：
+
+```bash
+cd mas_workflow
+python -m app.main \
+  --mode full \
+  --full-workflow issue_to_verified_patch \
+  --swebench-task-file /path/to/swebench_instances.jsonl \
+  --swebench-num-instances 1 \
+  --repo /path/to/local/checkout \
+  --test-command "python -m pytest tests/test_target.py -q" \
+  --llm-mode mock \
+  --tool-mode synthetic \
+  --search-provider local_repo \
+  --dry-run-patch true \
+  --dry-run-tests true
+```
+
+SWE-bench loader 支持字段：`instance_id`、`repo`、`base_commit`、`problem_statement`、`test_patch`、`patch`、`FAIL_TO_PASS`、`PASS_TO_PASS`。如果本地 checkout 不存在，workflow 仍会生成结构化 trace，工具事件会标记为 skipped。
+
+当前版本已为真实运行和 trace 采集准备好，但不要求现在跑出完整真实 trace。后续可以用该 full workflow 做 early stop、prefix reuse、critical-path priority、tool-resume smoothing、barrier-aware batching 等 case study。
 
 运行基础 topology：
 

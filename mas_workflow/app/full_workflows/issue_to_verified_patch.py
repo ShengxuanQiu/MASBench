@@ -337,8 +337,14 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
         def collect(item: tuple[str, str]) -> tuple[str, str]:
             agent, query = item
             self.emit_edge(src_node="manager_planner", dst_node=agent, artifact_type="evidence_query", content=query, transfer_type="broadcast", parallel_group="codebase_evidence", fanout_count=len(queries), recipient_count=len(queries))
+            web_results = self.search(
+                node_id=f"{agent}_web_search",
+                node_name=f"{agent} web_search",
+                query=query,
+                trace_fields=self._meta(stage=stage, motif_id=motif_id, agent_id=f"{agent}_web_search", parents=["manager_planner"]),
+            )
             tool = self._emit_tool(node_id=f"{agent}_search_code", node_name=f"{agent} search_code", stage=stage, motif_id=motif_id, tool_name="search_code", fn=search_code, args=(query, self.config.repo_path), kwargs={"max_files": 30}, parents=["manager_planner"])
-            out = self.llm_agent(node_id=agent, node_name=agent, agent_role="researcher", system_prompt="Extract codebase evidence: file paths, symptoms, likely tests, and uncertainty.", user_prompt=f"Plan:\n{plan}\nSearch result:\n{tool}", parents=[f"{agent}_search_code"], parallel_group="codebase_evidence", criticality="background", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=agent, parents=[f"{agent}_search_code"], fan_in_sources=[]))
+            out = self.llm_agent(node_id=agent, node_name=agent, agent_role="researcher", system_prompt="Extract codebase evidence: file paths, symptoms, likely tests, and uncertainty.", user_prompt=f"Plan:\n{plan}\nWeb search result:\n{web_results}\nCode search result:\n{tool}", parents=[f"{agent}_web_search", f"{agent}_search_code"], parallel_group="codebase_evidence", criticality="background", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=agent, parents=[f"{agent}_web_search", f"{agent}_search_code"], fan_in_sources=[]))
             self.emit_edge(src_node=agent, dst_node="evidence_synthesizer", artifact_type="evidence", content=out, transfer_type="aggregation", parallel_group="codebase_evidence")
             return agent, out
 

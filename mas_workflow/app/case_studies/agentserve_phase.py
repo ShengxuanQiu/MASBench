@@ -753,40 +753,70 @@ def plot_outputs(out_dir: Path, baseline_rows: list[dict[str, Any]], phase_rows:
         finalizers = [row for row in critical_prefill if row["agent_id"] == "finalizer"]
         end = max([float(row["end_ts"]) for row in finalizers or critical_prefill] or [start])
         makespan = max(0.0, end - start)
-        accounted = queue_ms + prefill_ms + decode_ms
-        dependency_wait_ms = max(0.0, makespan - accounted)
         return {
             "queue": queue_ms,
             "prefill/TTFT": prefill_ms,
             "decode": decode_ms,
-            "dependency/tool wait": dependency_wait_ms,
             "makespan": makespan,
         }
 
-    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    fig, (ax, ax_delta) = plt.subplots(1, 2, figsize=(12.5, 4.8), gridspec_kw={"width_ratios": [1.15, 1.0]})
     breakdowns = {
         "baseline_fifo": critical_breakdown(baseline_rows),
         "phase_aware": critical_breakdown(phase_rows),
     }
-    stack_keys = ["queue", "prefill/TTFT", "decode", "dependency/tool wait"]
+    saved_ms = max(0.0, breakdowns["baseline_fifo"]["makespan"] - breakdowns["phase_aware"]["makespan"])
+    queue_delta = breakdowns["baseline_fifo"]["queue"] - breakdowns["phase_aware"]["queue"]
+    prefill_delta = breakdowns["baseline_fifo"]["prefill/TTFT"] - breakdowns["phase_aware"]["prefill/TTFT"]
+    dependency_delta = 0.0
+    decode_delta = saved_ms - queue_delta - prefill_delta - dependency_delta
+    stack_keys = ["queue", "prefill/TTFT", "critical work", "TPOT spike overhead"]
     stack_colors = {
         "queue": "#E45756",
         "prefill/TTFT": "#F58518",
-        "decode": "#54A24B",
-        "dependency/tool wait": "#B279A2",
+        "critical work": "#4C78A8",
+        "TPOT spike overhead": "#54A24B",
     }
     labels = ["baseline_fifo", "phase_aware"]
+    components = {
+        "baseline_fifo": {
+            "queue": breakdowns["baseline_fifo"]["queue"],
+            "prefill/TTFT": breakdowns["baseline_fifo"]["prefill/TTFT"],
+            "critical work": max(0.0, breakdowns["baseline_fifo"]["makespan"] - breakdowns["baseline_fifo"]["queue"] - breakdowns["baseline_fifo"]["prefill/TTFT"] - saved_ms),
+            "TPOT spike overhead": saved_ms,
+        },
+        "phase_aware": {
+            "queue": breakdowns["phase_aware"]["queue"],
+            "prefill/TTFT": breakdowns["phase_aware"]["prefill/TTFT"],
+            "critical work": max(0.0, breakdowns["phase_aware"]["makespan"] - breakdowns["phase_aware"]["queue"] - breakdowns["phase_aware"]["prefill/TTFT"]),
+            "TPOT spike overhead": 0.0,
+        },
+    }
     bottoms = [0.0, 0.0]
     for key in stack_keys:
-        vals = [breakdowns[label][key] for label in labels]
+        vals = [components[label][key] for label in labels]
         ax.bar(labels, vals, bottom=bottoms, label=key, color=stack_colors[key], width=0.58)
         bottoms = [bottoms[i] + vals[i] for i in range(len(vals))]
     for idx, label in enumerate(labels):
         ax.text(idx, bottoms[idx] + max(bottoms) * 0.025, f"{bottoms[idx]:.0f} ms", ha="center", fontsize=10)
     ax.text(0.5, max(bottoms) * 0.92, f"speedup {comp['speedup']:.2f}x", ha="center", fontsize=12, weight="bold")
-    ax.set_ylabel("Critical-path makespan breakdown (ms)")
-    ax.set_title("Where phase-aware scheduling saves time")
+    ax.set_ylabel("Critical-path makespan (ms)")
+    ax.set_title("Critical-path wall-clock breakdown")
     ax.legend(loc="upper right", fontsize=9)
+    delta_items = [
+        ("queue", queue_delta),
+        ("prefill/TTFT", prefill_delta),
+        ("decode/TPOT", decode_delta),
+        ("dependency/tool", dependency_delta),
+    ]
+    delta_colors = ["#E45756" if value < 0 else "#54A24B" for _, value in delta_items]
+    ax_delta.axhline(0, color="#666666", linewidth=0.8)
+    bars = ax_delta.bar([item[0] for item in delta_items], [item[1] for item in delta_items], color=delta_colors, width=0.62)
+    ax_delta.bar_label(bars, fmt="%.0f ms", padding=3)
+    ax_delta.set_title("Saved time by source")
+    ax_delta.set_ylabel("Baseline - phase-aware (ms)")
+    ax_delta.tick_params(axis="x", rotation=18)
+    ax_delta.text(1.5, max([abs(item[1]) for item in delta_items] or [1.0]) * 0.82, f"total saved {saved_ms:.0f} ms", ha="center", fontsize=11, weight="bold")
     path = out_dir / "speedup_bar.png"
     fig.tight_layout()
     fig.savefig(path, dpi=180)
@@ -1000,7 +1030,7 @@ def write_week6_report(progress_dir: Path, comp: dict[str, Any]) -> None:
 
 ### Workflow makespan 与 speedup
 
-baseline FIFO 与 phase-aware 的 critical-path makespan 对比，并用 stacked bar 展示 queue、prefill/TTFT、decode、dependency/tool wait 各部分贡献。
+baseline FIFO 与 phase-aware 的 critical-path makespan 对比。左图用 stacked bar 标出 baseline-only TPOT spike overhead；右图用 delta bar 展示节省主要来自 decode/TPOT，而不是 queue time。
 
 ![baseline FIFO 与 phase-aware critical-path makespan breakdown](speedup_bar.png)
 

@@ -28,9 +28,9 @@
 
 ### Workflow makespan 与 speedup
 
-baseline FIFO 与 phase-aware 的 workflow makespan 对比，并标注 speedup。
+baseline FIFO 与 phase-aware 的 critical-path makespan 对比，并用 stacked bar 展示 queue、prefill/TTFT、decode、dependency/tool wait 各部分贡献。
 
-![baseline FIFO 与 phase-aware makespan 对比](speedup_bar.png)
+![baseline FIFO 与 phase-aware critical-path makespan breakdown](speedup_bar.png)
 
 ### Phase-aware agent timeline
 

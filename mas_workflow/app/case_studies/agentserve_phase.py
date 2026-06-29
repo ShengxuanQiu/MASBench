@@ -736,13 +736,57 @@ def plot_outputs(out_dir: Path, baseline_rows: list[dict[str, Any]], phase_rows:
     paths: dict[str, str] = {}
     plt.style.use("seaborn-v0_8-whitegrid")
 
-    fig, ax = plt.subplots(figsize=(7, 4))
-    vals = [comp["workflow_makespan_ms"]["baseline_fifo"], comp["workflow_makespan_ms"]["phase_aware"]]
-    bars = ax.bar(["baseline_fifo", "phase_aware"], vals, color=["#9D755D", "#4C78A8"])
-    ax.set_ylabel("Workflow makespan (ms)")
-    ax.set_title("Workflow makespan speedup")
-    ax.bar_label(bars, fmt="%.0f ms")
-    ax.text(0.5, max(vals) * 0.93, f"speedup {comp['speedup']:.2f}x", ha="center", fontsize=12, weight="bold")
+    def critical_breakdown(rows: list[dict[str, Any]]) -> dict[str, float]:
+        critical_prefill = [
+            row
+            for row in rows
+            if row["critical_path"] and row["phase_type"] in {"cold_prefill", "resume_prefill"}
+        ]
+        queue_ms = sum(float(row.get("queue_time_ms") or 0.0) for row in critical_prefill)
+        prefill_ms = sum(max(0.0, float(row["first_token_ts"]) - float(row["submit_ts"])) for row in critical_prefill)
+        decode_ms = sum(
+            sum(float(item) for item in row.get("decode_inter_token_ms") or [])
+            for row in rows
+            if row["critical_path"] and row["phase_type"] == "decode"
+        )
+        start = min([float(row["queue_enter_ts"]) for row in critical_prefill] or [0.0])
+        finalizers = [row for row in critical_prefill if row["agent_id"] == "finalizer"]
+        end = max([float(row["end_ts"]) for row in finalizers or critical_prefill] or [start])
+        makespan = max(0.0, end - start)
+        accounted = queue_ms + prefill_ms + decode_ms
+        dependency_wait_ms = max(0.0, makespan - accounted)
+        return {
+            "queue": queue_ms,
+            "prefill/TTFT": prefill_ms,
+            "decode": decode_ms,
+            "dependency/tool wait": dependency_wait_ms,
+            "makespan": makespan,
+        }
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    breakdowns = {
+        "baseline_fifo": critical_breakdown(baseline_rows),
+        "phase_aware": critical_breakdown(phase_rows),
+    }
+    stack_keys = ["queue", "prefill/TTFT", "decode", "dependency/tool wait"]
+    stack_colors = {
+        "queue": "#E45756",
+        "prefill/TTFT": "#F58518",
+        "decode": "#54A24B",
+        "dependency/tool wait": "#B279A2",
+    }
+    labels = ["baseline_fifo", "phase_aware"]
+    bottoms = [0.0, 0.0]
+    for key in stack_keys:
+        vals = [breakdowns[label][key] for label in labels]
+        ax.bar(labels, vals, bottom=bottoms, label=key, color=stack_colors[key], width=0.58)
+        bottoms = [bottoms[i] + vals[i] for i in range(len(vals))]
+    for idx, label in enumerate(labels):
+        ax.text(idx, bottoms[idx] + max(bottoms) * 0.025, f"{bottoms[idx]:.0f} ms", ha="center", fontsize=10)
+    ax.text(0.5, max(bottoms) * 0.92, f"speedup {comp['speedup']:.2f}x", ha="center", fontsize=12, weight="bold")
+    ax.set_ylabel("Critical-path makespan breakdown (ms)")
+    ax.set_title("Where phase-aware scheduling saves time")
+    ax.legend(loc="upper right", fontsize=9)
     path = out_dir / "speedup_bar.png"
     fig.tight_layout()
     fig.savefig(path, dpi=180)
@@ -793,7 +837,7 @@ def plot_outputs(out_dir: Path, baseline_rows: list[dict[str, Any]], phase_rows:
         if row["phase_type"] in {"cold_prefill", "resume_prefill"} and not row["critical_path"] and int(row.get("input_tokens") or 0) >= 3200:
             ax.axvspan(float(row["submit_ts"]), float(row["first_token_ts"]), color="#E45756", alpha=0.05)
     ax.axhline(35, color="#E45756", linestyle="--", linewidth=1, label="spike threshold")
-    ax.set_ylabel("Critical decode TPOT / ITL (ms)")
+    ax.set_ylabel("Critical decode inter-token latency (ms/token)")
     ax.set_xlabel("Time (ms)")
     ax.set_title("Critical-path decode TPOT spikes and long prefill overlap")
     ax.legend(loc="upper right")
@@ -956,9 +1000,9 @@ def write_week6_report(progress_dir: Path, comp: dict[str, Any]) -> None:
 
 ### Workflow makespan 与 speedup
 
-baseline FIFO 与 phase-aware 的 workflow makespan 对比，并标注 speedup。
+baseline FIFO 与 phase-aware 的 critical-path makespan 对比，并用 stacked bar 展示 queue、prefill/TTFT、decode、dependency/tool wait 各部分贡献。
 
-![baseline FIFO 与 phase-aware makespan 对比](speedup_bar.png)
+![baseline FIFO 与 phase-aware critical-path makespan breakdown](speedup_bar.png)
 
 ### Phase-aware agent timeline
 

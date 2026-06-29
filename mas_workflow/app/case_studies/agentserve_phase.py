@@ -954,10 +954,29 @@ def write_week6_report(progress_dir: Path, comp: dict[str, Any]) -> None:
 
 ## 图表说明
 
-- `speedup_bar.png`：baseline FIFO 与 phase-aware 的 workflow makespan 对比，并标注 speedup。
-- `phase_timeline.png`：按 agent 展示 phase-aware 模式下的 cold/resume prefill、decode 和 tool_wait 时间线，关键路径 span 已突出显示。
-- `tpot_spike_timeline.png`：展示 critical decode TPOT 时间线，以及 long prefill overlap window。
-- `queue_time_by_phase.png`：按 phase 对比 queue time p95。
+### Workflow makespan 与 speedup
+
+baseline FIFO 与 phase-aware 的 workflow makespan 对比，并标注 speedup。
+
+![baseline FIFO 与 phase-aware makespan 对比](speedup_bar.png)
+
+### Phase-aware agent timeline
+
+按 agent 展示 phase-aware 模式下的 cold/resume prefill、decode 和 tool_wait 时间线，关键路径 span 已突出显示。
+
+![phase-aware agent timeline](phase_timeline.png)
+
+### Critical decode TPOT spike timeline
+
+展示 critical decode TPOT 时间线，以及 long prefill overlap window。可以直观看到 baseline 中 critical decode TPOT spike 更多，而 phase-aware admission 明显压低 spike。
+
+![critical decode TPOT spike timeline](tpot_spike_timeline.png)
+
+### Queue time by phase
+
+按 phase 对比 queue time p95。phase-aware 的代价主要体现在 non-critical prefill queue time 增加，用它换取 critical decode 稳定性。
+
+![不同 phase 的 queue time p95 对比](queue_time_by_phase.png)
 
 ## 方法说明
 

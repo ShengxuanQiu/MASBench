@@ -348,6 +348,142 @@ scripts/run_motif_real_trace_tests.sh
 
 该脚本使用 `--llm-mode openai_compatible`、`--agent-execution react`、`--collect-backend-metrics true` 和 `--record-model-outputs true`。工具模式优先使用 `--tool-mode live --search-provider tavily`；如果没有 `TAVILY_API_KEY`，只在显式设置 `REPLAY_SNAPSHOT_DIR` 时使用 replay，否则失败并写出 `traces/motif_real_trace_summary.json`，不会静默 fallback 成 synthetic。
 
+## AgentServe-style phase-aware scheduling case study
+
+新增 case study 位于 `mas_workflow/app/case_studies/agentserve_phase.py`，输出目录为
+`results/case_studies/agentserve_phase/`，汇报和图片同步放在 `progress/week6/`。
+
+### 实验目标
+
+在一个固定 tool-call multi-agent workflow replay 上验证：
+
+- 非关键 agent 的 long cold/resume prefill 与 critical-path short decode overlap 时，会造成 critical decode TPOT spike。
+- 不修改 vLLM 的外部 phase-aware request admission scheduler 可以优先 critical decode / critical short resume prefill，并延后 non-critical cold prefill 与 long resume prefill，从而降低 critical-path TPOT p95 和用户可见 workflow makespan。
+
+该 replay 使用同一批任务、prompt、固定 tool output、随机种子和 arrival pattern，同时生成：
+
+- `baseline_fifo_trace.jsonl`
+- `phase_aware_trace.jsonl`
+- `baseline_fifo_summary.json`
+- `phase_aware_summary.json`
+- `comparison_summary.json`
+
+每个 LLM / phase span 记录 `workflow_id`、`request_id`、`agent_id`、`agent_role`、`phase_type`、`critical_path`、`input_tokens`、`output_tokens`、`tool_observation_tokens`、`queue_enter_ts`、`submit_ts`、`first_token_ts`、`end_ts`、`queue_time_ms`、`ttft_ms`、`tpot_p50_ms`、`tpot_p95_ms`、`scheduler_mode`、`reason_delayed`。`phase_type` 覆盖 `cold_prefill` / `resume_prefill` / `decode` / `tool_wait`。
+
+### H100 / vLLM 环境
+
+当前机器环境采集结果：
+
+| item | value |
+|---|---|
+| hostname | `cxhpc` |
+| GPU | `4 x NVIDIA H100 PCIe, 81559 MiB` |
+| driver | `570.124.06` |
+| pip vLLM | `0.10.2` |
+| preferred local Qwen path | `/data/models/Qwen3.5-35B-A3B` |
+| fallback Qwen path | `/data/models/Qwen3-8B` |
+
+vLLM 启动命令优先使用 Qwen3 30B/35B 系列，不修改 vLLM 源码：
+
+```bash
+MODEL_PATH=/data/models/Qwen3.5-35B-A3B \
+TP_SIZE=4 \
+MAX_MODEL_LEN=32768 \
+GPU_MEMORY_UTILIZATION=0.90 \
+SERVED_MODEL_NAME=local-mas-model \
+scripts/start_vllm_qwen35_or_qwen3.sh
+```
+
+如果要只做固定 trace replay，不需要启动 vLLM。OpenAI-compatible streaming timing 已补到 `LocalLLMClient.invoke_streaming_with_metadata()`，通过 SSE chunk timestamp 测量 first token time 和 token 间隔，供后续真实 endpoint replay 扩展使用。
+
+本次尝试先启动 pip vLLM 再跑真实 baseline：`/data/models/Qwen3.5-35B-A3B` 因当前 Transformers 不识别 `qwen3_5_moe` 架构失败；`/data/models/Qwen3-8B` 在关闭 FlashInfer sampler、V1 engine 和 CUDA graph 后仍出现 engine 子进程退出。因此当前 artifact 采用更规范的两阶段 fallback：先跑完整 MAS workflow source trace，包含真实 Tavily 工具输出；再从该 trace 派生 baseline FIFO 与 phase-aware replay。
+
+### 运行命令
+
+先生成完整 workflow source trace：
+
+```bash
+TAVILY_API_KEY=... python -m mas_workflow.app.main \
+  --mode motif \
+  --workload tool_resume_contention_meso \
+  --motif tool_resume_contention_meso \
+  --task-source manual \
+  --query "Full workflow case study: implement, review, test, and debug a repository regression..." \
+  --llm-mode mock \
+  --tool-mode live \
+  --search-provider tavily \
+  --tool-branch-width 4 \
+  --background-resume-enabled true \
+  --trace-dir results/case_studies/agentserve_phase/full_workflow_source_trace
+```
+
+然后用这条完整 workflow trace 做 baseline FIFO 与 phase-aware replay，保证两组使用相同 source trace、tool outputs、seed 和 arrival/dependency pattern：
+
+```bash
+mas_workflow/scripts/run_agentserve_phase_case.sh \
+  --execution-mode simulate \
+  --source-trace results/case_studies/agentserve_phase/full_workflow_source_trace/tool_resume_contention_meso/manual_fe620dfda172/20260629_162756_894736.jsonl \
+  --seed 42 \
+  --max-concurrent 6
+```
+
+也可以直接调用模块：
+
+```bash
+python -m mas_workflow.app.case_studies.agentserve_phase \
+  --execution-mode simulate \
+  --source-trace results/case_studies/agentserve_phase/full_workflow_source_trace/tool_resume_contention_meso/manual_fe620dfda172/20260629_162756_894736.jsonl \
+  --out-dir results/case_studies/agentserve_phase \
+  --progress-dir progress/week6
+```
+
+### 核心结果
+
+当前 source-trace-derived replay 的核心结果：
+
+| metric | baseline_fifo | phase_aware |
+|---|---:|---:|
+| workflow makespan ms | 6875.4 | 6359.0 |
+| speedup | 1.00x | 1.08x |
+| critical path latency ms | 6875.4 | 6359.0 |
+| critical decode TPOT p95 ms | 28.8 | 12.7 |
+| TPOT spike count | 10 | 1 |
+| delayed prefill count | 0 | 5 |
+| delayed prefill tokens | 0 | 1752 |
+
+Replay source：
+
+- source trace: `results/case_studies/agentserve_phase/full_workflow_source_trace/tool_resume_contention_meso/manual_fe620dfda172/20260629_162756_894736.jsonl`
+- source LLM spans: 14
+- source live Tavily tool spans: 4
+- source tool snapshots: `results/case_studies/agentserve_phase/full_workflow_source_trace/snapshots/20260629_162756_894736/`
+- token calibration: source prompt tokens + role-min output tokens + long resume multiplier + realistic critical decode length。该校准只用于 replay latency modeling；baseline 与 phase-aware 使用完全相同校准。
+
+图表：
+
+- `results/case_studies/agentserve_phase/speedup_bar.png`：baseline vs phase-aware workflow makespan，并标注 speedup。
+- `results/case_studies/agentserve_phase/phase_timeline.png`：按 agent 展示 `cold_prefill` / `resume_prefill` / `decode` / `tool_wait` 时间线，critical path 用更高 alpha 和黑线突出。
+- `results/case_studies/agentserve_phase/tpot_spike_timeline.png`：baseline vs phase-aware 的 critical-path decode TPOT 时间线，并用红色背景标出 long prefill overlap window。
+- `results/case_studies/agentserve_phase/queue_time_by_phase.png`：不同 phase 的 queue time p95 对比。
+
+相同图片和汇报也在：
+
+- `progress/week6/agentserve_phase_case_study.md`
+- `progress/week6/speedup_bar.png`
+- `progress/week6/phase_timeline.png`
+- `progress/week6/tpot_spike_timeline.png`
+- `progress/week6/queue_time_by_phase.png`
+
+### 为什么 phase-aware scheduling 能加速
+
+Baseline FIFO 在工具返回 burst 后按到达顺序提交 non-critical long resume prefill。长 prefill 与 critical reviewer / finalizer 的短 decode overlap，导致 critical decode token 间隔出现 spike，进而拉长用户可见 critical-path makespan。
+
+Phase-aware admission 在 vLLM 外部做轻量控制：critical-path request 优先进入 backend；critical-path short resume prefill 优先；short resume 在 token budget 内允许提交；当 critical decode 活跃或最近 critical TPOT p95 超阈值时，延后 non-critical cold prefill 和 long resume prefill；TPOT 稳定后再逐步放宽 resume prefill token budget。这样牺牲部分 non-critical background 分支 queue time，换取 critical-path decode 稳定性和更短用户可见 makespan。
+
+### 局限性
+
+本 case study 不修改 vLLM，也不实现 CUDA Green Context；它只验证 MAS workflow 层面的 phase-aware scheduling insight。当前提交的 artifact 是完整 workflow source trace 派生的 deterministic replay，适合稳定复现实验结构和指标。真实 H100 + vLLM streaming replay 可复用同一 request sequence 和 `LocalLLMClient.invoke_streaming_with_metadata()` 扩展，但需要先解决当前 pip vLLM / Transformers / FlashInfer 启动兼容性问题。
+
 ## Workflow 与 Motif
 
 每个拓扑都通过统一 registry 暴露两个接口：

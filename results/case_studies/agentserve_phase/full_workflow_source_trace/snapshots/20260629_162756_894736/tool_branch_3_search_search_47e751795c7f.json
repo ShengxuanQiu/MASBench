@@ -1,0 +1,55 @@
+{
+  "environment_id": "cac110a25002ac40",
+  "input_hash": "47e751795c7f820d6a6c466ae93935577d8ff7f024354ec984ab016c740eb6d7",
+  "instance_id": "manual_fe620dfda172",
+  "measured_duration_sec": 2.0786043510306627,
+  "node_id": "tool_branch_3_search",
+  "output": {
+    "answer": "GraphFlow is a workflow management system using a graph to represent tasks. It enhances LLM-agent serving efficiency. It uses a unified graph, wGraph, for procedural structure.",
+    "results": [
+      {
+        "content": "wGraph serves as a shared substrate from which task-specific workflows are dynamically instantiated. Building on wGraph primitives, we introduce",
+        "raw_content": null,
+        "score": 0.15292856,
+        "title": "A Graph-Based Workflow Management for Efficient LLM-Agent Serving",
+        "url": "https://www.researchgate.net/publication/405131689_GraphFlow_A_Graph-Based_Workflow_Management_for_Efficient_LLM-Agent_Serving"
+      },
+      {
+        "content": "GraphAware Hume 3.0 advances analyst-led intelligence by giving teams a connected environment for investigations, collaboration,",
+        "raw_content": null,
+        "score": 0.14666103,
+        "title": "GraphAware Hume 3.0: Building an analyst-led intelligence platform",
+        "url": "https://graphaware.com/blog/building-an-analyst-led-intelligence-platform"
+      },
+      {
+        "content": "# GraphFlow: A Graph-Based Workflow Management for Efficient LLM-Agent Serving. Large Language Model (LLM)-based agents demonstrate strong reasoning and execution capabilities on complex tasks when guided by structured instructions, commonly referred to as workflows. To address these limitations, we propose a new workflow management paradigm that represents workflows using a unified graph, termed wGraph, where each node corresponds to an atomic operation. A workflow is a structured composition of operations executed under predefined ordering and control rules, and is widely used to specify the execution logic of complex processes (Yao et al., 2023b; Hong et al., 2024; Wang et al., 2025b), as illustrated in Figure 1. To introduce explicit procedural structure into LLM-based agent systems, recent approaches augment agents with workflow-assisted execution frameworks (Hong et al., 2024; Qiao et al., 2023; Wang et al., 2025b). These systems typically maintain a repository of predefined workflows (Hong et al., 2024; Josifoski et al., 2023; Qiao et al., 2023), where each workflow encodes the procedural template for a class of tasks.",
+        "raw_content": null,
+        "score": 0.09174782,
+        "title": "GraphFlow: A Graph-Based Workflow Management for Efficient LLM-Agent Serving",
+        "url": "https://arxiv.org/html/2605.22566v1"
+      },
+      {
+        "content": "Road to NODES AI: Graph-Based Long-Term Memory: How Agentic Workflows Adapt Through Experience\nNeo4j\n61500 subscribers\n31 likes\n1027 views\n3 Jun 2026\nThis session is designed to demonstrate how AI agents can move beyond stateless execution and begin learning from their own experiences. While techniques such as RAG and prompt engineering improve individual LLM interactions, they do not provide agents with a structured way to retain, analyze, and reuse knowledge from past executions. In this workshop, you will explore how Neo4j can be used as a long-term memory system that enables agentic workflows to improve continuously over time.\n\nThe workshop introduces a graph-based memory architecture that captures complete agent execution traces, including tool choices, reasoning steps, reflections, and retrieved context, as connected graph structures. You will see how these traces form a dynamic and evolving “playbook” that agents refine through reinforcement learning and human feedback. By querying and analyzing this graph memory, agents learn not just better answers, but better strategies: when to invoke specific tools, how to structure multi-step workflows, and how to apply successful patterns to new problems.\n\nThrough practical examples and demonstrations, you will learn how to model agent executions in Neo4j, extract actionable patterns using Cypher, and retrieve relevant strategies based on structural similarity. Real-world use cases, including applications in law enforcement such as criminal network analysis and suspect nomination, will illustrate how graph-based memory enables agents to develop domain-specific orchestration patterns that transfer across contexts.\n\nYou will learn:\n- How to design graph-based long-term memory for agentic workflows using Neo4j\n- How to capture and model agent execution traces as reusable graph structures\n- How agents can improve tool selection, reflection, and retrieval strategies over time\n- How to query graph memory to distil and reuse successful decision-making patterns\n- How to apply graph-based memory to real-world, high-impact domains\n\nSpeaker: Alessandro Negro, GraphAware\nhttps://www.linkedin.com/in/alessandronegro/\n\nGithub: https://github.com/alenegro81/agenticrag-benchmark\n\nMore on NODES AI: https://neo4j.com/nodes-ai \nMore Courses on GraphAcademy: https://graphacademy.neo4j.com/\n\n#neo4j #graphdatabase #graphrag #agenticai #contextgraph #memory #rag\n5 comments\n",
+        "raw_content": null,
+        "score": 0.088670425,
+        "title": "Road to NODES AI: Graph-Based Long-Term Memory - YouTube",
+        "url": "https://www.youtube.com/watch?v=U_sA6S_jBxE"
+      },
+      {
+        "content": "- Reduced padding - Research areas  Cloud and systems. - Reduced padding - Research areas  Computer vision. - Reduced padding - Research areas  Conversational AI. - Reduced padding - Research areas  Machine learning. - Reduced padding - Research areas  Operations research and optimization. - Reduced padding - Research areas  Quantum technologies. Key job responsibilities - Develop novel solutions and build prototypes - Work on complex problems in Computer Vision and Machine Learning - Contribute to research that could significantly impact Amazon's operations - Collaborate with a diverse team of experts in a fast-paced environment - Collaborate with scientists on writing and submitting papers to Tier-1 conferences (e.g., CVPR, ICCV, NeurIPS, ICML) - Present your research findings to both technical and non-technical audiences Key Opportunities - Collaborate with leading machine learning researchers - Access Amazon tools and hardware (large GPU clusters) - Address challenges at an unparalleled scale - Become a disruptor, innovator, and problem solver in the field of computer vision - Potentially deliver solutions to production in customer-facing applications - Opportunities to become an FTE after the internship Join us in shaping the future of AI at Amazon.",
+        "raw_content": null,
+        "score": 0.07887636,
+        "title": "Graph-aware language model pre-training on a large graph corpus can help multiple graph applications - Amazon Science",
+        "url": "https://www.amazon.science/publications/graph-aware-language-model-pre-training-on-a-large-graph-corpus-can-help-multiple-graph-applications"
+      }
+    ]
+  },
+  "output_hash": "9416c7dd4afac15ab4d8cab7610a62a57fccb342db2ceeb41b03363bb172150a",
+  "provider_name": "tavily",
+  "run_id": "20260629_162756_894736",
+  "status": "success",
+  "timestamp": "2026-06-29T16:27:56.913+08:00",
+  "tool_name": "search",
+  "tool_query": "MAS workflow tracing simulator graph-aware serving evidence branch 3",
+  "topology": "tool_resume_contention_meso"
+}

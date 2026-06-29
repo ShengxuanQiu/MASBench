@@ -1,0 +1,36 @@
+{
+  "critical_decode_tpot_p50_ms": 12.343,
+  "critical_decode_tpot_p95_ms": 12.674,
+  "critical_path_latency_ms": 6359.024,
+  "decode_span_count": 14,
+  "delayed_prefill_count": 5,
+  "delayed_prefill_tokens": 1752,
+  "queue_time_by_phase": {
+    "cold_prefill": {
+      "count": 6,
+      "p50_ms": 5347.0,
+      "p95_ms": 5347.0
+    },
+    "decode": {
+      "count": 14,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0
+    },
+    "resume_prefill": {
+      "count": 8,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0
+    },
+    "tool_wait": {
+      "count": 4,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0
+    }
+  },
+  "request_count": 14,
+  "scheduler_mode": "phase_aware",
+  "tool_wait_count": 4,
+  "tpot_spike_count": 1,
+  "trace_path": "results/case_studies/agentserve_phase/phase_aware_trace.jsonl",
+  "workflow_makespan_ms": 6359.024
+}

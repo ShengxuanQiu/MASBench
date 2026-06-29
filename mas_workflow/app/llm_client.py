@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -82,6 +83,111 @@ class LocalLLMClient:
                     f" langchain_openai 错误: {langchain_exc};"
                     f" openai SDK fallback 错误: {openai_exc}"
                 ) from openai_exc
+
+    def invoke_streaming_with_metadata(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        seed: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Call a streaming OpenAI-compatible endpoint and time output chunks.
+
+        vLLM emits Server-Sent Events for chat streaming. We timestamp every
+        non-empty content/reasoning delta; these chunk timestamps are the best
+        externally observable proxy for token-level timing without modifying
+        vLLM internals.
+        """
+        self._ensure_local_no_proxy()
+        request_start = time.perf_counter()
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens or self.max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        if seed is not None:
+            payload["seed"] = int(seed)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        if metadata:
+            request_id = metadata.get("X-Request-Id") or metadata.get("request_id_for_backend")
+            if request_id:
+                headers["X-Request-Id"] = str(request_id)
+            headers.update(
+                {
+                    "X-MAS-Agent-ID": str(metadata.get("agent_id", "")),
+                    "X-MAS-Shared-Context-Hash": str(metadata.get("shared_context_hash", "")),
+                    "X-MAS-Priority": str(metadata.get("priority", "")),
+                }
+            )
+        request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        chunks: list[str] = []
+        chunk_timestamps: list[float] = []
+        response_id = None
+        response_model = None
+        finish_reason = None
+        usage: dict[str, Any] = {}
+        system_fingerprint = None
+        with opener.open(request, timeout=300) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_text = line.split("data:", 1)[1].strip()
+                if data_text == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_text)
+                except json.JSONDecodeError:
+                    continue
+                response_id = data.get("id") or response_id
+                response_model = data.get("model") or response_model
+                system_fingerprint = data.get("system_fingerprint") or system_fingerprint
+                usage = data.get("usage") or usage
+                for choice in data.get("choices") or []:
+                    finish_reason = choice.get("finish_reason") or finish_reason
+                    delta = choice.get("delta") or {}
+                    piece = delta.get("content") or delta.get("reasoning_content") or ""
+                    if not piece:
+                        continue
+                    chunks.append(str(piece))
+                    chunk_timestamps.append(time.perf_counter())
+        end = time.perf_counter()
+        intervals = [
+            (chunk_timestamps[i] - chunk_timestamps[i - 1]) * 1000.0
+            for i in range(1, len(chunk_timestamps))
+        ]
+        first_token_ms = None
+        if chunk_timestamps:
+            first_token_ms = (chunk_timestamps[0] - request_start) * 1000.0
+        return "".join(chunks), {
+            "response_id": response_id,
+            "model": response_model,
+            "finish_reason": finish_reason,
+            "usage": usage,
+            "system_fingerprint": system_fingerprint,
+            "stream_chunk_count": len(chunk_timestamps),
+            "stream_first_token_ms": first_token_ms,
+            "stream_chunk_timestamps_perf": chunk_timestamps,
+            "stream_inter_token_ms": intervals,
+            "stream_e2e_ms": (end - request_start) * 1000.0,
+            "timing_source": "openai_compatible_streaming_sse",
+        }
 
     def _invoke_langchain(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> str:
         self._ensure_local_no_proxy()

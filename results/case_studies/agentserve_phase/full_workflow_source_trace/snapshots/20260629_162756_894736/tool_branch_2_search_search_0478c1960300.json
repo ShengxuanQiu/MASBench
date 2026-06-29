@@ -1,0 +1,55 @@
+{
+  "environment_id": "cac110a25002ac40",
+  "input_hash": "0478c1960300ad301c22c923d0eb60bad982b877ad4ace4729c18ebc86931419",
+  "instance_id": "manual_fe620dfda172",
+  "measured_duration_sec": 2.387335506035015,
+  "node_id": "tool_branch_2_search",
+  "output": {
+    "answer": "MAS workflow tracing simulators use graph algorithms to visualize and analyze multi-agent system interactions. Graph-aware serving evidence branch 2 enhances these simulations with advanced visualization and analysis tools. This approach helps identify and resolve workflow issues efficiently.",
+    "results": [
+      {
+        "content": "# MASFactory: A Graph-centric Framework for Orchestrating LLM-Based Multi-Agent Systems with Vibe Graphing. Large language model-based (LLM-based) multi-agent systems (MAS) are increasingly used to extend agentic problem solving via role specialization and collaboration. MAS workflows can be naturally modeled as directed computation graphs, where nodes execute agents/sub-workflows and edges encode dependencies and message passing. To overcome these limitations, we present MASFactory, a graph-centric framework for orchestrating LLM-based MAS. It introduces Vibe Graphing, a human-in-the-loop approach that compiles natural-language intent into an editable workflow specification and then into an executable graph. In addition, the framework provides reusable components and pluggable context integration, as well as a visualizer for topology preview, runtime tracing, and human-in-the-loop interaction. We evaluate MASFactory on seven public benchmarks, validating both reproduction consistency for representative MAS methods and the effectiveness of Vibe Graphing. Consequently, LLM-based multi-agent systems (MAS) have become a widely adopted approach to extend agentic problem solving through role specialization, cross-checking, and iterative collaboration  (Li et al., 2023; Wu et al., 2023; Hong et al., 2024; Qian et al., 2024; Chen et al., 2024).",
+        "raw_content": null,
+        "score": 0.18603624,
+        "title": "MASFactory: A Graph-centric Framework for Orchestrating LLM-Based Multi-Agent Systems with Vibe Graphing",
+        "url": "https://arxiv.org/html/2603.06007v1"
+      },
+      {
+        "content": "Our Workflow Simulator quickly helps you identify any issues in each step of your workflow, including who you're routing approvals to, custom email",
+        "raw_content": null,
+        "score": 0.14629474,
+        "title": "Workflow Simulator - Kuali's Zendesk",
+        "url": "https://kuali.zendesk.com/hc/en-us/articles/21940010951323-Workflow-Simulator"
+      },
+      {
+        "content": "Enhance your intelligence analysis with graph algorithms, and LLMs. Uncover insights from complex networks with advanced visualization tools.",
+        "raw_content": null,
+        "score": 0.08315053,
+        "title": "Advanced intelligence analysis powered by graph data science",
+        "url": "https://graphaware.com/hume/advanced-analysis-capabilities"
+      },
+      {
+        "content": "In Part 9, we bring everything together and construct the agent graph that powers our workflow. In this session: Map out nodes (supervisor,",
+        "raw_content": null,
+        "score": 0.05669954,
+        "title": "Building the Agent Graph | Multi Agent Workflows for Beginners | Part 9",
+        "url": "https://www.youtube.com/watch?v=ggMelFFNooU&vl=en-US"
+      },
+      {
+        "content": "You can create dedicated workflow agents for specific Maximo Real Estate and Facilities workflows by using the optional spec.settings.dwfagents property in",
+        "raw_content": null,
+        "score": 0.04463513,
+        "title": "Configuring dedicated Maximo Real Estate and Facilities workflow ...",
+        "url": "https://www.ibm.com/docs/en/masv-and-l/cd?topic=workloads-configuring-dedicated-workflow-agents"
+      }
+    ]
+  },
+  "output_hash": "031e0bc86c31bd3c637deb0dc10f8143d26cd525949363c4f998e461b1adb6a3",
+  "provider_name": "tavily",
+  "run_id": "20260629_162756_894736",
+  "status": "success",
+  "timestamp": "2026-06-29T16:27:59.129+08:00",
+  "tool_name": "search",
+  "tool_query": "MAS workflow tracing simulator graph-aware serving evidence branch 2",
+  "topology": "tool_resume_contention_meso"
+}

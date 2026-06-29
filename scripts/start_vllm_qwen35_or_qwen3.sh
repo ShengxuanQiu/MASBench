@@ -32,14 +32,26 @@ elif [[ -f "${ROOT_DIR}/.venv-MAS/bin/activate" ]]; then
   source "${ROOT_DIR}/.venv-MAS/bin/activate"
 fi
 
-DEFAULT_QWEN35="/opt/models/Qwen3.5-4B/"
-FALLBACK_QWEN3="/data1/pretrained_models/Qwen3-8B/"
+DEFAULT_QWEN35="/data/models/Qwen3.5-35B-A3B"
+FALLBACK_QWEN3="/data/models/Qwen3-8B"
+LEGACY_QWEN35="/opt/models/Qwen3.5-4B/"
+LEGACY_QWEN3="/data1/pretrained_models/Qwen3-8B/"
 
 MODEL_PATH="${MODEL_PATH:-${DEFAULT_QWEN35}}"
 if [[ ! -d "${MODEL_PATH}" ]]; then
   echo "默认模型路径不存在：${MODEL_PATH}"
   MODEL_PATH="${FALLBACK_QWEN3}"
   echo "切换到 fallback 模型：${MODEL_PATH}"
+fi
+
+if [[ ! -d "${MODEL_PATH}" ]]; then
+  MODEL_PATH="${LEGACY_QWEN35}"
+  echo "切换到 legacy fallback 模型：${MODEL_PATH}"
+fi
+
+if [[ ! -d "${MODEL_PATH}" ]]; then
+  MODEL_PATH="${LEGACY_QWEN3}"
+  echo "切换到 legacy fallback 模型：${MODEL_PATH}"
 fi
 
 if [[ ! -d "${MODEL_PATH}" ]]; then
@@ -55,7 +67,8 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 HOST="${HOST:-0.0.0.0}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-local-mas-model}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
-TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-qwen3_xml}"
+ENABLE_AUTO_TOOL_CHOICE="${ENABLE_AUTO_TOOL_CHOICE:-false}"
+TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-qwen3_coder}"
 DTYPE="${DTYPE:-bfloat16}"
 KV_BLOCK_SIZE="${KV_BLOCK_SIZE:-16}"
 GPU_COUNT="${GPU_COUNT:-$(python - <<'PY'
@@ -109,12 +122,10 @@ CMD=(
   --block-size "${KV_BLOCK_SIZE}"
   --enable-prefix-caching
   --reasoning-parser qwen3
-  --enable-auto-tool-choice
-  --tool-call-parser "${TOOL_CALL_PARSER}"
 )
 
-if [[ "${MODEL_PATH}" == *"Qwen3.5"* ]]; then
-  CMD+=(--language-model-only)
+if [[ "${ENABLE_AUTO_TOOL_CHOICE}" == "true" ]]; then
+  CMD+=(--enable-auto-tool-choice --tool-call-parser "${TOOL_CALL_PARSER}")
 fi
 
 echo "Python: $(command -v python)"
@@ -132,6 +143,7 @@ echo "KV_BLOCK_SIZE=${KV_BLOCK_SIZE}"
 echo "GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION}"
 echo "MAS_VLLM_LAUNCH_CONFIG_PATH=${MAS_VLLM_LAUNCH_CONFIG_PATH}"
 echo "VLLM_MAS_TRACE_PATH=${VLLM_MAS_TRACE_PATH}"
+echo "ENABLE_AUTO_TOOL_CHOICE=${ENABLE_AUTO_TOOL_CHOICE}"
 echo "TOOL_CALL_PARSER=${TOOL_CALL_PARSER}"
 echo "启动命令："
 printf ' %q' "${CMD[@]}"

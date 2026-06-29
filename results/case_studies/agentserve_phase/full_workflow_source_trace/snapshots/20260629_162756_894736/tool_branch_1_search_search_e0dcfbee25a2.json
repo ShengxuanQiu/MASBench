@@ -1,0 +1,55 @@
+{
+  "environment_id": "cac110a25002ac40",
+  "input_hash": "e0dcfbee25a2a916020c0b0447c9484ce82d2efe6738f999ff4b4a8e77047f23",
+  "instance_id": "manual_fe620dfda172",
+  "measured_duration_sec": 2.127960966899991,
+  "node_id": "tool_branch_1_search",
+  "output": {
+    "answer": "MAS workflow tracing simulators visualize agent workflows using graph-aware frameworks. The Graph of Trace framework records execution events into a directed graph. AgentGraph provides a trace-to-graph platform for AI systems.",
+    "results": [
+      {
+        "content": "- Reduced padding - Research areas  Cloud and systems. - Reduced padding - Research areas  Computer vision. - Reduced padding - Research areas  Conversational AI. - Reduced padding - Research areas  Machine learning. - Reduced padding - Research areas  Operations research and optimization. - Reduced padding - Research areas  Quantum technologies. Key job responsibilities - Develop novel solutions and build prototypes - Work on complex problems in Computer Vision and Machine Learning - Contribute to research that could significantly impact Amazon's operations - Collaborate with a diverse team of experts in a fast-paced environment - Collaborate with scientists on writing and submitting papers to Tier-1 conferences (e.g., CVPR, ICCV, NeurIPS, ICML) - Present your research findings to both technical and non-technical audiences Key Opportunities - Collaborate with leading machine learning researchers - Access Amazon tools and hardware (large GPU clusters) - Address challenges at an unparalleled scale - Become a disruptor, innovator, and problem solver in the field of computer vision - Potentially deliver solutions to production in customer-facing applications - Opportunities to become an FTE after the internship Join us in shaping the future of AI at Amazon.",
+        "raw_content": null,
+        "score": 0.08252728,
+        "title": "Graph-aware language model pre-training on a large graph corpus can help multiple graph applications - Amazon Science",
+        "url": "https://www.amazon.science/publications/graph-aware-language-model-pre-training-on-a-large-graph-corpus-can-help-multiple-graph-applications"
+      },
+      {
+        "content": "To address this challenge, we present a monitoring and visualization framework that records fine-grained execution events and organizes them",
+        "raw_content": null,
+        "score": 0.067528374,
+        "title": "(PDF) Graph of Trace: Visualizing Execution Traces of Scientific Agent",
+        "url": "https://www.researchgate.net/publication/407115398_Graph_of_Trace_Visualizing_Execution_Traces_of_Scientific_Agent"
+      },
+      {
+        "content": "# Graph of Trace: Visualizing Execution Traces of Scientific Agents. To address this challenge, we present a monitoring and visualization framework that records fine-grained execution events and organizes them into a directed graph that makes agent workflows explicit as they proceed111We present our online demo, demo video and open sourced code at .. We conduct an evaluation on complex research tasks with domain experts of interdisciplinary backgrounds in AI, neuroscience, and biology. Experts report that structured traces visualization improves understanding of agent workflows, perceived interpretability, and usability for analysis and further interaction. For explicitly and correctly visualizing the research process conducted by agents, we design a four-module framework shown in Figure 1, which consists of (1) a Scientific Agent for autonomous execution, (2) a Monitor Agent for reconstructing structural traces, (3) a parser and persistence module that enforces structural contracts, and (4) a visualization module that exposes the evolving Graph of Trace in real time.",
+        "raw_content": null,
+        "score": 0.062680244,
+        "title": "Graph of Trace: Visualizing Execution Traces of Scientific Agents",
+        "url": "https://arxiv.org/html/2606.15116"
+      },
+      {
+        "content": "[Governed Shared Memory for Multi-Agent LLM Systems](http://arxiv.org/abs/2606.24535). [MANGO: Automated Multi-Agent Test Oracle Generation for Vision-Language-Action Models](http://arxiv.org/abs/2606.24815). [Automated Summarization of Software Documents: An LLM-based Multi-Agent Approach](http://arxiv.org/abs/2606.24689). [SkyChain Intelligence: A Blockchain-Secured Multi-Agent DRL Framework for Low-Altitude Embodied Artificial Intelligence](http://arxiv.org/abs/2606.24193). [OmniPath: A Multi-Modal Agentic Framework for Auditing Wheelchair Accessibility](http://arxiv.org/abs/2606.24129). [MAS-PromptBench: When Does Prompt Optimization Improve Multi-Agent LLM Systems?](http://arxiv.org/abs/2606.23664). [HoloAgent-0: A Unified Embodied Agent Framework with 3D Spatial Memory](http://arxiv.org/abs/2606.23565). [Agentic AI-based Framework for Mitigating Premature Diagnostic Handoff and Silent Hallucination in Healthcare Applications](http://arxiv.org/abs/2606.18068). [Trustworthy Self-Composable Big-Data-as-a-Service: An LLM-Orchestrated Multi-Agent Framework for Automated Data Engineering, AutoML, MLOps Deployment, and Drift-Aware Lifecycle Optimization](http://arxiv.org/abs/2606.17915). [Environment-Grounded Automated Prompt Optimization for LLM Game Agents](http://arxiv.org/abs/2606.17838). [A Framework for Evaluating Agentic Skills at Scale](http://arxiv.org/abs/2606.17819). [From Trainee to Trainer: LLM-Designed Training Environment for RL with Multi-Agent Reasoning](http://arxiv.org/abs/2606.17682). [SEAGym: An Evaluation Environment for Self-Evolving LLM Agents](http://arxiv.org/abs/2606.17546). [OMNIDRIVE: An LLM-Choreographed Multi-Agent World Model with Unified Latent Co-Compression for Multi-View Driving Video Generation](http://arxiv.org/abs/2606.17536). [Agentra: A Supervisable Multi-Agent Framework for Enterprise Intrusion Response](http://arxiv.org/abs/2606.18325).",
+        "raw_content": null,
+        "score": 0.047148798,
+        "title": "tmgthb/Autonomous-Agents - GitHub",
+        "url": "https://github.com/tmgthb/Autonomous-Agents"
+      },
+      {
+        "content": "# AgentGraph: Trace-to-Graph Platform for Interactive Analysis and Robustness Testing in Agentic AI Systems. ## Authors. ## DOI:. ## Abstract. AAAI-26 / IAAI-26 / EAAI-26 Proceedings Cover. ## Downloads. ## Published. ## How to Cite. ## Issue. ## Section. ## Information. Copyright © 2024, Association for the Advancement of Artificial Intelligence. More information about the publishing system, Platform and Workflow by OJS/PKP.",
+        "raw_content": null,
+        "score": 0.03588415,
+        "title": "AgentGraph: Trace-to-Graph Platform for Interactive Analysis and Robustness Testing in Agentic AI Systems\n\t\t\t\t\t\t\t| Proceedings of the AAAI Conference on Artificial Intelligence",
+        "url": "https://ojs.aaai.org/index.php/AAAI/article/view/42393"
+      }
+    ]
+  },
+  "output_hash": "3f30c3c9c1812af25d0625ee2224d160ed916f3258f23d908cb7f7acc2bb95e4",
+  "provider_name": "tavily",
+  "run_id": "20260629_162756_894736",
+  "status": "success",
+  "timestamp": "2026-06-29T16:27:59.002+08:00",
+  "tool_name": "search",
+  "tool_query": "MAS workflow tracing simulator graph-aware serving evidence branch 1",
+  "topology": "tool_resume_contention_meso"
+}

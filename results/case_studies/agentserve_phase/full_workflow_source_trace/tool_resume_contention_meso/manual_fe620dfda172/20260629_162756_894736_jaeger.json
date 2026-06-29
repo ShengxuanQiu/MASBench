@@ -1,0 +1,3222 @@
+{
+  "data": [
+    {
+      "processes": {
+        "p1": {
+          "serviceName": "masbench-arch",
+          "tags": []
+        }
+      },
+      "spans": [
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "START",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_b5778c48a50e3f0e",
+          "startTime": 155,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "START"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "workflow_start"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 17,
+          "logs": [],
+          "operationName": "Planner",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_b5778c48a50e3f0e",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_c9f0e185ee116081",
+          "startTime": 5383,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "planner"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "78"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "61"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "17"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "d89c79c3-753f-47dd-bc40-a58c85f7ca37"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 36,
+          "logs": [],
+          "operationName": "Critical Coder",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_810b9fe8d316a6e4",
+          "startTime": 11922,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "critical_coder"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "96"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "77"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "19"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "bd244d03-8083-4e4c-9c4a-1558f36e84a4"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 44,
+          "logs": [],
+          "operationName": "Background Coder",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_d3875105b135cf5e",
+          "startTime": 14121,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "background_coder"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_parallel"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "97"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "78"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "19"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "2b04eddb-761f-4593-8410-656aa3febcbb"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "background_coder->evidence_merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_d3875105b135cf5e",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_ab507335ac159b2b",
+          "startTime": 14349,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "background_coder->evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "19"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "19"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "background_candidate"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "aggregation"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 31,
+          "logs": [],
+          "operationName": "Tool Agent 2 LLM-1",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_53e7c5a876e6ce30",
+          "startTime": 14699,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_2_tool_agent"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_prepare"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "112"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "90"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "6f9fbd5d-46cb-4d9e-82f7-ea95dc6d01a5"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 30,
+          "logs": [],
+          "operationName": "Tool Agent 3 LLM-1",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_71bfbc5e9b9580fa",
+          "startTime": 15931,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_3_tool_agent"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_prepare"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "112"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "90"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "f9a57617-5766-4e3e-9445-98d84d6c74fa"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 58,
+          "logs": [],
+          "operationName": "Tool Agent 1 LLM-1",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_e1cb17389e160260",
+          "startTime": 16762,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_1_tool_agent"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_prepare"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "112"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "90"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "faf9f3c9-7e45-4f18-802e-d71f3f136237"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 28,
+          "logs": [],
+          "operationName": "Tool Agent 4 LLM-1",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_c9f0e185ee116081",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_64c76fd6b086785f",
+          "startTime": 17396,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_4_tool_agent"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_prepare"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "112"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "90"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "f4922439-33ee-4689-aba0-b0a513633be4"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 19,
+          "logs": [],
+          "operationName": "Critical Reviewer",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_810b9fe8d316a6e4",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_58b0a44b658cda25",
+          "startTime": 17853,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "critical_reviewer"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "44"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "25"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "19"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "0da3d014-ab08-4c99-8cb7-0c5f19db51df"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 14,
+          "logs": [],
+          "operationName": "Finalizer",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_58b0a44b658cda25",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_d68d268789f06c9b",
+          "startTime": 18821,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "finalizer"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "78"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "55"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "23"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "662358b1-e5cc-474a-b8c4-68ad067974e5"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "finalizer->END",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_d68d268789f06c9b",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_6e33702e93e47f58",
+          "startTime": 18900,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "finalizer->END"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "23"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "23"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "final"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "critical_path"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 2078604,
+          "logs": [],
+          "operationName": "Tool Branch 3",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_f60b68e8cf5deeae",
+          "startTime": 20641,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_3_search"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "tool"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "tool_search"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "measured_live"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "snapshot_result_recorded_latency"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "1356"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tool_name",
+              "type": "string",
+              "value": "search"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 40,
+          "logs": [],
+          "operationName": "Resume Evidence Processor 3",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_f60b68e8cf5deeae",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_245df4bf263795c3",
+          "startTime": 2107238,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_3"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "885"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "863"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "e8d39417-75e0-439f-916b-e898564759d3"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "resume_evidence_processor_3->evidence_merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_245df4bf263795c3",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_f3e7eab8f96e6d3f",
+          "startTime": 2107448,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_3->evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "resumed_evidence"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "aggregation"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 2127961,
+          "logs": [],
+          "operationName": "Tool Branch 1",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_95e8c2c3d4fbeabd",
+          "startTime": 20747,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_1_search"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "tool"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "tool_search"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "measured_live"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "snapshot_result_recorded_latency"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "1411"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tool_name",
+              "type": "string",
+              "value": "search"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 36,
+          "logs": [],
+          "operationName": "Resume Evidence Processor 1",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_95e8c2c3d4fbeabd",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_a00ca0061da2ca31",
+          "startTime": 2155419,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_1"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "885"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "863"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "a5d4d676-7683-4576-ade6-a695be2113dc"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "resume_evidence_processor_1->evidence_merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_a00ca0061da2ca31",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_e8987ee92f116b50",
+          "startTime": 2155593,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_1->evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "resumed_evidence"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "aggregation"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 2205105,
+          "logs": [],
+          "operationName": "Tool Branch 4",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_00ff24cdf68ed5a1",
+          "startTime": 21512,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_4_search"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "tool"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "tool_search"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "measured_live"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "snapshot_result_recorded_latency"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "1133"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tool_name",
+              "type": "string",
+              "value": "search"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 38,
+          "logs": [],
+          "operationName": "Resume Evidence Processor 4",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_00ff24cdf68ed5a1",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_d46227a300e8282d",
+          "startTime": 2233956,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_4"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "836"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "814"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "fa2af010-9ca1-4991-8d03-395c6e8c11e6"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "resume_evidence_processor_4->evidence_merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_d46227a300e8282d",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_c27033adc44774e7",
+          "startTime": 2234158,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_4->evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "resumed_evidence"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "aggregation"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 2387336,
+          "logs": [],
+          "operationName": "Tool Branch 2",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_d22bef0517c01dda",
+          "startTime": 16882,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "tool_branch_2_search"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "tool"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "tool_search"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "measured_live"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "snapshot_result_recorded_latency"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "695"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tool_name",
+              "type": "string",
+              "value": "search"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 26,
+          "logs": [],
+          "operationName": "Resume Evidence Processor 2",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_d22bef0517c01dda",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_a69b3f6f96884fad",
+          "startTime": 2409238,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_2"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "non_critical"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "732"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "710"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "05f6ea4f-544e-4e2a-8887-d517e6d8e930"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "resume_evidence_processor_2->evidence_merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_a69b3f6f96884fad",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_d653a5210ce70873",
+          "startTime": 2409384,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "resume_evidence_processor_2->evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.parallel_group",
+              "type": "string",
+              "value": "background_tool_resume"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "22"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "resumed_evidence"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "aggregation"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "late_evidence_merge_barrier",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_a15ae77535af0ef8",
+          "startTime": 2411311,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "late_evidence_merge_barrier"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "barrier"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "barrier"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "measured_live"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 43,
+          "logs": [],
+          "operationName": "Evidence Merge",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_d3875105b135cf5e",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_74f4736ae0662ee2",
+          "startTime": 2412645,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "evidence_merge"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "llm"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "llm_request_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "merge"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "live"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "141"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "114"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "27"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.llm_model",
+              "type": "string",
+              "value": "local-mas-model"
+            },
+            {
+              "key": "mas.llm_request_id",
+              "type": "string",
+              "value": "331353c0-1fa2-4d1b-87da-a21824c067ba"
+            },
+            {
+              "key": "mas.llm_max_output_tokens",
+              "type": "string",
+              "value": "96"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "evidence_merge->finalizer",
+          "processID": "p1",
+          "references": [
+            {
+              "refType": "CHILD_OF",
+              "spanID": "span_74f4736ae0662ee2",
+              "traceID": "trace_596cb132518fa5033f6d0378"
+            }
+          ],
+          "spanID": "span_912e5d30da6a52a1",
+          "startTime": 2412809,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "evidence_merge->finalizer"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "edge"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "edge_dataflow"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "27"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "27"
+            },
+            {
+              "key": "mas.artifact_type",
+              "type": "string",
+              "value": "late_evidence"
+            },
+            {
+              "key": "mas.transfer_type",
+              "type": "string",
+              "value": "late_non_blocking_context"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        },
+        {
+          "duration": 0,
+          "logs": [],
+          "operationName": "END",
+          "processID": "p1",
+          "references": [],
+          "spanID": "span_91bfd27bfe8ea12a",
+          "startTime": 2413284,
+          "tags": [
+            {
+              "key": "mas.topology",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.topology_role",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.mode",
+              "type": "string",
+              "value": "motif"
+            },
+            {
+              "key": "mas.motif_name",
+              "type": "string",
+              "value": "tool_resume_contention_meso"
+            },
+            {
+              "key": "mas.motif_instance_id",
+              "type": "string",
+              "value": "manual_fe620dfda172"
+            },
+            {
+              "key": "mas.parent_motif_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "key": "mas.composed_from_topologies",
+              "type": "string",
+              "value": "independent,centralized"
+            },
+            {
+              "key": "mas.node_id",
+              "type": "string",
+              "value": "END"
+            },
+            {
+              "key": "mas.node_type",
+              "type": "string",
+              "value": "workflow"
+            },
+            {
+              "key": "mas.event_type",
+              "type": "string",
+              "value": "workflow_end"
+            },
+            {
+              "key": "mas.criticality",
+              "type": "string",
+              "value": "unknown"
+            },
+            {
+              "key": "mas.duration_source",
+              "type": "string",
+              "value": "mock_measured"
+            },
+            {
+              "key": "mas.replay_policy",
+              "type": "string",
+              "value": "synthetic_only"
+            },
+            {
+              "key": "mas.tokens.total_est",
+              "type": "string",
+              "value": "23"
+            },
+            {
+              "key": "mas.tokens.input_est",
+              "type": "string",
+              "value": "0"
+            },
+            {
+              "key": "mas.tokens.output_est",
+              "type": "string",
+              "value": "23"
+            },
+            {
+              "key": "mas.tokens.artifact_est",
+              "type": "string",
+              "value": "0"
+            }
+          ],
+          "traceID": "trace_596cb132518fa5033f6d0378"
+        }
+      ],
+      "traceID": "trace_596cb132518fa5033f6d0378"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "environment_id": "cac110a25002ac40",
+  "input_hash": "c377d752296b6c8c1208542bb4de291513eb7f1215f56210d31fb9b7b553232f",
+  "instance_id": "manual_fe620dfda172",
+  "measured_duration_sec": 2.2051045449916273,
+  "node_id": "tool_branch_4_search",
+  "output": {
+    "answer": "GraphAware Hume is a graph-based intelligence analysis platform that leverages Neo4j for connected data analytics, enabling fast, intuitive, and secure intelligence analysis. It breaks down data silos and provides a unified view for analysts.",
+    "results": [
+      {
+        "content": "Graph-powered intelligence analysis platform. Our manifesto for graph-powered intelligence analysis. # Graph-powered intelligence analysis. ## The world is increasingly connected. We unify data silos, giving analysts a connected intelligence picture that lets them answer their hardest questions. ### Your world, connected. Bring data from siloed sources into a connected view of intelligence, structured exactly as your organisation understands it. Navigate, explore, and query your connected data in a way that feels natural. With GraphAware Hume, we don’t have to start from scratch every time an event like this is reported. > GraphAware Hume is the most mature software solution for graph analytics available, and we are proud to offer Hume to our mission customers. Utilising the GraphAware Hume platform, the Agency team were able to build a cutting edge solution for the financial crime investigation taskforce. The Western Australia Police Force’s graph platform IRIS, powered by GraphAware Hume, delivers a cutting-edge technology solution that helps the agency keep their community safe.",
+        "raw_content": null,
+        "score": 0.15081534,
+        "title": "GraphAware - Intelligence Analysis Software | GraphAware",
+        "url": "https://graphaware.com"
+      },
+      {
+        "content": "locking teams into rigid models and fixed ways of working. GraphAware Hume, our graph-powered intelligence ... GraphAware Hume could mean for",
+        "raw_content": null,
+        "score": 0.14865203,
+        "title": "GraphAware - finding truth in data - YouTube",
+        "url": "https://www.youtube.com/watch?v=iqEvZV-lqYg"
+      },
+      {
+        "content": "Graphaware Hume logo - What is Hume Graphaware. # Overview: What Is GraphAware Hume? **GraphAware Hume** is a graph-based intelligence analysis platform built around powerful knowledge graph capabilities at the core. Its purpose is to to break down data silos and empower analysts with a unified view of intelligence, streamlining complex data analysis. The power of graph technologies used throughout its software stack, from the Neo4j database to visualization, makes it much easier to ingest, process, query, analyze, and visualize your data as networks of interconnected entities, delivering advanced analytical capabilities to your organization. As mentioned earlier, GraphAware Hume is a government-grade data analytics platform unlocking the value of graph databases for fast and intuitive intelligence analysis. With no-code and low-code approaches, its capabilities significantly reduce the time to value in any graph project, whether you're using an analytics application or some other interactive application that uses connected graph data. GraphAware Hume delivers powerful knowledge graph capabilities, elegantly enabling both structured and unstructured data use cases in a secured fashion.",
+        "raw_content": null,
+        "score": 0.13259341,
+        "title": "What is Hume (GraphAware)? GraphAware Hume Overview",
+        "url": "https://graphable.ai/software/what-is-hume-graphware"
+      },
+      {
+        "content": "Skip to content Neo4j acquires GraphAware. Graph-powered intelligence analysis platform. - A single view of intelligence. Explore how state-of-the-art graph technology can redefine intelligence analysis. Transitioning to connected data analytics is a rewarding journey. Leverage intelligence-led policing with mission-critical graph analytics capabilities. Enable automation, learn about bad actors and their networks, and leverage predictive strategies. New use cases, features, and live demos designed to make analysts’ lives easier. Our research, philosophy and case studies, all wrapped up in books and papers. Discover GraphAware Hume’s features, demos, and graph technology insights. Meet our team at conferences and events around the world. A globally-recognised graph technology company. Our manifesto for graph-powered intelligence analysis. Want to work at GraphAware? Join our mission to help everyone to find the truth in data. ### GraphAware Hume features – Workspaces * Webinars. ### Solving 5 intelligence analysis challenges with GraphAware Hume 3.0 * Case studies. ### Results from a 2-week proof of concept: four suspects in minutes * Books & papers.",
+        "raw_content": null,
+        "score": 0.121800855,
+        "title": "Resources - GraphAware",
+        "url": "https://graphaware.com/resources"
+      },
+      {
+        "content": "Neo4j to acquire GraphAware, launch new open-standards intelligence analysis solutions | Read more. + Virtual Graph  Create and query a knowledge graph on existing data. + Aura Graph Analytics  Run graph algorithms on any data, any cloud. + Graph Database  Store connected data with a graph database. + Graph Data Science  Run graph algorithms on connected data. Leveraging the Power of Neo4j with GraphAware Hume. GraphAware Hume is a government-grade data analytics platform for fast, intuitive intelligence analysis. From the user interface to the database, GraphAware Hume is uniquely graph-based, showcasing the full power of Neo4j through code-free UIs. GraphAware Hume ingests and connects a wide range of structured and unstructured data sources to establish a single source of truth. A workbench for teams to query, explore, and visualize graph data. ## 1 of 3: The difference between a graph, a knowledge graph, and a context graph. ## 3 of 3: The graph ecosystem: Bringing connected context to enterprise AI.",
+        "raw_content": null,
+        "score": 0.09613594,
+        "title": "GraphAware",
+        "url": "https://neo4j.com/users/graphaware"
+      }
+    ]
+  },
+  "output_hash": "0ff770a1b9abcb69366403167aa39bc2baa97b6e018876fe9245a18312d27e07",
+  "provider_name": "tavily",
+  "run_id": "20260629_162756_894736",
+  "status": "success",
+  "timestamp": "2026-06-29T16:27:59.050+08:00",
+  "tool_name": "search",
+  "tool_query": "MAS workflow tracing simulator graph-aware serving evidence branch 4",
+  "topology": "tool_resume_contention_meso"
+}

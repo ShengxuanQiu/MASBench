@@ -2,13 +2,13 @@
   "baseline_fifo": {
     "critical_decode_tpot_p50_ms": 12.355,
     "critical_decode_tpot_p95_ms": 28.844,
-    "critical_path_latency_ms": 6875.417,
+    "critical_path_latency_ms": 6876.521,
     "decode_span_count": 14,
     "delayed_prefill_count": 0,
     "delayed_prefill_tokens": 0,
     "queue_time_by_phase": {
       "cold_prefill": {
-        "count": 6,
+        "count": 10,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -18,7 +18,7 @@
         "p95_ms": 0.0
       },
       "resume_prefill": {
-        "count": 8,
+        "count": 4,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -33,14 +33,14 @@
     "tool_wait_count": 4,
     "tpot_spike_count": 10,
     "trace_path": "results/case_studies/agentserve_phase/baseline_fifo_trace.jsonl",
-    "workflow_makespan_ms": 6875.417
+    "workflow_makespan_ms": 6876.521
   },
   "critical_decode_tpot_p95_ms": {
     "baseline_fifo": 28.844,
     "phase_aware": 12.674
   },
   "critical_path_latency_ms": {
-    "baseline_fifo": 6875.417,
+    "baseline_fifo": 6876.521,
     "phase_aware": 6359.024
   },
   "delayed_prefill_count": {
@@ -54,15 +54,15 @@
   "environment": {
     "backend_base_url": "http://127.0.0.1:8000/v1",
     "execution_mode": "simulate",
-    "h100_detected": true,
+    "h100_detected": false,
     "hostname": "cxhpc",
     "model": "local-mas-model",
-    "nvidia_smi": "NVIDIA H100 PCIe, 81559 MiB, 570.124.06\nNVIDIA H100 PCIe, 81559 MiB, 570.124.06\nNVIDIA H100 PCIe, 81559 MiB, 570.124.06\nNVIDIA H100 PCIe, 81559 MiB, 570.124.06",
+    "nvidia_smi": "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running.",
     "qwen3_model_path_candidates": [
       "/data/models/Qwen3.5-35B-A3B",
       "/data/models/Qwen3-8B"
     ],
-    "vllm_python_version": "0.10.2",
+    "vllm_python_version": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import vllm; print(vllm.__version__)\n                       ^^^^^^^^^^^^^^^^\nAttributeError: module 'vllm' has no attribute '__version__'",
     "vllm_source_policy": "pip_or_existing_server_only_no_vllm_source_modification"
   },
   "figures": {
@@ -93,8 +93,8 @@
     "delayed_prefill_tokens": 1752,
     "queue_time_by_phase": {
       "cold_prefill": {
-        "count": 6,
-        "p50_ms": 5347.0,
+        "count": 10,
+        "p50_ms": 2673.5,
         "p95_ms": 5347.0
       },
       "decode": {
@@ -103,7 +103,7 @@
         "p95_ms": 0.0
       },
       "resume_prefill": {
-        "count": 8,
+        "count": 4,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -123,7 +123,7 @@
   "queue_time_by_phase": {
     "baseline_fifo": {
       "cold_prefill": {
-        "count": 6,
+        "count": 10,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -133,7 +133,7 @@
         "p95_ms": 0.0
       },
       "resume_prefill": {
-        "count": 8,
+        "count": 4,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -145,8 +145,8 @@
     },
     "phase_aware": {
       "cold_prefill": {
-        "count": 6,
-        "p50_ms": 5347.0,
+        "count": 10,
+        "p50_ms": 2673.5,
         "p95_ms": 5347.0
       },
       "decode": {
@@ -155,7 +155,7 @@
         "p95_ms": 0.0
       },
       "resume_prefill": {
-        "count": 8,
+        "count": 4,
         "p50_ms": 0.0,
         "p95_ms": 0.0
       },
@@ -166,13 +166,13 @@
       }
     }
   },
-  "speedup": 1.0812,
+  "speedup": 1.0814,
   "tpot_spike_count": {
     "baseline_fifo": 10,
     "phase_aware": 1
   },
   "workflow_makespan_ms": {
-    "baseline_fifo": 6875.417,
+    "baseline_fifo": 6876.521,
     "phase_aware": 6359.024
   }
 }

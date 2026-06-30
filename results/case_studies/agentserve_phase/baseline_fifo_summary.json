@@ -1,13 +1,13 @@
 {
   "critical_decode_tpot_p50_ms": 12.355,
   "critical_decode_tpot_p95_ms": 28.844,
-  "critical_path_latency_ms": 6875.417,
+  "critical_path_latency_ms": 6876.521,
   "decode_span_count": 14,
   "delayed_prefill_count": 0,
   "delayed_prefill_tokens": 0,
   "queue_time_by_phase": {
     "cold_prefill": {
-      "count": 6,
+      "count": 10,
       "p50_ms": 0.0,
       "p95_ms": 0.0
     },
@@ -17,7 +17,7 @@
       "p95_ms": 0.0
     },
     "resume_prefill": {
-      "count": 8,
+      "count": 4,
       "p50_ms": 0.0,
       "p95_ms": 0.0
     },
@@ -32,5 +32,5 @@
   "tool_wait_count": 4,
   "tpot_spike_count": 10,
   "trace_path": "results/case_studies/agentserve_phase/baseline_fifo_trace.jsonl",
-  "workflow_makespan_ms": 6875.417
+  "workflow_makespan_ms": 6876.521
 }

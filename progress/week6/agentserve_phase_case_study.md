@@ -8,9 +8,9 @@
 
 | metric | baseline_fifo | phase_aware |
 |---|---:|---:|
-| workflow makespan（ms） | 6875.4 | 6359.0 |
+| workflow makespan（ms） | 6876.5 | 6359.0 |
 | 加速比 | 1.00x | 1.08x |
-| critical path latency（ms） | 6875.4 | 6359.0 |
+| critical path latency（ms） | 6876.5 | 6359.0 |
 | critical decode TPOT p95（ms） | 28.8 | 12.7 |
 | TPOT spike count | 10 | 1 |
 | delayed prefill count | 0 | 5 |
@@ -53,6 +53,8 @@ baseline FIFO 与 phase-aware 的 critical-path makespan 对比。左图用 stac
 ## 方法说明
 
 本 case study 采用两阶段流程：先生成完整 MAS workflow source trace，再从该 trace 派生 baseline FIFO 与 phase-aware 两组 replay。两组 replay 使用相同任务、prompt、tool outputs、随机种子和 arrival/dependency pattern；差异只来自外部 admission scheduler。
+
+在 phase 标注上，`cold_prefill` 表示某个 agent 的新 LLM 请求，包括接收上游 agent 产物后的首次生成；`resume_prefill` 只表示同一个 agent 在 tool call 返回后，把 tool observation 追加进上下文并继续生成的请求。因此 timeline 中没有 tool call 的上游 agent 起始请求应为蓝色 cold_prefill，而不是橙色 resume_prefill。
 
 本次尝试启动 pip vLLM 服务时，`/data/models/Qwen3.5-35B-A3B` 因当前 Transformers 不识别 `qwen3_5_moe` 架构失败；`/data/models/Qwen3-8B` 在禁用 FlashInfer sampler、V1 engine 和 CUDA graph 后仍出现 engine 子进程退出。因此当前提交的是完整 workflow source trace 派生的 deterministic replay artifact。
 

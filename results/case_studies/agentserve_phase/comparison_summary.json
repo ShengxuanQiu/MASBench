@@ -1,8 +1,8 @@
 {
   "baseline_fifo": {
-    "critical_decode_tpot_p50_ms": 12.355,
-    "critical_decode_tpot_p95_ms": 28.844,
-    "critical_path_latency_ms": 6876.521,
+    "critical_decode_tpot_p50_ms": 12.357,
+    "critical_decode_tpot_p95_ms": 63.46,
+    "critical_path_latency_ms": 7240.275,
     "decode_span_count": 14,
     "delayed_prefill_count": 0,
     "delayed_prefill_tokens": 0,
@@ -31,17 +31,17 @@
     "request_count": 14,
     "scheduler_mode": "baseline_fifo",
     "tool_wait_count": 4,
-    "tpot_spike_count": 10,
+    "tpot_spike_count": 11,
     "trace_path": "results/case_studies/agentserve_phase/baseline_fifo_trace.jsonl",
-    "workflow_makespan_ms": 6876.521
+    "workflow_makespan_ms": 7240.275
   },
   "critical_decode_tpot_p95_ms": {
-    "baseline_fifo": 28.844,
-    "phase_aware": 12.674
+    "baseline_fifo": 63.46,
+    "phase_aware": 12.673
   },
   "critical_path_latency_ms": {
-    "baseline_fifo": 6876.521,
-    "phase_aware": 6359.024
+    "baseline_fifo": 7240.275,
+    "phase_aware": 6476.081
   },
   "delayed_prefill_count": {
     "baseline_fifo": 0,
@@ -49,7 +49,7 @@
   },
   "delayed_prefill_tokens": {
     "baseline_fifo": 0,
-    "phase_aware": 1752
+    "phase_aware": 30100
   },
   "environment": {
     "backend_base_url": "http://127.0.0.1:8000/v1",
@@ -81,21 +81,21 @@
     "source_trace_path": "results/case_studies/agentserve_phase/full_workflow_source_trace/tool_resume_contention_meso/manual_fe620dfda172/20260629_162756_894736.jsonl",
     "source_trace_policy": "full_workflow_trace_derived_replay",
     "source_workflow_id": "tool_resume_contention_meso_20260629_162756_894736",
-    "token_calibration": "source_prompt_tokens_with_role_min_output_long_resume_multiplier_and_realistic_critical_decode_length",
+    "token_calibration": "agentserve_aligned_long_noncritical_cold_prefill_shorter_tool_resume_calibration",
     "workflow_count": 1
   },
   "phase_aware": {
     "critical_decode_tpot_p50_ms": 12.343,
-    "critical_decode_tpot_p95_ms": 12.674,
-    "critical_path_latency_ms": 6359.024,
+    "critical_decode_tpot_p95_ms": 12.673,
+    "critical_path_latency_ms": 6476.081,
     "decode_span_count": 14,
     "delayed_prefill_count": 5,
-    "delayed_prefill_tokens": 1752,
+    "delayed_prefill_tokens": 30100,
     "queue_time_by_phase": {
       "cold_prefill": {
         "count": 10,
-        "p50_ms": 2673.5,
-        "p95_ms": 5347.0
+        "p50_ms": 2779.059,
+        "p95_ms": 5558.118
       },
       "decode": {
         "count": 14,
@@ -116,9 +116,9 @@
     "request_count": 14,
     "scheduler_mode": "phase_aware",
     "tool_wait_count": 4,
-    "tpot_spike_count": 1,
+    "tpot_spike_count": 0,
     "trace_path": "results/case_studies/agentserve_phase/phase_aware_trace.jsonl",
-    "workflow_makespan_ms": 6359.024
+    "workflow_makespan_ms": 6476.081
   },
   "queue_time_by_phase": {
     "baseline_fifo": {
@@ -146,8 +146,8 @@
     "phase_aware": {
       "cold_prefill": {
         "count": 10,
-        "p50_ms": 2673.5,
-        "p95_ms": 5347.0
+        "p50_ms": 2779.059,
+        "p95_ms": 5558.118
       },
       "decode": {
         "count": 14,
@@ -166,13 +166,13 @@
       }
     }
   },
-  "speedup": 1.0814,
+  "speedup": 1.118,
   "tpot_spike_count": {
-    "baseline_fifo": 10,
-    "phase_aware": 1
+    "baseline_fifo": 11,
+    "phase_aware": 0
   },
   "workflow_makespan_ms": {
-    "baseline_fifo": 6876.521,
-    "phase_aware": 6359.024
+    "baseline_fifo": 7240.275,
+    "phase_aware": 6476.081
   }
 }

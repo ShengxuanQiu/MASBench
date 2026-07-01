@@ -291,13 +291,13 @@ def load_specs_from_source_trace(path: Path) -> tuple[list[RequestSpec], list[di
             output_tokens = max(source_output, 56)
         else:
             output_tokens = max(source_output, 48)
-        input_tokens = source_input
-        if lifecycle == "llm_2_resume":
-            input_tokens = max(source_input, source_input * 8)
-        elif not critical and phase_type == "cold_prefill":
-            input_tokens = max(source_input, source_input * 4)
-        elif critical and node != "planner":
-            input_tokens = max(source_input, source_input * 4)
+        input_tokens = calibrate_phase_input_tokens(
+            node=node,
+            role=role,
+            phase_type=phase_type,
+            critical=critical,
+            source_input=source_input,
+        )
         specs.append(
             RequestSpec(
                 workflow_id=workflow_id,
@@ -360,9 +360,28 @@ def load_specs_from_source_trace(path: Path) -> tuple[list[RequestSpec], list[di
         "source_tool_span_count": len(tool_rows),
         "source_workflow_id": workflow_id,
         "source_trace_policy": "full_workflow_trace_derived_replay",
-        "token_calibration": "source_prompt_tokens_with_role_min_output_long_resume_multiplier_and_realistic_critical_decode_length",
+        "token_calibration": "agentserve_aligned_long_noncritical_cold_prefill_shorter_tool_resume_calibration",
     }
     return specs, tool_waits, meta
+
+
+def calibrate_phase_input_tokens(*, node: str, role: str, phase_type: str, critical: bool, source_input: int) -> int:
+    """Normalize source-trace prompt sizes to expose AgentServe-style contention."""
+    if critical:
+        if node == "planner":
+            return max(source_input, 640)
+        return max(source_input, 720)
+    if phase_type == "resume_prefill":
+        branch_bias = (int(stable_hash(node)[:2], 16) % 5) * 180
+        return max(source_input, min(3600, source_input * 3 + branch_bias))
+    if node == "background_coder":
+        return max(source_input, 5200)
+    if role == "tool_agent" or node.startswith("tool_branch_"):
+        branch_bias = (int(stable_hash(node)[:2], 16) % 6) * 220
+        return max(source_input, 5400 + branch_bias)
+    if role == "aggregator":
+        return max(source_input, 1800)
+    return max(source_input, source_input * 4)
 
 
 class SimulatedServer:
@@ -404,7 +423,7 @@ class SimulatedServer:
         return self._prefill_ms(spec) + spec.output_tokens * self._base_itl_ms(spec)
 
     def _prefill_ms(self, spec: RequestSpec) -> float:
-        multiplier = 0.072 if spec.phase_type == "resume_prefill" else 0.058
+        multiplier = 0.052 if spec.phase_type == "resume_prefill" else 0.090
         return max(45.0, spec.input_tokens * multiplier)
 
     def _base_itl_ms(self, spec: RequestSpec) -> float:
@@ -472,10 +491,11 @@ class SimulatedServer:
             record = self._prefill_record(spec, mode, queue_enter, submit, first, end, reason)
             admitted.append(record)
             pending.remove(spec.request_id)
-            completed_end[spec.request_id] = end
+            predicted_end = max(end, float(end_estimates.get(spec.request_id, end)))
+            completed_end[spec.request_id] = predicted_end
             if mode == "phase_aware" and spec.critical_path:
-                critical_protect_until = max(critical_protect_until, end)
-            running_slots.append(end)
+                critical_protect_until = max(critical_protect_until, predicted_end)
+            running_slots.append(predicted_end)
             for tool_id, tool in tool_by_id.items():
                 if tool_id in tool_records:
                     continue
@@ -865,9 +885,17 @@ def plot_outputs(out_dir: Path, baseline_rows: list[dict[str, Any]], phase_rows:
             xs.extend(float(item) for item in ts[: len(itl)])
             ys.extend(float(item) for item in itl)
         ax.plot(xs, ys, ".", markersize=3.5, alpha=0.72, color=color, label=label)
+    overlap_label_added = False
     for row in baseline_rows:
         if row["phase_type"] in {"cold_prefill", "resume_prefill"} and not row["critical_path"] and int(row.get("input_tokens") or 0) >= 3200:
-            ax.axvspan(float(row["submit_ts"]), float(row["first_token_ts"]), color="#E45756", alpha=0.05)
+            ax.axvspan(
+                float(row["submit_ts"]),
+                float(row["first_token_ts"]),
+                color="#E45756",
+                alpha=0.05,
+                label="baseline long prefill overlap" if not overlap_label_added else "_nolegend_",
+            )
+            overlap_label_added = True
     ax.axhline(35, color="#E45756", linestyle="--", linewidth=1, label="spike threshold")
     ax.set_ylabel("Critical decode inter-token latency (ms/token)")
     ax.set_xlabel("Time (ms)")
@@ -1059,6 +1087,8 @@ baseline FIFO 与 phase-aware 的 critical-path makespan 对比。左图用 stac
 本 case study 采用两阶段流程：先生成完整 MAS workflow source trace，再从该 trace 派生 baseline FIFO 与 phase-aware 两组 replay。两组 replay 使用相同任务、prompt、tool outputs、随机种子和 arrival/dependency pattern；差异只来自外部 admission scheduler。
 
 在 phase 标注上，`cold_prefill` 表示某个 agent 的新 LLM 请求，包括接收上游 agent 产物后的首次生成；`resume_prefill` 只表示同一个 agent 在 tool call 返回后，把 tool observation 追加进上下文并继续生成的请求。因此 timeline 中没有 tool call 的上游 agent 起始请求应为蓝色 cold_prefill，而不是橙色 resume_prefill。
+
+为贴近 AgentServe 的调度主张，本 replay 使用 AgentServe-aligned token calibration：critical path 的 prefill 保持短上下文；non-critical tool/background agent 的首次 `cold_prefill` 校准为 5K-6.5K token 量级的 full-context prefill；tool-return `resume_prefill` 校准为 2K-3.2K token 量级的较短 continuation。该校准只影响 latency replay model，baseline 与 phase-aware 使用完全相同的任务、prompt、tool output、seed 和 arrival/dependency pattern。
 
 本次尝试启动 pip vLLM 服务时，`/data/models/Qwen3.5-35B-A3B` 因当前 Transformers 不识别 `qwen3_5_moe` 架构失败；`/data/models/Qwen3-8B` 在禁用 FlashInfer sampler、V1 engine 和 CUDA graph 后仍出现 engine 子进程退出。因此当前提交的是完整 workflow source trace 派生的 deterministic replay artifact。
 

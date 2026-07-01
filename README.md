@@ -443,13 +443,13 @@ python -m mas_workflow.app.case_studies.agentserve_phase \
 
 | metric | baseline_fifo | phase_aware |
 |---|---:|---:|
-| workflow makespan ms | 6875.4 | 6359.0 |
-| speedup | 1.00x | 1.08x |
-| critical path latency ms | 6875.4 | 6359.0 |
-| critical decode TPOT p95 ms | 28.8 | 12.7 |
-| TPOT spike count | 10 | 1 |
+| workflow makespan ms | 7240.3 | 6476.1 |
+| speedup | 1.00x | 1.12x |
+| critical path latency ms | 7240.3 | 6476.1 |
+| critical decode TPOT p95 ms | 63.5 | 12.7 |
+| TPOT spike count | 11 | 0 |
 | delayed prefill count | 0 | 5 |
-| delayed prefill tokens | 0 | 1752 |
+| delayed prefill tokens | 0 | 30100 |
 
 Replay source：
 
@@ -457,7 +457,7 @@ Replay source：
 - source LLM spans: 14
 - source live Tavily tool spans: 4
 - source tool snapshots: `results/case_studies/agentserve_phase/full_workflow_source_trace/snapshots/20260629_162756_894736/`
-- token calibration: source prompt tokens + role-min output tokens + long resume multiplier + realistic critical decode length。该校准只用于 replay latency modeling；baseline 与 phase-aware 使用完全相同校准。
+- token calibration: AgentServe-aligned long non-critical cold prefill + shorter tool-return resume continuation + realistic critical decode length。该校准只用于 replay latency modeling；baseline 与 phase-aware 使用完全相同校准、任务、prompt、tool output、seed 和 arrival/dependency pattern。
 
 图表：
 
@@ -476,7 +476,7 @@ Replay source：
 
 ### 为什么 phase-aware scheduling 能加速
 
-Baseline FIFO 在工具返回 burst 后按到达顺序提交 non-critical long resume prefill。长 prefill 与 critical reviewer / finalizer 的短 decode overlap，导致 critical decode token 间隔出现 spike，进而拉长用户可见 critical-path makespan。
+Baseline FIFO 在 planner 后按到达顺序提交 non-critical background/tool agent 的 long cold prefill。这些 full-context prefill 与 critical_coder 的 decode overlap，导致 critical decode token 间隔出现 spike；该延迟沿 `critical_coder -> critical_reviewer -> finalizer` 传导，最终拉长用户可见 critical-path makespan。工具返回后的 resume continuation 在本 replay 中保持为较短 continuation，因此 timeline 上 cold prefill 明显长于 resume prefill，更贴近 AgentServe 对 long prefill 干扰 short decode 的主张。
 
 Phase-aware admission 在 vLLM 外部做轻量控制：critical-path request 优先进入 backend；critical-path short resume prefill 优先；short resume 在 token budget 内允许提交；当 critical decode 活跃或最近 critical TPOT p95 超阈值时，延后 non-critical cold prefill 和 long resume prefill；TPOT 稳定后再逐步放宽 resume prefill token budget。这样牺牲部分 non-critical background 分支 queue time，换取 critical-path decode 稳定性和更短用户可见 makespan。
 

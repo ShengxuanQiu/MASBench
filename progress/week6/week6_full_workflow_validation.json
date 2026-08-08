@@ -1,0 +1,26 @@
+[
+  {
+    "trace_path": "mas_workflow/traces/week6_real/full_workflow/issue_to_verified_patch/astropy__astropy-12907/20260808_210351_015313.jsonl",
+    "policy": "default_vllm",
+    "workflow_makespan_sec": 25.884761,
+    "llm_request_count": 14,
+    "live_tavily_call_count": 2,
+    "tool_latency_median_sec": 4.899751291501161,
+    "tool_resumed_request_count": 0,
+    "deferred_request_count": 0,
+    "valid_live_tavily": true,
+    "interpretation": "No eligible non-critical tool-resume/critical-decode window; not used for policy benefit attribution."
+  },
+  {
+    "trace_path": "mas_workflow/traces/week6_real/full_workflow/issue_to_verified_patch/astropy__astropy-12907/20260808_210517_496857.jsonl",
+    "policy": "critical_path_aware",
+    "workflow_makespan_sec": 23.836224,
+    "llm_request_count": 14,
+    "live_tavily_call_count": 2,
+    "tool_latency_median_sec": 2.4635535904963035,
+    "tool_resumed_request_count": 0,
+    "deferred_request_count": 0,
+    "valid_live_tavily": true,
+    "interpretation": "No eligible non-critical tool-resume/critical-decode window; not used for policy benefit attribution."
+  }
+]

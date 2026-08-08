@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-/data/home/shengxuanqiu/MASBench-for-Arch}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${ROOT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 LOG_DIR="${ROOT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
@@ -25,8 +26,9 @@ if command -v conda >/dev/null 2>&1; then
   fi
 fi
 
-if [[ -d "/data/home/shengxuanqiu/.conda/envs/MAS/bin" ]]; then
-  export PATH="/data/home/shengxuanqiu/.conda/envs/MAS/bin:${PATH}"
+MAS_ENV_PREFIX="$(conda env list 2>/dev/null | awk '$1 == "MAS" {print $NF; exit}')"
+if [[ -n "${MAS_ENV_PREFIX}" && -d "${MAS_ENV_PREFIX}/bin" ]]; then
+  export PATH="${MAS_ENV_PREFIX}/bin:${PATH}"
 elif [[ -f "${ROOT_DIR}/.venv-MAS/bin/activate" ]]; then
   # shellcheck disable=SC1091
   source "${ROOT_DIR}/.venv-MAS/bin/activate"

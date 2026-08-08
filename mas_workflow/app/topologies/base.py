@@ -16,6 +16,7 @@ from ..trace_export import export_trace_views
 from ..tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
 from ..backend_adapters import BackendTraceAdapter, build_backend_trace_adapter
 from ..backend_metrics import BackendMetricsSampler, metrics_url_from_base_url, summarize_backend_metrics
+from ..admission import AdmissionController
 
 
 @dataclass
@@ -79,6 +80,8 @@ class TopologyConfig:
     agents_per_group: int = 2
     writer_count: int = 2
     reader_count: int = 2
+    admission_policy: str = AdmissionController.DEFAULT
+    max_defer_sec: float = 30.0
     mode: str = "topology"
     motif_name: str = ""
     parent_motif_id: str = ""
@@ -115,6 +118,11 @@ class BaseTopology:
         self.artifacts: dict[str, str] = {}
         self.backend_metrics_sampler: BackendMetricsSampler | None = None
         self.backend_trace_adapter: BackendTraceAdapter = build_backend_trace_adapter(config.backend_trace_adapter)
+        self.admission_controller = AdmissionController(
+            policy=config.admission_policy,
+            max_defer_sec=config.max_defer_sec,
+            trace=trace,
+        )
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         old_query = self.config.query
@@ -361,7 +369,53 @@ class BaseTopology:
             }
         }
         prompt = system_prompt + "\n" + user_prompt
-        submit_ts = time.time()
+        request_id = str(uuid.uuid4())
+        ready_ts = time.time()
+        critical_path_candidate = bool(
+            criticality == "critical" or trace_metadata.get("critical_path_candidate")
+        )
+        tool_resumed = bool(
+            trace_metadata.get("background_resume_request")
+            or trace_metadata.get("resume_after_tool")
+            or trace_metadata.get("function_call_lifecycle_stage") == "llm_2_resume"
+        )
+        self.trace.emit(
+            event_type="llm_request_ready",
+            node_id=node_id,
+            node_name=node_name,
+            node_type="llm",
+            parents=parents or [],
+            parent_node_ids=parents or [],
+            agent_id=node_id,
+            agent_role=agent_role,
+            criticality=criticality,
+            critical_path_candidate=critical_path_candidate,
+            tool_resumed=tool_resumed,
+            request_ready_ts=ready_ts,
+            llm_request_id=request_id,
+            request_id_for_backend=request_id,
+            admission_policy=self.config.admission_policy,
+            status="ready",
+            duration_source="online_runtime_observed",
+            replay_policy="live",
+        )
+        decision = self.admission_controller.admit(
+            request_id=request_id,
+            node_id=node_id,
+            agent_role=agent_role,
+            critical_path_candidate=critical_path_candidate,
+            tool_resumed=tool_resumed,
+            ready_ts=ready_ts,
+        )
+        submit_ts = decision.submit_ts
+        metadata["request_id_for_backend"] = request_id
+        metadata["_on_first_token"] = lambda timestamp: self.admission_controller.on_first_token(
+            request_id=request_id,
+            node_id=node_id,
+            critical_path_candidate=critical_path_candidate,
+            timestamp=timestamp,
+        )
+        public_request_metadata = {key: value for key, value in metadata.items() if not key.startswith("_")}
         common_graph = {
             "workflow_name": self.config.workload_name or self.config.motif_name or self.config.topology_name,
             "parent_node_ids": parents or [],
@@ -390,7 +444,8 @@ class BaseTopology:
             backend_base_url=self.config.backend_base_url,
             model=self.config.model,
             max_output_tokens=self.config.max_output_tokens,
-            llm_request_id=str(uuid.uuid4()),
+            llm_request_id=request_id,
+            request_id_for_backend=request_id,
             input_chars=len(prompt),
             input_tokens_est=estimate_tokens(prompt),
             system_prompt_tokens_est=estimate_tokens(system_prompt),
@@ -406,8 +461,15 @@ class BaseTopology:
             },
             priority=1.0 if criticality == "critical" else 0.0,
             dispatch_policy=self.config.dispatch_policy,
-            request_metadata=metadata,
+            request_metadata=public_request_metadata,
             request_submit_ts=submit_ts,
+            request_ready_ts=ready_ts,
+            admission_policy=self.config.admission_policy,
+            admission_decision=decision.decision,
+            admission_reason=decision.reason,
+            defer_start_ts=decision.defer_start_ts,
+            defer_end_ts=decision.defer_end_ts,
+            defer_duration_sec=decision.defer_duration_sec,
             start_ts=submit_ts,
             input_tokens=estimate_tokens(prompt),
             model_name=self.config.model,
@@ -415,7 +477,15 @@ class BaseTopology:
             **common_graph,
             **trace_metadata,
         )
-        result = self.llm.invoke(system_prompt, user_prompt, metadata)
+        try:
+            result = self.llm.invoke(system_prompt, user_prompt, metadata)
+        finally:
+            self.admission_controller.on_complete(
+                request_id=request_id,
+                node_id=node_id,
+                critical_path_candidate=critical_path_candidate,
+                timestamp=time.time(),
+            )
         output = result.content
         event = self.trace.emit(
             event_type="llm_request_end",
@@ -478,6 +548,13 @@ class BaseTopology:
             backend_finish_reason=result.request_metadata.get("backend_finish_reason"),
             backend_response_id=result.request_metadata.get("backend_response_id"),
             request_submit_ts=submit_ts,
+            request_ready_ts=ready_ts,
+            admission_policy=self.config.admission_policy,
+            admission_decision=decision.decision,
+            admission_reason=decision.reason,
+            defer_start_ts=decision.defer_start_ts,
+            defer_end_ts=decision.defer_end_ts,
+            defer_duration_sec=decision.defer_duration_sec,
             response_start_ts=result.generation_start_ts,
             response_end_ts=result.generation_end_ts,
             start_ts=submit_ts,
@@ -485,6 +562,12 @@ class BaseTopology:
             request_e2e_sec=round(result.duration_sec + float(result.queue_wait_sec or 0.0), 6),
             ttft_sec=result.request_metadata.get("ttft_sec"),
             tpot_sec=result.request_metadata.get("tpot_sec"),
+            tpot_p95_sec=result.request_metadata.get("tpot_p95_sec"),
+            first_token_ts=result.request_metadata.get("first_token_ts"),
+            completion_ts=result.generation_end_ts,
+            stream_chunk_timestamps=result.request_metadata.get("stream_chunk_timestamps", []),
+            stream_chunk_token_counts=result.request_metadata.get("stream_chunk_token_counts", []),
+            streaming_timing_granularity=result.request_metadata.get("streaming_timing_granularity", "unavailable"),
             input_tokens=estimate_tokens(prompt),
             output_tokens=estimate_tokens(output),
             total_tokens=estimate_tokens(prompt) + estimate_tokens(output),
@@ -509,6 +592,27 @@ class BaseTopology:
         return output
 
     def search(self, *, node_id: str, node_name: str, query: str, trace_fields: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        tool_call_ts = time.time()
+        start_trace_fields = dict(trace_fields or {})
+        parent_node_ids = start_trace_fields.pop("parent_node_ids", None) or start_trace_fields.pop("parents", None) or []
+        dependency_edges = start_trace_fields.pop("dependency_edges", None) or []
+        start_trace_fields.pop("workflow_name", None)
+        self.trace.emit(
+            event_type="tool_call",
+            node_id=node_id,
+            node_name=node_name,
+            node_type="tool",
+            status="start",
+            tool_name="search",
+            tool_mode=self.config.tool_mode,
+            tool_call_ts=tool_call_ts,
+            replay_policy="live" if self.config.tool_mode == "live" else self.config.tool_mode,
+            duration_source="online_runtime_observed",
+            workflow_name=self.config.workload_name or self.config.motif_name or self.config.topology_name,
+            parent_node_ids=parent_node_ids,
+            dependency_edges=dependency_edges,
+            **start_trace_fields,
+        )
         result = self.search_provider.search(query)
         snapshot_dir = self.config.trace_dir / "snapshots" / self.config.run_id if self.config.record_tool_results else None
         replay_policy = {
@@ -825,6 +929,52 @@ class BaseTopology:
             event["overlapping_background_tokens"] = sum(int(e.get("total_tokens") or e.get("total_tokens_est") or 0) for e in overlapping)
             if event.get("background_resume_request"):
                 event["actual_overlap_with_critical"] = any(self._event_start(c) < end and float(c.get("relative_time_sec") or 0.0) > start for c in critical)
+        for critical_event in critical:
+            decode_start = critical_event.get("first_token_ts")
+            decode_end = critical_event.get("completion_ts") or critical_event.get("generation_end_ts")
+            if decode_start is None or decode_end is None:
+                critical_event["interference_observation_granularity"] = "unavailable_without_streaming"
+                continue
+            overlap_rows = []
+            for other in background:
+                other_start = other.get("request_submit_ts")
+                other_end = other.get("completion_ts") or other.get("generation_end_ts")
+                if other_start is None or other_end is None:
+                    continue
+                overlap_start = max(float(decode_start), float(other_start))
+                overlap_end = min(float(decode_end), float(other_end))
+                if overlap_end <= overlap_start:
+                    continue
+                overlap_rows.append(
+                    {
+                        "request_id_for_backend": other.get("request_id_for_backend"),
+                        "node_id": other.get("node_id"),
+                        "agent_role": other.get("agent_role"),
+                        "tool_resumed": bool(other.get("background_resume_request") or other.get("resume_after_tool")),
+                        "function_call_lifecycle_stage": other.get("function_call_lifecycle_stage"),
+                        "overlap_sec": round(overlap_end - overlap_start, 6),
+                    }
+                )
+            critical_event["critical_decode_overlap_requests"] = overlap_rows
+            critical_event["critical_decode_overlap_request_count"] = len(overlap_rows)
+            critical_event["critical_decode_tool_resume_overlap_count"] = sum(int(row["tool_resumed"]) for row in overlap_rows)
+            critical_event["interference_observation_granularity"] = "client_request_lifecycle_and_openai_sse_chunks"
+            for row in overlap_rows:
+                self.trace.emit(
+                    event_type="serving_interference_overlap",
+                    node_id=str(critical_event.get("node_id") or ""),
+                    node_name=str(critical_event.get("node_name") or ""),
+                    node_type="analysis",
+                    critical_request_id=critical_event.get("request_id_for_backend"),
+                    critical_agent_id=critical_event.get("node_id"),
+                    critical_decode_start_ts=decode_start,
+                    critical_decode_end_ts=decode_end,
+                    overlapping_request=row,
+                    observation_granularity="client_request_lifecycle_and_openai_sse_chunks",
+                    kernel_overlap_observed=False,
+                    duration_source="post_run_reconstruction_from_real_execution",
+                    replay_policy="live",
+                )
 
     def build_summary(self, final_answer: str) -> dict[str, Any]:
         events = self.trace.events

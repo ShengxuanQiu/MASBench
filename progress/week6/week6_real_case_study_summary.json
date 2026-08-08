@@ -1,0 +1,234 @@
+{
+  "schema": "masbench_arch_week6_real_case_study_v1",
+  "controlled_workload": "tool_resume_contention_meso",
+  "runs_per_policy": 5,
+  "validity": {
+    "real_vllm_streaming": true,
+    "real_tavily": true,
+    "synthetic_results_used": false,
+    "deterministic_replay_used_for_primary_results": false,
+    "scheduler_used_future_trace": false,
+    "observation_granularity": "request lifecycle plus OpenAI SSE chunks; not CUDA kernels"
+  },
+  "policies": {
+    "default_vllm": {
+      "workflow_result_ready_sec": {
+        "median": 13.265221,
+        "min": 13.206989,
+        "max": 13.274222,
+        "q1": 13.23432,
+        "q3": 13.274073
+      },
+      "trace_drain_completion_sec": {
+        "median": 15.249687,
+        "min": 15.186428,
+        "max": 15.284507,
+        "q1": 15.216632,
+        "q3": 15.252381
+      },
+      "critical_path_to_reviewer_sec": {
+        "median": 11.343987,
+        "min": 11.292688,
+        "max": 11.361772,
+        "q1": 11.315845,
+        "q3": 11.344376
+      },
+      "critical_decode_duration_sec": {
+        "median": 7.800003290176392,
+        "min": 7.786711692810059,
+        "max": 7.814577102661133,
+        "q1": 7.7951741218566895,
+        "q3": 7.811591625213623
+      },
+      "critical_ttft_ms": {
+        "median": 47.47819900512695,
+        "min": 46.852827072143555,
+        "max": 52.83355712890625,
+        "q1": 47.23191261291504,
+        "q3": 50.61078071594238
+      },
+      "critical_tpot_ms": {
+        "median": 15.263017143055416,
+        "min": 15.23704818083582,
+        "max": 15.291474803319883,
+        "q1": 15.253553185211002,
+        "q3": 15.285558663235719
+      },
+      "critical_tpot_p95_ms": {
+        "median": 19.403696060180664,
+        "min": 19.14191246032715,
+        "max": 19.96898651123047,
+        "q1": 19.330263137817383,
+        "q3": 19.46234703063965
+      },
+      "tool_resume_overlap_count": {
+        "median": 4.0,
+        "min": 4.0,
+        "max": 4.0,
+        "q1": 4.0,
+        "q3": 4.0
+      },
+      "deferred_request_count": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "q1": 0.0,
+        "q3": 0.0
+      },
+      "max_defer_sec": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "q1": 0.0,
+        "q3": 0.0
+      },
+      "median_defer_sec": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "q1": 0.0,
+        "q3": 0.0
+      },
+      "tool_latency_median_sec": {
+        "median": 0.7075653644969861,
+        "min": 0.6721090799983358,
+        "max": 0.775928388498869,
+        "q1": 0.7063388974966074,
+        "q3": 0.7105832115012163
+      },
+      "tool_latency_min_sec": {
+        "median": 0.7049846369991428,
+        "min": 0.6540599559957627,
+        "max": 0.7573353949992452,
+        "q1": 0.6676648759967065,
+        "q3": 0.7057873259982443
+      },
+      "tool_latency_max_sec": {
+        "median": 0.7213779410012648,
+        "min": 0.6817217470015748,
+        "max": 0.8682877749961335,
+        "q1": 0.7165718070027651,
+        "q3": 0.7951906559974304
+      }
+    },
+    "critical_path_aware": {
+      "workflow_result_ready_sec": {
+        "median": 13.169682,
+        "min": 13.144127,
+        "max": 13.194302,
+        "q1": 13.149386,
+        "q3": 13.171783
+      },
+      "trace_drain_completion_sec": {
+        "median": 17.074634,
+        "min": 17.049465,
+        "max": 17.096581,
+        "q1": 17.058215,
+        "q3": 17.084971
+      },
+      "critical_path_to_reviewer_sec": {
+        "median": 10.729392,
+        "min": 10.713337,
+        "max": 10.764134,
+        "q1": 10.727727,
+        "q3": 10.748948
+      },
+      "critical_decode_duration_sec": {
+        "median": 7.206763982772827,
+        "min": 7.2006306648254395,
+        "max": 7.223635911941528,
+        "q1": 7.20487904548645,
+        "q3": 7.211463928222656
+      },
+      "critical_ttft_ms": {
+        "median": 47.41668701171875,
+        "min": 45.72296142578125,
+        "max": 50.28080940246582,
+        "q1": 46.4785099029541,
+        "q3": 49.72338676452637
+      },
+      "critical_tpot_ms": {
+        "median": 14.101980250408971,
+        "min": 14.090087782380165,
+        "max": 14.135096637703436,
+        "q1": 14.09839417369865,
+        "q3": 14.111269243542695
+      },
+      "critical_tpot_p95_ms": {
+        "median": 18.521547317504883,
+        "min": 17.825603485107422,
+        "max": 18.736839294433594,
+        "q1": 18.46790313720703,
+        "q3": 18.704891204833984
+      },
+      "tool_resume_overlap_count": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "q1": 0.0,
+        "q3": 0.0
+      },
+      "deferred_request_count": {
+        "median": 4.0,
+        "min": 4.0,
+        "max": 4.0,
+        "q1": 4.0,
+        "q3": 4.0
+      },
+      "max_defer_sec": {
+        "median": 7.01366114616394,
+        "min": 7.006302356719971,
+        "max": 7.035916805267334,
+        "q1": 7.011499404907227,
+        "q3": 7.027379035949707
+      },
+      "median_defer_sec": {
+        "median": 7.0050294399261475,
+        "min": 6.946146249771118,
+        "max": 7.034693360328674,
+        "q1": 6.966855764389038,
+        "q3": 7.011172771453857
+      },
+      "tool_latency_median_sec": {
+        "median": 0.6760800705014844,
+        "min": 0.6736582064950198,
+        "max": 0.7419648024988419,
+        "q1": 0.6750396014977014,
+        "q3": 0.72929677400316
+      },
+      "tool_latency_min_sec": {
+        "median": 0.6690288999961922,
+        "min": 0.6631393989955541,
+        "max": 0.6706008559995098,
+        "q1": 0.6654340170061914,
+        "q3": 0.669655325000349
+      },
+      "tool_latency_max_sec": {
+        "median": 0.7264335860018036,
+        "min": 0.6814359859999968,
+        "max": 0.7542221189942211,
+        "q1": 0.724722491002467,
+        "q3": 0.7508803089949652
+      }
+    }
+  },
+  "effects_percent": {
+    "workflow_result_ready_sec": -0.7202216985303211,
+    "trace_drain_completion_sec": 11.967111193823188,
+    "critical_decode_duration_sec": -7.6056289380122655,
+    "critical_tpot_ms": -7.606863582504131,
+    "critical_tpot_p95_ms": -4.5462923143085305
+  },
+  "source_traces": [
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_205925_443237.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_205941_690539.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_205959_798489.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210015_987286.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210034_251436.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210050_482044.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210108_595478.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210125_028983.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210143_265657.jsonl",
+    "mas_workflow/traces/week6_real/main/tool_resume_contention_meso/manual_a5ce6b4eda2a/20260808_210159_696037.jsonl"
+  ]
+}

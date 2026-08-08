@@ -68,7 +68,7 @@ class LocalLLMClient:
         """调用本地模型，并返回 OpenAI-compatible 响应元数据。"""
         http_error: Exception | None = None
         try:
-            return self._invoke_openai_http_with_metadata(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
+            return self.invoke_streaming_with_metadata(system_prompt, user_prompt, metadata=metadata, max_tokens=max_tokens)
         except Exception as exc:
             http_error = exc
         try:
@@ -78,11 +78,19 @@ class LocalLLMClient:
                 return self._invoke_openai_sdk(system_prompt, user_prompt, max_tokens=max_tokens), {}
             except Exception as openai_exc:
                 raise RuntimeError(
-                    "本地 vLLM 调用失败。"
-                    f" urllib fallback 错误: {http_error};"
+                    "本地 vLLM streaming 调用失败。"
+                    f" urllib streaming 错误: {http_error};"
                     f" langchain_openai 错误: {langchain_exc};"
                     f" openai SDK fallback 错误: {openai_exc}"
                 ) from openai_exc
+
+    @staticmethod
+    def _percentile(values: list[float], percentile: float) -> float | None:
+        if not values:
+            return None
+        ordered = sorted(values)
+        index = min(len(ordered) - 1, max(0, int((len(ordered) - 1) * percentile)))
+        return ordered[index]
 
     def invoke_streaming_with_metadata(
         self,
@@ -100,7 +108,8 @@ class LocalLLMClient:
         vLLM internals.
         """
         self._ensure_local_no_proxy()
-        request_start = time.perf_counter()
+        request_start_perf = time.perf_counter()
+        request_start_wall = time.time()
         payload: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -117,6 +126,7 @@ class LocalLLMClient:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
+            "Accept": "text/event-stream",
         }
         if metadata:
             request_id = metadata.get("X-Request-Id") or metadata.get("request_id_for_backend")
@@ -136,57 +146,84 @@ class LocalLLMClient:
             method="POST",
         )
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        chunks: list[str] = []
-        chunk_timestamps: list[float] = []
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        chunk_timestamps_wall: list[float] = []
+        chunk_timestamps_perf: list[float] = []
+        chunk_token_counts: list[int] = []
+        first_token_ts: float | None = None
+        usage: dict[str, Any] = {}
         response_id = None
         response_model = None
         finish_reason = None
-        usage: dict[str, Any] = {}
         system_fingerprint = None
-        with opener.open(request, timeout=300) as response:
+        with opener.open(request, timeout=180) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line or not line.startswith("data:"):
+                if not line.startswith("data:"):
                     continue
-                data_text = line.split("data:", 1)[1].strip()
-                if data_text == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_text)
-                except json.JSONDecodeError:
+                data_text = line[5:].strip()
+                if not data_text or data_text == "[DONE]":
                     continue
-                response_id = data.get("id") or response_id
-                response_model = data.get("model") or response_model
-                system_fingerprint = data.get("system_fingerprint") or system_fingerprint
-                usage = data.get("usage") or usage
-                for choice in data.get("choices") or []:
-                    finish_reason = choice.get("finish_reason") or finish_reason
-                    delta = choice.get("delta") or {}
-                    piece = delta.get("content") or delta.get("reasoning_content") or ""
-                    if not piece:
-                        continue
-                    chunks.append(str(piece))
-                    chunk_timestamps.append(time.perf_counter())
-        end = time.perf_counter()
-        intervals = [
-            (chunk_timestamps[i] - chunk_timestamps[i - 1]) * 1000.0
-            for i in range(1, len(chunk_timestamps))
-        ]
-        first_token_ms = None
-        if chunk_timestamps:
-            first_token_ms = (chunk_timestamps[0] - request_start) * 1000.0
-        return "".join(chunks), {
+                item = json.loads(data_text)
+                response_id = item.get("id") or response_id
+                response_model = item.get("model") or response_model
+                system_fingerprint = item.get("system_fingerprint") or system_fingerprint
+                if item.get("usage"):
+                    usage = item["usage"]
+                choice = (item.get("choices") or [{}])[0]
+                finish_reason = choice.get("finish_reason") or finish_reason
+                delta = choice.get("delta") or {}
+                piece = delta.get("content") or ""
+                reasoning_piece = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                observed_piece = piece or reasoning_piece
+                if not observed_piece:
+                    continue
+                timestamp_wall = time.time()
+                timestamp_perf = time.perf_counter()
+                if first_token_ts is None:
+                    first_token_ts = timestamp_wall
+                    callback = (metadata or {}).get("_on_first_token")
+                    if callable(callback):
+                        callback(timestamp_wall)
+                chunk_timestamps_wall.append(timestamp_wall)
+                chunk_timestamps_perf.append(timestamp_perf)
+                chunk_token_counts.append(max(1, (len(observed_piece) + 3) // 4))
+                if piece:
+                    content_parts.append(piece)
+                if reasoning_piece:
+                    reasoning_parts.append(reasoning_piece)
+        completion_ts = time.time()
+        completion_perf = time.perf_counter()
+        content = "".join(content_parts) or "".join(reasoning_parts)
+        completion_tokens = int(usage.get("completion_tokens") or sum(chunk_token_counts) or 0)
+        ttft = max(0.0, first_token_ts - request_start_wall) if first_token_ts is not None else None
+        tpot = None
+        if first_token_ts is not None and completion_tokens > 1:
+            tpot = max(0.0, completion_ts - first_token_ts) / (completion_tokens - 1)
+        chunk_gaps = [max(0.0, b - a) for a, b in zip(chunk_timestamps_wall, chunk_timestamps_wall[1:])]
+        intervals_ms = [1000.0 * gap for gap in chunk_gaps]
+        first_token_ms = 1000.0 * ttft if ttft is not None else None
+        return content, {
             "response_id": response_id,
             "model": response_model,
             "finish_reason": finish_reason,
             "usage": usage,
             "system_fingerprint": system_fingerprint,
-            "stream_chunk_count": len(chunk_timestamps),
+            "stream_chunk_count": len(chunk_timestamps_wall),
             "stream_first_token_ms": first_token_ms,
-            "stream_chunk_timestamps_perf": chunk_timestamps,
-            "stream_inter_token_ms": intervals,
-            "stream_e2e_ms": (end - request_start) * 1000.0,
+            "stream_chunk_timestamps_perf": chunk_timestamps_perf,
+            "stream_inter_token_ms": intervals_ms,
+            "stream_e2e_ms": (completion_perf - request_start_perf) * 1000.0,
             "timing_source": "openai_compatible_streaming_sse",
+            "first_token_ts": first_token_ts,
+            "completion_ts": completion_ts,
+            "ttft_sec": ttft,
+            "tpot_sec": tpot,
+            "tpot_p95_sec": self._percentile(chunk_gaps, 0.95),
+            "stream_chunk_timestamps": chunk_timestamps_wall,
+            "stream_chunk_token_counts": chunk_token_counts,
+            "streaming_timing_granularity": "openai_sse_chunk",
         }
 
     def _invoke_langchain(self, system_prompt: str, user_prompt: str, max_tokens: int | None = None) -> str:

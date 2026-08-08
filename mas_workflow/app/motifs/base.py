@@ -8,6 +8,7 @@ inspect the same component graph without creating another trace system.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -854,12 +855,23 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
 
     def run(self) -> dict[str, Any]:
         self.workflow_start()
-        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Plan critical and non-critical tool-stalled branches.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], dst_node="planner", contention_role="critical_agent"))
+        plan = self.llm_agent(node_id="planner", node_name="Planner", agent_role="planner", system_prompt="Plan critical and non-critical tool-stalled branches.", user_prompt=self.config.query, parents=["START"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="planner", parents=["START"], dst_node="planner", contention_role="critical_agent", request_max_output_tokens=96))
 
         def critical(_: int) -> tuple[str, str, str, str]:
-            code = self.llm_agent(node_id="critical_coder", node_name="Critical Coder", agent_role="coder", system_prompt="Produce critical-path candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["planner"], dst_node="critical_coder", expected_overlap_target=self.config.critical_stage_marker, contention_role="critical_agent"))
-            review = self.llm_agent(node_id="critical_reviewer", node_name="Critical Reviewer", agent_role="reviewer", system_prompt="Review the critical-path candidate.", user_prompt=code, parents=["critical_coder"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=["critical_coder"], dst_node="critical_reviewer", critical_request_marker="reviewer", nearby_background_resume_expected=True, overlap_analysis_status="observed_or_unavailable", expected_overlap_target="reviewer", contention_role="critical_agent"))
-            final = self.llm_agent(node_id="finalizer", node_name="Finalizer", agent_role="finalizer", system_prompt="Finalize from the critical review without waiting for non-critical tool branches.", user_prompt=f"Code:\n{code}\nReview:\n{review}", parents=["critical_reviewer"], criticality="critical", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="critical", stage="finalizer", parents=["critical_reviewer"], dst_node="finalizer", critical_request_marker="finalizer", contention_role="critical_agent"))
+            code = self.llm_agent(node_id="critical_coder", node_name="Critical Coder", agent_role="coder", system_prompt="Produce critical-path candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="coder", parents=["planner"], dst_node="critical_coder", expected_overlap_target=self.config.critical_stage_marker, contention_role="critical_agent", request_max_output_tokens=128))
+            review = self.llm_agent(node_id="critical_reviewer", node_name="Critical Reviewer", agent_role="reviewer", system_prompt="Review the critical-path candidate in detail, covering correctness, edge cases, evidence quality, and serving implications.", user_prompt=code, parents=["critical_coder"], criticality="critical", extra_metadata=self.week3_meta(role="critical_path", criticality="critical", stage="reviewer", parents=["critical_coder"], dst_node="critical_reviewer", critical_request_marker="reviewer", nearby_background_resume_expected=True, overlap_analysis_status="observed_or_unavailable", expected_overlap_target="reviewer", contention_role="critical_agent", request_max_output_tokens=512))
+            final = self.llm_agent(node_id="finalizer", node_name="Finalizer", agent_role="finalizer", system_prompt="Finalize from the critical review without waiting for non-critical tool branches.", user_prompt=f"Code:\n{code}\nReview:\n{review}", parents=["critical_reviewer"], criticality="critical", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="critical", stage="finalizer", parents=["critical_reviewer"], dst_node="finalizer", critical_request_marker="finalizer", contention_role="critical_agent", request_max_output_tokens=128))
+            self.trace.emit(
+                event_type="workflow_result_ready",
+                node_id="finalizer",
+                node_name="Critical Result Ready",
+                node_type="workflow",
+                status="ready",
+                critical_path_candidate=True,
+                result_ready_ts=time.time(),
+                duration_source="online_runtime_observed",
+                replay_policy="live",
+            )
             self.emit_edge(src_node="finalizer", dst_node="END", artifact_type="final", content=final, transfer_type="critical_path")
             return "finalizer", code, review, final
 
@@ -886,6 +898,7 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
                     tool_stalled=False,
                     resume_after_tool=False,
                     expected_overlap_target=self.config.critical_stage_marker,
+                    request_max_output_tokens=96,
                 ),
             )
             tool_id = f"{branch}_search"
@@ -894,12 +907,12 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
             if not self.config.background_resume_enabled:
                 return tool_id, ""
             resume_id = f"resume_evidence_processor_{i}"
-            out = self.llm_agent(node_id=resume_id, node_name=f"Resume Evidence Processor {i}", agent_role="evidence_processor", system_prompt="Resume after tool return and summarize evidence.", user_prompt=str(evidence)[:4000], parents=[tool_id], parallel_group="background_tool_resume", criticality="non_critical", extra_metadata=self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=[tool_id], dst_node=resume_id, contention_role="non_critical_agent", function_call_lifecycle_stage="llm_2_resume", tool_stalled=True, background_resume_request=True, resume_after_tool=True, resume_group_id="week3_tool_resume", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, intended_to_overlap_with=self.config.critical_stage_marker))
+            out = self.llm_agent(node_id=resume_id, node_name=f"Resume Evidence Processor {i}", agent_role="evidence_processor", system_prompt="Resume after tool return and summarize evidence in detail.", user_prompt=str(evidence)[:4000], parents=[tool_id], parallel_group="background_tool_resume", criticality="non_critical", extra_metadata=self.week3_meta(role="background_tool_branch", criticality="non_critical", parents=[tool_id], dst_node=resume_id, contention_role="non_critical_agent", function_call_lifecycle_stage="llm_2_resume", tool_stalled=True, background_resume_request=True, resume_after_tool=True, resume_group_id="week3_tool_resume", resume_phase_policy=self.config.resume_phase_policy, expected_overlap_target=self.config.critical_stage_marker, intended_to_overlap_with=self.config.critical_stage_marker, request_max_output_tokens=256))
             self.emit_edge(src_node=resume_id, dst_node="evidence_merge", artifact_type="resumed_evidence", content=out, transfer_type="aggregation", parallel_group="background_tool_resume")
             return resume_id, out
 
         def background_parallel(_: int) -> tuple[str, str]:
-            out = self.llm_agent(node_id="background_coder", node_name="Background Coder", agent_role="coder", system_prompt="Produce an alternate background candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], parallel_group="background_parallel", criticality="non_critical", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="non_critical", parents=["planner"], dst_node="background_coder", contention_role="non_critical_agent"))
+            out = self.llm_agent(node_id="background_coder", node_name="Background Coder", agent_role="coder", system_prompt="Produce an alternate background candidate.", user_prompt=f"Task:\n{self.config.query}\nPlan:\n{plan}", parents=["planner"], parallel_group="background_parallel", criticality="non_critical", extra_metadata=self.week3_meta(role="background_parallel_branch", criticality="non_critical", parents=["planner"], dst_node="background_coder", contention_role="non_critical_agent", request_max_output_tokens=128))
             self.emit_edge(src_node="background_coder", dst_node="evidence_merge", artifact_type="background_candidate", content=out, transfer_type="aggregation")
             return "background_coder", out
 
@@ -915,7 +928,7 @@ class CriticalPathToolResumeContentionMesoMotif(Week3MesoMotif):
         critical_node, code, review, final = results["critical"]
         bg = {str(v[0]): str(v[1]) for k, v in results.items() if k != "critical" and v and v[1]}
         self.barrier(barrier_id="late_evidence_merge_barrier", waiting_for_nodes=list(bg))
-        merged = self.llm_agent(node_id="evidence_merge", node_name="Evidence Merge", agent_role="aggregator", system_prompt="Merge late evidence and background candidates.", user_prompt="\n".join(bg.values()), parents=list(bg), criticality="merge", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="merge", parents=list(bg), dst_node="evidence_merge", fan_in_count=len(bg)))
+        merged = self.llm_agent(node_id="evidence_merge", node_name="Evidence Merge", agent_role="aggregator", system_prompt="Merge late evidence and background candidates.", user_prompt="\n".join(bg.values()), parents=list(bg), criticality="merge", extra_metadata=self.week3_meta(role="merge_or_finalizer", criticality="merge", parents=list(bg), dst_node="evidence_merge", fan_in_count=len(bg), request_max_output_tokens=128))
         self.emit_edge(src_node="evidence_merge", dst_node="finalizer", artifact_type="late_evidence", content=merged, transfer_type="late_non_blocking_context")
         return self.workflow_end(final)
 

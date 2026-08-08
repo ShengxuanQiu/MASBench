@@ -32,7 +32,7 @@ class MockLLM:
         self.model = model
 
     def invoke(self, system_prompt: str, user_prompt: str, metadata: dict[str, Any]) -> LLMResult:
-        request_id = str(uuid.uuid4())
+        request_id = str(metadata.get("request_id_for_backend") or uuid.uuid4())
         start = time.time()
         role = str(metadata.get("agent_role") or metadata.get("node_type") or "agent")
         agent_id = str(metadata.get("agent_id") or "agent")
@@ -103,16 +103,16 @@ class OpenAICompatibleLLM:
         self.client = LocalLLMClient(model=model, base_url=base_url, max_tokens=max_tokens)
 
     def invoke(self, system_prompt: str, user_prompt: str, metadata: dict[str, Any]) -> LLMResult:
-        request_id = str(uuid.uuid4())
+        request_id = str(metadata.get("request_id_for_backend") or uuid.uuid4())
         dispatch_start = time.time()
         metadata = dict(metadata)
         metadata["request_id_for_backend"] = request_id
         headers_metadata = dict(metadata)
         headers_metadata["X-Request-Id"] = request_id
-        generation_start = time.time()
         request_max_tokens = int(metadata.get("request_max_output_tokens") or self.max_tokens)
         content, response_metadata = self.client.invoke_with_metadata(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=request_max_tokens)
-        end = time.time()
+        end = float(response_metadata.get("completion_ts") or time.time())
+        generation_start = float(response_metadata.get("first_token_ts") or end)
         usage = response_metadata.get("usage") or {}
         return LLMResult(
             content=content,
@@ -122,7 +122,7 @@ class OpenAICompatibleLLM:
             dispatch_end_ts=generation_start,
             generation_start_ts=generation_start,
             generation_end_ts=end,
-            duration_sec=end - generation_start,
+            duration_sec=end - dispatch_start,
             request_metadata={
                 "x_request_id": request_id,
                 "backend_response_id": response_metadata.get("response_id"),
@@ -132,6 +132,13 @@ class OpenAICompatibleLLM:
                 "backend_total_tokens": usage.get("total_tokens"),
                 "backend_system_fingerprint": response_metadata.get("system_fingerprint"),
                 "max_output_tokens": request_max_tokens,
+                "first_token_ts": response_metadata.get("first_token_ts"),
+                "ttft_sec": response_metadata.get("ttft_sec"),
+                "tpot_sec": response_metadata.get("tpot_sec"),
+                "tpot_p95_sec": response_metadata.get("tpot_p95_sec"),
+                "stream_chunk_timestamps": response_metadata.get("stream_chunk_timestamps", []),
+                "stream_chunk_token_counts": response_metadata.get("stream_chunk_token_counts", []),
+                "streaming_timing_granularity": response_metadata.get("streaming_timing_granularity", "unavailable"),
             },
         )
 

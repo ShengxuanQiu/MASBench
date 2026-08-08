@@ -113,6 +113,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agents-per-group", type=int, default=2)
     parser.add_argument("--writer-count", type=int, default=2)
     parser.add_argument("--reader-count", type=int, default=2)
+    parser.add_argument(
+        "--admission-policy",
+        choices=["default_vllm", "critical_path_aware"],
+        default="default_vllm",
+    )
+    parser.add_argument("--max-defer-sec", type=float, default=30.0)
     return parser.parse_args()
 
 
@@ -299,6 +305,8 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         agents_per_group=args.agents_per_group,
         writer_count=args.writer_count,
         reader_count=args.reader_count,
+        admission_policy=args.admission_policy,
+        max_defer_sec=args.max_defer_sec,
         mode=args.mode,
         motif_name=args.motif if args.mode == "motif" else "",
     )

@@ -930,6 +930,26 @@ done
 scripts/run_motif_real_trace_tests.sh
 ```
 
+## Week 6 Real-execution Case Study
+
+`tool_resume_contention_meso` 现在支持两个外部 admission policy：
+
+- `--admission-policy default_vllm`：dependency ready 后立即提交。
+- `--admission-policy critical_path_aware`：仅在真实 SSE first token 已到达、critical request 仍在 decode 时，暂缓此刻 ready 的 non-critical tool-resume request；`--max-defer-sec` 提供有限等待上界。
+
+正式 case study 不读取完成 trace 作为 scheduler oracle，也不预测未来 arrival/output length。OpenAI-compatible client 使用 streaming，记录 request ready/submit、first token、completion、SSE chunk timestamps、TTFT、TPOT 和 TPOT p95；Tavily call/return 与 admission defer lifecycle 写入同一 canonical trace。运行 5 组 paired 实验：
+
+```bash
+cd mas_workflow
+REPETITIONS=5 TRACE_DIR=traces/week6_real/main \
+  scripts/run_week6_real_case_study.sh
+
+cd ..
+python -m mas_workflow.app.analyze_week6_real_case_study
+```
+
+主结果、原始 real-execution traces、secret-free config 和仅有的两张论文图位于 `progress/week6/`。详见 `progress/week6/week6_real_execution_case_study_report.md`。旧 deterministic replay/source-trace 路径继续用于受控探索，但不作为本 case study 的主实验结果。
+
 ## 当前状态与 TODO
 
 已完成：

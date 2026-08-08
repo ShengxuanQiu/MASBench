@@ -52,11 +52,11 @@ No request starved: all 20 deferred requests across the five gated runs were adm
 
 ![Real execution interference timeline](figure1_real_execution_interference_timeline.png)
 
-Figure 1 uses the median-TPOT-p95 run from each setting. The green spans and diamonds are measured Tavily call/return times; orange spans are the four resumed LLM executions; purple hatching is the online defer interval. The red signal is the critical reviewer's observed SSE chunk gap, with its per-run p95 shown by the dashed line. In the baseline, tool returns release four resume requests into the reviewer decode. Under gating, the same requests remain client-side until reviewer decode completes.
+Figure 1 uses the median-TPOT-p95 run from each setting and shows only the causal scheduling window. Each tool branch is drawn separately: green is its measured Tavily call, the diamond is tool return / resume-ready, orange is resumed LLM execution, and purple hatching is the online admission defer. The blue band is the critical reviewer decode. In the baseline, all four tool returns immediately release resume requests into the reviewer decode. Under gating, all four remain client-side until reviewer decode completes, reducing observed overlap from 4 to 0.
 
-![End-to-end benefit](figure2_end_to_end_benefit.png)
+![Interference removal and protected-phase speedup](figure2_end_to_end_benefit.png)
 
-Figure 2 reports all five runs. Bars are medians, black dots are individual runs, and error bars show min–max variation. The makespan panel uses result-ready time; background-drain completion is reported in the table rather than hidden.
+Figure 2 reports the mechanism and its direct performance consequence across all five runs. Bars are medians, black dots are individual runs, and error bars show min–max variation. Gating eliminates critical-decode tool-resume overlap (`4 -> 0`) and shortens the protected reviewer decode from `7.80 s` to `7.21 s` (`-7.6%`, or `1.082x` speedup). This is the primary case-study effect. Whole-workflow result-ready time improves by only 0.7% because the protected reviewer is one phase of the workflow, and the subsequently released background resumes can still overlap the finalizer. Background-drain completion regresses by 12.0%; both end-to-end values remain explicitly reported in the table above.
 
 ## Full-workflow validation
 

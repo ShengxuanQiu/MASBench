@@ -115,59 +115,55 @@ def llm_interval(row: dict[str, Any], events: list[dict[str, Any]]) -> tuple[flo
 def timeline_panel(ax: Any, row: dict[str, Any], panel: str) -> None:
     events = row["events"]
     llms = [item for item in events if item.get("event_type") == "llm_request_end"]
-    critical = [item for item in llms if item.get("node_id") in {"critical_coder", "critical_reviewer", "finalizer"}]
-    pre_tool = [item for item in llms if item.get("function_call_lifecycle_stage") == "llm_1_pre_tool"]
-    resumes = [item for item in llms if item.get("background_resume_request")]
-    tools = [item for item in events if item.get("event_type") == "tool_search"]
-    defers = [item for item in events if item.get("event_type") == "admission_defer_end"]
-    lanes = {"Critical path LLM": 3, "Pre-tool LLM": 2, "Tavily / tool wait": 1, "Tool-resumed LLM": 0}
-    for item in critical:
-        start, end = llm_interval(item, events)
-        ax.barh(lanes["Critical path LLM"], end - start, left=start, height=0.48, color=COLORS["critical"], edgecolor="white")
-        if item.get("first_token_ts"):
-            decode = rel(float(item["first_token_ts"]), events)
-            ax.barh(lanes["Critical path LLM"], end - decode, left=decode, height=0.25, color=COLORS["critical_decode"])
-        ax.text((start + end) / 2, lanes["Critical path LLM"], str(item["node_id"]).replace("critical_", ""), ha="center", va="center", fontsize=7, color="white")
-    for item in pre_tool:
-        start, end = llm_interval(item, events)
-        ax.barh(lanes["Pre-tool LLM"], end - start, left=start, height=0.38, color=COLORS["other"], alpha=0.85)
-    for item in tools:
-        start, end = rel(float(item["tool_start_ts"]), events), rel(float(item["tool_end_ts"]), events)
-        ax.barh(lanes["Tavily / tool wait"], end - start, left=start, height=0.38, color=COLORS["tool"], alpha=0.8)
-        ax.scatter([end], [lanes["Tavily / tool wait"]], marker="D", s=15, color="#287d3c", zorder=5)
-    for item in resumes:
-        start, end = llm_interval(item, events)
-        ax.barh(lanes["Tool-resumed LLM"], end - start, left=start, height=0.38, color=COLORS["background"], alpha=0.9)
-    for item in defers:
-        start = rel(float(item["defer_start_ts"]), events)
-        end = rel(float(item["defer_end_ts"]), events)
-        ax.barh(lanes["Tool-resumed LLM"], end - start, left=start, height=0.62, facecolor="none", edgecolor=COLORS["defer"], hatch="////", linewidth=1.2)
-    reviewer = next(item for item in critical if item["node_id"] == "critical_reviewer")
-    stamps = [rel(float(value), events) for value in reviewer.get("stream_chunk_timestamps") or []]
-    gaps = [1000 * max(0.0, b - a) for a, b in zip(stamps, stamps[1:])]
-    twin = ax.twinx()
-    twin.plot(stamps[1:], gaps, color="#d62728", linewidth=0.75, alpha=0.7)
-    twin.axhline(1000 * float(reviewer["tpot_p95_sec"]), color="#d62728", linestyle="--", linewidth=1)
-    twin.set_ylabel("Critical decode\nchunk gap (ms)", color="#a51f1f", fontsize=8)
-    twin.tick_params(axis="y", labelsize=7, colors="#a51f1f")
-    twin.set_ylim(0, max(30, percentile(gaps, 0.99) * 1.25 if gaps else 30))
-    ax.set_yticks(list(lanes.values()), list(lanes.keys()))
-    ax.set_ylim(-0.7, 3.7)
-    ax.set_title(f"({panel}) {POLICY_LABELS[row['policy']]}  |  TPOT p95 = {row['critical_tpot_p95_ms']:.2f} ms", loc="left", fontsize=10, fontweight="bold")
+    reviewer = next(item for item in llms if item.get("node_id") == "critical_reviewer")
+    resumes = {str(item["node_id"]).rsplit("_", 1)[-1]: item for item in llms if item.get("background_resume_request")}
+    tools = {str(item["node_id"]).split("_")[2]: item for item in events if item.get("event_type") == "tool_search"}
+    defers = {
+        str(item["node_id"]).rsplit("_", 1)[-1]: item
+        for item in events if item.get("event_type") == "admission_defer_end"
+    }
+    reviewer_submit = rel(float(reviewer["request_submit_ts"]), events)
+    decode_start = rel(float(reviewer["first_token_ts"]), events)
+    decode_end = rel(float(reviewer["completion_ts"]), events)
+    ax.axvspan(decode_start, decode_end, color="#d9e8f5", alpha=0.55, zorder=0)
+    ax.barh(4, decode_start - reviewer_submit, left=reviewer_submit, height=0.46, color="#9ec1df")
+    ax.barh(4, decode_end - decode_start, left=decode_start, height=0.46, color=COLORS["critical_decode"])
+    ax.text((decode_start + decode_end) / 2, 4, "critical reviewer decode", ha="center", va="center", fontsize=8, color="white")
+    for branch in range(1, 5):
+        key = str(branch)
+        y = 4 - branch
+        tool = tools[key]
+        tool_start = rel(float(tool["tool_start_ts"]), events)
+        tool_end = rel(float(tool["tool_end_ts"]), events)
+        resume_start, resume_end = llm_interval(resumes[key], events)
+        ax.barh(y, tool_end - tool_start, left=tool_start, height=0.34, color=COLORS["tool"], alpha=0.9)
+        ax.scatter([tool_end], [y], marker="D", s=24, color="#287d3c", zorder=5)
+        if key in defers:
+            defer = defers[key]
+            defer_start = rel(float(defer["defer_start_ts"]), events)
+            defer_end = rel(float(defer["defer_end_ts"]), events)
+            ax.barh(y, defer_end - defer_start, left=defer_start, height=0.48, facecolor="none", edgecolor=COLORS["defer"], hatch="////", linewidth=1.2)
+        ax.barh(y, resume_end - resume_start, left=resume_start, height=0.34, color=COLORS["background"], alpha=0.95)
+    overlap = int(row["tool_resume_overlap_count"])
+    outcome = "4 resumes overlap decode" if overlap else "0 resumes overlap decode"
+    ax.text(0.985, 0.93, outcome, transform=ax.transAxes, ha="right", va="top", fontsize=9, fontweight="bold", color="#8b2c1d" if overlap else "#216e39", bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.9, "pad": 2})
+    ax.set_yticks([4, 3, 2, 1, 0], ["Critical reviewer", "Tool branch 1", "Tool branch 2", "Tool branch 3", "Tool branch 4"])
+    ax.set_ylim(-0.65, 4.65)
+    ax.set_title(f"({panel}) {POLICY_LABELS[row['policy']]}  |  reviewer decode = {row['critical_decode_duration_sec']:.2f} s", loc="left", fontsize=10, fontweight="bold")
     ax.grid(axis="x", color="#dddddd", linewidth=0.6)
     ax.set_axisbelow(True)
 
 
 def figure_timeline(representatives: dict[str, dict[str, Any]]) -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(7.15, 5.4), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(2, 1, figsize=(7.15, 5.0), sharex=True, constrained_layout=True)
     timeline_panel(axes[0], representatives["default_vllm"], "a")
     timeline_panel(axes[1], representatives["critical_path_aware"], "b")
     axes[1].set_xlabel("Time since workflow start (s)")
     handles = [
-        Patch(facecolor=COLORS["critical"], label="Critical request"),
-        Patch(facecolor=COLORS["background"], label="Non-critical tool resume"),
-        Patch(facecolor=COLORS["tool"], label="Live Tavily wait"),
-        Patch(facecolor="none", edgecolor=COLORS["defer"], hatch="////", label="Deferred interval"),
+        Patch(facecolor=COLORS["critical_decode"], label="Critical decode"),
+        Patch(facecolor=COLORS["tool"], label="Live Tavily call"),
+        Patch(facecolor=COLORS["background"], label="Resume execution"),
+        Patch(facecolor="none", edgecolor=COLORS["defer"], hatch="////", label="Admission defer"),
     ]
     fig.legend(handles=handles, loc="outside upper center", ncol=4, frameon=False, fontsize=8)
     fig.savefig(OUT / "figure1_real_execution_interference_timeline.png", dpi=320, bbox_inches="tight")
@@ -179,8 +175,8 @@ def figure_benefit(grouped: dict[str, list[dict[str, Any]]]) -> None:
     policies = ["default_vllm", "critical_path_aware"]
     colors = ["#8b8f97", COLORS["critical"]]
     metrics = [
-        ("workflow_result_ready_sec", "(a) Result-ready workflow makespan", "Seconds"),
-        ("critical_tpot_p95_ms", "(b) Critical decode TPOT p95", "Milliseconds"),
+        ("tool_resume_overlap_count", "(a) Interference removed", "Tool resumes overlapping\ncritical decode"),
+        ("critical_decode_duration_sec", "(b) Protected-phase speedup", "Critical reviewer\ndecode time (s)"),
     ]
     for ax, (key, title, ylabel) in zip(axes, metrics):
         medians = [statistics.median(float(row[key]) for row in grouped[policy]) for policy in policies]
@@ -194,14 +190,17 @@ def figure_benefit(grouped: dict[str, list[dict[str, Any]]]) -> None:
             ax.scatter([i + offset for offset in offsets], values, s=16, color="#202020", alpha=0.72, zorder=4)
             span = max(values) - min(values)
             label_y = max(values) + max(0.015 * max(values), 0.35 * span)
-            ax.text(i, label_y, f"{medians[i]:.2f}", ha="center", va="bottom", fontsize=8)
+            value_label = f"{medians[i]:.0f}" if key == "tool_resume_overlap_count" else f"{medians[i]:.2f} s"
+            ax.text(i, label_y, value_label, ha="center", va="bottom", fontsize=9, fontweight="bold")
         ax.set_xticks(range(2), ["Default\nvLLM", "Critical-path-\naware gating"])
         ax.set_ylabel(ylabel)
         ax.set_title(title, loc="left", fontsize=9.5, fontweight="bold")
         ax.grid(axis="y", color="#dddddd", linewidth=0.6)
         ax.set_axisbelow(True)
         top = max(max(float(row[key]) for row in grouped[policy]) for policy in policies)
-        ax.set_ylim(0, top * 1.08)
+        ax.set_ylim(0, max(1.0, top * 1.13))
+        effect = -100.0 if key == "tool_resume_overlap_count" else 100 * (medians[1] / medians[0] - 1)
+        ax.text(0.5, 0.90, f"{effect:.1f}%", transform=ax.transAxes, ha="center", va="top", fontsize=10, color="#216e39", fontweight="bold")
     fig.savefig(OUT / "figure2_end_to_end_benefit.png", dpi=320, bbox_inches="tight")
     plt.close(fig)
 

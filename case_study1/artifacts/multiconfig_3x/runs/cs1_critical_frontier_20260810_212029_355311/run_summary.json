@@ -1,0 +1,33 @@
+{
+  "background": [
+    {
+      "branch": 1,
+      "prompt_tokens": 20030,
+      "resume_hash": "c8c242ff76047c50b92b"
+    },
+    {
+      "branch": 2,
+      "prompt_tokens": 20746,
+      "resume_hash": "a5ce60df50d543d67a29"
+    },
+    {
+      "branch": 3,
+      "prompt_tokens": 19909,
+      "resume_hash": "be6a87a10269ea5efd23"
+    },
+    {
+      "branch": 4,
+      "prompt_tokens": 20093,
+      "resume_hash": "d62e49be68b50c0c27e6"
+    }
+  ],
+  "client_trace": "/data/home/shegnxuanqiu/mas-serving/case_study1/artifacts/multiconfig_3x/runs/cs1_critical_frontier_20260810_212029_355311/client_trace.jsonl",
+  "drain_complete_sec": 55.90849566459656,
+  "experiment_config": "/data/home/shegnxuanqiu/mas-serving/case_study1/artifacts/multiconfig_3x/runs/cs1_critical_frontier_20260810_212029_355311/experiment_config.json",
+  "model": "qwen3-8b-case-study1",
+  "policy": "critical_frontier",
+  "real_tavily": true,
+  "real_vllm": true,
+  "result_ready_sec": 21.74587345123291,
+  "run_id": "cs1_critical_frontier_20260810_212029_355311"
+}

@@ -1,0 +1,34 @@
+{
+  "experiment": {"configuration": "2-branch", "resume_fanout": 2},
+  "model": {
+    "path": "/data/home/shegnxuanqiu/deepthink-with-confidence-openai/Qwen3-8B",
+    "served_name": "qwen3-8b-case-study1",
+    "base_url": "http://127.0.0.1:8101/v1",
+    "gpu_id": "3",
+    "max_model_len": 40960,
+    "max_num_batched_tokens": 8192,
+    "max_num_seqs": 16,
+    "gpu_memory_utilization": 0.88
+  },
+  "workflow": {
+    "tool_branches": 2,
+    "critical_reviewer_max_tokens": 512,
+    "critical_finalizer_max_tokens": 192,
+    "critical_coder_max_tokens": 160,
+    "pre_tool_max_tokens": 64,
+    "resume_max_tokens": 160,
+    "temperature": 0.0,
+    "seed": 42
+  },
+  "admission": {
+    "critical_prefill_budget_tokens": 512,
+    "max_defer_sec": 90.0,
+    "serialize_deferred_drain": true
+  },
+  "tavily": {
+    "search_depth": "advanced",
+    "max_results": 2,
+    "include_answer": true,
+    "include_raw_content": true
+  }
+}

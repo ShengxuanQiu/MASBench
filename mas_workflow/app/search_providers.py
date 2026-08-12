@@ -87,9 +87,9 @@ class TavilySearchProvider(BaseSearchProvider):
             "api_key": self.api_key,
             "query": query,
             "max_results": int(kwargs.get("max_results") or 5),
-            "include_answer": True,
-            "include_raw_content": False,
-            "search_depth": "basic",
+            "include_answer": bool(kwargs.get("include_answer", True)),
+            "include_raw_content": bool(kwargs.get("include_raw_content", False)),
+            "search_depth": str(kwargs.get("search_depth") or "basic"),
         }
         req = urllib.request.Request(
             "https://api.tavily.com/search",

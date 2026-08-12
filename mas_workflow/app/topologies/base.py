@@ -122,6 +122,7 @@ class BaseTopology:
             policy=config.admission_policy,
             max_defer_sec=config.max_defer_sec,
             trace=trace,
+            prefill_budget_tokens=int(config.extra.get("critical_prefill_budget_tokens") or 0),
         )
 
     def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -369,6 +370,10 @@ class BaseTopology:
             }
         }
         prompt = system_prompt + "\n" + user_prompt
+        request_max_output_tokens = int(
+            (extra_metadata or {}).get("request_max_output_tokens")
+            or self.config.max_output_tokens
+        )
         request_id = str(uuid.uuid4())
         ready_ts = time.time()
         critical_path_candidate = bool(
@@ -406,6 +411,7 @@ class BaseTopology:
             critical_path_candidate=critical_path_candidate,
             tool_resumed=tool_resumed,
             ready_ts=ready_ts,
+            prompt_tokens=estimate_tokens(prompt),
         )
         submit_ts = decision.submit_ts
         metadata["request_id_for_backend"] = request_id
@@ -443,7 +449,7 @@ class BaseTopology:
             llm_mode=self.config.llm_mode,
             backend_base_url=self.config.backend_base_url,
             model=self.config.model,
-            max_output_tokens=self.config.max_output_tokens,
+            max_output_tokens=request_max_output_tokens,
             llm_request_id=request_id,
             request_id_for_backend=request_id,
             input_chars=len(prompt),
@@ -467,6 +473,7 @@ class BaseTopology:
             admission_policy=self.config.admission_policy,
             admission_decision=decision.decision,
             admission_reason=decision.reason,
+            tool_resumed=tool_resumed,
             defer_start_ts=decision.defer_start_ts,
             defer_end_ts=decision.defer_end_ts,
             defer_duration_sec=decision.defer_duration_sec,
@@ -510,7 +517,7 @@ class BaseTopology:
             llm_mode=self.config.llm_mode,
             backend_base_url=self.config.backend_base_url,
             model=self.config.model,
-            max_output_tokens=self.config.max_output_tokens,
+            max_output_tokens=request_max_output_tokens,
             llm_request_id=result.request_id_for_backend,
             request_id_for_backend=result.request_id_for_backend,
             input_chars=len(prompt),
@@ -552,6 +559,7 @@ class BaseTopology:
             admission_policy=self.config.admission_policy,
             admission_decision=decision.decision,
             admission_reason=decision.reason,
+            tool_resumed=tool_resumed,
             defer_start_ts=decision.defer_start_ts,
             defer_end_ts=decision.defer_end_ts,
             defer_duration_sec=decision.defer_duration_sec,
@@ -613,7 +621,8 @@ class BaseTopology:
             dependency_edges=dependency_edges,
             **start_trace_fields,
         )
-        result = self.search_provider.search(query)
+        search_options = dict(self.config.extra.get("search_options") or {})
+        result = self.search_provider.search(query, **search_options)
         snapshot_dir = self.config.trace_dir / "snapshots" / self.config.run_id if self.config.record_tool_results else None
         replay_policy = {
             "live": "snapshot_result_recorded_latency",

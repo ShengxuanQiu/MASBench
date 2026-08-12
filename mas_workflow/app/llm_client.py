@@ -107,6 +107,30 @@ class LocalLLMClient:
         externally observable proxy for token-level timing without modifying
         vLLM internals.
         """
+        return self.invoke_messages_streaming_with_metadata(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            metadata=metadata,
+            max_tokens=max_tokens,
+            seed=seed,
+        )
+
+    def invoke_messages_streaming_with_metadata(
+        self,
+        messages: list[dict[str, Any]],
+        metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        seed: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Stream an arbitrary chat history while preserving timing metadata.
+
+        Tool-resume experiments need the second request to contain the exact
+        prefix used by the first request. Accepting the complete message list
+        here avoids rebuilding a nominal "resume" as an unrelated two-message
+        chat and lets vLLM's prefix cache observe the real shared prefix.
+        """
         self._ensure_local_no_proxy()
         request_start_perf = time.perf_counter()
         request_start_wall = time.time()
@@ -116,10 +140,7 @@ class LocalLLMClient:
             "max_tokens": max_tokens or self.max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
         }
         if seed is not None:
             payload["seed"] = int(seed)

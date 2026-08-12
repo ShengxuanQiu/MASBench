@@ -1,0 +1,171 @@
+diff --git a/vllm/envs.py b/vllm/envs.py
+index 806aed2a0..a04e8c6d7 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -45,6 +45,7 @@ if TYPE_CHECKING:
+     NO_COLOR: bool = False
+     VLLM_LOG_STATS_INTERVAL: float = 10.0
+     VLLM_TRACE_FUNCTION: int = 0
++    VLLM_MAS_TRACE_PATH: str | None = None
+     VLLM_USE_FLASHINFER_SAMPLER: bool | None = None
+     VLLM_PP_LAYER_PARTITION: str | None = None
+     VLLM_CPU_KVCACHE_SPACE: int | None = 0
+@@ -712,6 +713,8 @@ environment_variables: dict[str, Callable[[], Any]] = {
+     # If set to 1, vllm will trace function calls
+     # Useful for debugging
+     "VLLM_TRACE_FUNCTION": lambda: int(os.getenv("VLLM_TRACE_FUNCTION", "0")),
++    # Optional MASBench scheduler/model-batch JSONL trace sink.
++    "VLLM_MAS_TRACE_PATH": lambda: os.getenv("VLLM_MAS_TRACE_PATH", None),
+     # If set, vllm will use flashinfer sampler
+     "VLLM_USE_FLASHINFER_SAMPLER": lambda: (
+         bool(int(os.environ["VLLM_USE_FLASHINFER_SAMPLER"]))
+@@ -1853,6 +1856,7 @@ def compile_factors() -> dict[str, object]:
+         "VLLM_LOGGING_CONFIG_PATH",
+         "VLLM_LOGGING_COLOR",
+         "VLLM_LOG_STATS_INTERVAL",
++        "VLLM_MAS_TRACE_PATH",
+         "VLLM_DEBUG_LOG_API_SERVER_RESPONSE",
+         "VLLM_TUNED_CONFIG_FOLDER",
+         "VLLM_ENGINE_ITERATION_TIMEOUT_S",
+diff --git a/vllm/mas_trace.py b/vllm/mas_trace.py
+index 1d7caf5ca..c3ee8f950 100644
+--- a/vllm/mas_trace.py
++++ b/vllm/mas_trace.py
+@@ -74,6 +74,66 @@ def summarize_scheduler_output(scheduler_output: Any) -> dict[str, Any]:
+     }
+ 
+ 
++def summarize_request_phases(
++    requests: dict[str, Any], scheduler_output: Any
++) -> dict[str, Any]:
++    """Split scheduled tokens into prompt-prefill and decode work.
++
++    This snapshot must be taken before Scheduler._update_after_schedule mutates
++    request.num_computed_tokens. The resulting counts describe scheduler work,
++    not inferred HTTP request overlap and not CUDA kernel occupancy.
++    """
++    scheduled = dict(getattr(scheduler_output, "num_scheduled_tokens", {}))
++    new_request_ids = {
++        str(req.req_id) for req in getattr(scheduler_output, "scheduled_new_reqs", [])
++    }
++    details: dict[str, dict[str, Any]] = {}
++    prefill_by_request: dict[str, int] = {}
++    decode_by_request: dict[str, int] = {}
++    cached_prefix_by_request: dict[str, int] = {}
++    for req_id, raw_count in scheduled.items():
++        request = requests.get(req_id)
++        if request is None:
++            continue
++        count = int(raw_count)
++        prompt_tokens = int(getattr(request, "num_prompt_tokens", 0) or 0)
++        computed_before = int(getattr(request, "num_computed_tokens", 0) or 0)
++        remaining_prompt = max(0, prompt_tokens - computed_before)
++        prefill_tokens = min(count, remaining_prompt)
++        decode_tokens = max(0, count - prefill_tokens)
++        if prefill_tokens and decode_tokens:
++            phase = "mixed"
++        elif prefill_tokens:
++            phase = "prefill"
++        else:
++            phase = "decode"
++        first_schedule = req_id in new_request_ids
++        cached_prefix_tokens = computed_before if first_schedule else None
++        details[str(req_id)] = {
++            "phase": phase,
++            "scheduled_tokens": count,
++            "prefill_tokens": prefill_tokens,
++            "decode_tokens": decode_tokens,
++            "prompt_tokens": prompt_tokens,
++            "computed_tokens_before": computed_before,
++            "first_schedule": first_schedule,
++            "cached_prefix_tokens": cached_prefix_tokens,
++        }
++        prefill_by_request[str(req_id)] = prefill_tokens
++        decode_by_request[str(req_id)] = decode_tokens
++        if cached_prefix_tokens is not None:
++            cached_prefix_by_request[str(req_id)] = cached_prefix_tokens
++    return {
++        "request_phase_details": details,
++        "prefill_tokens_by_request": prefill_by_request,
++        "decode_tokens_by_request": decode_by_request,
++        "cached_prefix_tokens_by_request": cached_prefix_by_request,
++        "total_prefill_tokens": sum(prefill_by_request.values()),
++        "total_decode_tokens": sum(decode_by_request.values()),
++        "phase_evidence_scope": "vllm_scheduler_step",
++    }
++
++
+ def summarize_kv_event(event: Any) -> dict[str, Any]:
+     name = type(event).__name__
+     block_hashes = getattr(event, "block_hashes", None)
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 3dc48d54f..a07c4eecb 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -28,7 +28,11 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import KVConnectorMetadat
+ from vllm.distributed.kv_transfer.kv_connector.v1.metrics import KVConnectorStats
+ from vllm.logger import init_logger
+ from vllm.mas_trace import emit as mas_trace_emit
+-from vllm.mas_trace import summarize_kv_event, summarize_scheduler_output
++from vllm.mas_trace import (
++    summarize_kv_event,
++    summarize_request_phases,
++    summarize_scheduler_output,
++)
+ from vllm.model_executor.layers.fused_moe.routed_experts_capturer import (
+     RoutedExpertsReader,
+ )
+@@ -955,11 +959,13 @@ class Scheduler(SchedulerInterface):
+             )
+             scheduler_output.ec_connector_metadata = ec_meta
+ 
++        mas_phase_summary = summarize_request_phases(self.requests, scheduler_output)
+         with record_function_or_nullcontext("schedule: update_after_schedule"):
+             self._update_after_schedule(scheduler_output)
+         mas_trace_emit(
+             "scheduler_batch",
+             **summarize_scheduler_output(scheduler_output),
++            **mas_phase_summary,
+             waiting_queue_size=len(self.waiting),
+             running_queue_size=len(self.running),
+             token_budget_remaining=token_budget,
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index a0ba47f94..280476a5b 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -50,6 +50,8 @@ from vllm.forward_context import (
+     set_forward_context,
+ )
+ from vllm.logger import init_logger
++from vllm.mas_trace import emit as mas_trace_emit
++from vllm.mas_trace import summarize_scheduler_output
+ from vllm.lora.layers import LoRAMapping, LoRAMappingType
+ from vllm.model_executor.layers.attention import Attention, MLAAttention
+ from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
+@@ -3789,6 +3791,8 @@ class GPUModelRunner(
+         scheduler_output: "SchedulerOutput",
+         intermediate_tensors: IntermediateTensors | None = None,
+     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | IntermediateTensors | None:
++        mas_trace_start = time.time()
++        mas_trace_batch = summarize_scheduler_output(scheduler_output)
+         if self.execute_model_state is not None:
+             raise RuntimeError(
+                 "State error: sample_tokens() must be called "
+@@ -4134,6 +4138,17 @@ class GPUModelRunner(
+         if deferred_state_corrections_fn:
+             deferred_state_corrections_fn()
+ 
++        mas_trace_emit(
++            "model_execute_batch",
++            **mas_trace_batch,
++            host_forward_dispatch_duration_sec=round(
++                time.time() - mas_trace_start, 6
++            ),
++            batch_num_tokens=scheduler_output.total_num_scheduled_tokens,
++            batch_num_requests=len(scheduler_output.num_scheduled_tokens),
++            async_scheduling=self.use_async_scheduling,
++            evidence_scope="gpu_model_runner_host_forward_dispatch",
++        )
+         return None
+ 
+     @torch.inference_mode

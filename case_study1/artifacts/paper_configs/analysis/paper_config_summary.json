@@ -1,0 +1,567 @@
+{
+  "experiment": {
+    "configurations": [
+      "2-agent motif",
+      "4-agent motif",
+      "Full workflow"
+    ],
+    "policies": [
+      "Default vLLM",
+      "Online MAS-aware gating"
+    ],
+    "repetitions_per_cell": 3,
+    "model": "Qwen3-8B BF16",
+    "gpu": "NVIDIA RTX A6000 48 GB",
+    "runtime": "MAS environment vLLM 0.20.1rc1.dev2+gc245d35ff.precompiled",
+    "tool": "live Tavily Advanced Search; raw response retained without application-side text slicing",
+    "observation_granularity": "vLLM scheduler step plus OpenAI SSE request lifecycle"
+  },
+  "cells": {
+    "2-agent motif": {
+      "Default vLLM": {
+        "run_ids": [
+          "cs1_default_vllm_20260810_210810_810564",
+          "cs1_default_vllm_20260810_211336_969539",
+          "cs1_default_vllm_20260810_211724_488807"
+        ],
+        "result_latency_sec": {
+          "median": 30.741084337234497,
+          "min": 30.590360403060913,
+          "max": 30.75335454940796
+        },
+        "pre_critical_sec": {
+          "median": 4.697068929672241,
+          "min": 4.672967910766602,
+          "max": 4.726449012756348
+        },
+        "critical_decode_sec": {
+          "median": 21.337912559509277,
+          "min": 21.163272857666016,
+          "max": 21.37774682044983
+        },
+        "post_critical_sec": {
+          "median": 4.702639818191528,
+          "min": 4.70063853263855,
+          "max": 4.7061028480529785
+        },
+        "critical_tpot_ms": {
+          "median": 41.757167435438895,
+          "min": 41.415406766469694,
+          "max": 41.835120979353874
+        },
+        "critical_tpot_p95_ms": {
+          "median": 32.59468078613281,
+          "min": 32.42611885070801,
+          "max": 32.65094757080078
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 40521.0,
+          "min": 40520.0,
+          "max": 40522.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 5.0,
+          "min": 5.0,
+          "max": 5.0
+        },
+        "critical_ttft_ms": {
+          "median": 76.3094425201416,
+          "min": 72.3564624786377,
+          "max": 76.4923095703125
+        },
+        "tool_latency_sec": {
+          "median": 1.1328755617141724,
+          "min": 1.0955309867858887,
+          "max": 1.253967523574829
+        },
+        "max_defer_sec": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "protected_decode_total_sec": {
+          "median": 21.337912559509277,
+          "min": 21.163272857666016,
+          "max": 21.37774682044983
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "unprotected_work_sec": {
+          "median": 9.40317177772522,
+          "min": 9.37560772895813,
+          "max": 9.427087545394897
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "Online MAS-aware gating": {
+        "run_ids": [
+          "cs1_critical_frontier_20260810_210727_648665",
+          "cs1_critical_frontier_20260810_211411_967696",
+          "cs1_critical_frontier_20260810_211640_864464"
+        ],
+        "result_latency_sec": {
+          "median": 21.66202449798584,
+          "min": 21.5674946308136,
+          "max": 21.76202702522278
+        },
+        "pre_critical_sec": {
+          "median": 4.785120487213135,
+          "min": 4.712500333786011,
+          "max": 4.842308759689331
+        },
+        "critical_decode_sec": {
+          "median": 12.177737951278687,
+          "min": 12.170493125915527,
+          "max": 12.19326114654541
+        },
+        "post_critical_sec": {
+          "median": 4.6991660594940186,
+          "min": 4.6845011711120605,
+          "max": 4.726457118988037
+        },
+        "critical_tpot_ms": {
+          "median": 23.83118972852972,
+          "min": 23.81701198809301,
+          "max": 23.86156780145873
+        },
+        "critical_tpot_p95_ms": {
+          "median": 24.120092391967773,
+          "min": 24.09648895263672,
+          "max": 24.168968200683594
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "critical_ttft_ms": {
+          "median": 80.36613464355469,
+          "min": 78.47929000854492,
+          "max": 83.39309692382812
+        },
+        "tool_latency_sec": {
+          "median": 1.1423637866973877,
+          "min": 1.1281169652938843,
+          "max": 2.8529927730560303
+        },
+        "max_defer_sec": {
+          "median": 24.05408501625061,
+          "min": 20.832582235336304,
+          "max": 24.25704050064087
+        },
+        "protected_decode_total_sec": {
+          "median": 12.177737951278687,
+          "min": 12.170493125915527,
+          "max": 12.19326114654541
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "unprotected_work_sec": {
+          "median": 9.484286546707153,
+          "min": 9.397001504898071,
+          "max": 9.568765878677368
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "effect": {
+        "workflow_speedup_x": 1.4191233298666446,
+        "workflow_latency_reduction_pct": 29.533960935307135,
+        "workflow_latency_saved_sec": 9.079059839248657,
+        "critical_decode_latency_saved_sec": 9.16017460823059
+      }
+    },
+    "4-agent motif": {
+      "Default vLLM": {
+        "run_ids": [
+          "cs1_default_vllm_20260810_211454_987511",
+          "cs1_default_vllm_20260810_211900_469207",
+          "cs1_default_vllm_20260810_211944_881733"
+        ],
+        "result_latency_sec": {
+          "median": 39.991392374038696,
+          "min": 39.923492431640625,
+          "max": 40.01339769363403
+        },
+        "pre_critical_sec": {
+          "median": 4.82506251335144,
+          "min": 4.805999517440796,
+          "max": 4.873821973800659
+        },
+        "critical_decode_sec": {
+          "median": 30.469058990478516,
+          "min": 30.33783483505249,
+          "max": 30.48399043083191
+        },
+        "post_critical_sec": {
+          "median": 4.711835622787476,
+          "min": 4.704344749450684,
+          "max": 4.716333866119385
+        },
+        "critical_tpot_ms": {
+          "median": 59.626338533226054,
+          "min": 59.36953979462327,
+          "max": 59.655558573056574
+        },
+        "critical_tpot_p95_ms": {
+          "median": 41.24927520751953,
+          "min": 41.11933708190918,
+          "max": 41.266679763793945
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 80267.0,
+          "min": 80267.0,
+          "max": 80269.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 10.0,
+          "min": 10.0,
+          "max": 10.0
+        },
+        "critical_ttft_ms": {
+          "median": 76.19404792785645,
+          "min": 75.81162452697754,
+          "max": 78.30643653869629
+        },
+        "tool_latency_sec": {
+          "median": 1.1352825164794922,
+          "min": 1.1039552688598633,
+          "max": 1.2382900714874268
+        },
+        "max_defer_sec": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "protected_decode_total_sec": {
+          "median": 30.469058990478516,
+          "min": 30.33783483505249,
+          "max": 30.48399043083191
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "unprotected_work_sec": {
+          "median": 9.529407262802124,
+          "min": 9.52233338356018,
+          "max": 9.585657596588135
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "Online MAS-aware gating": {
+        "run_ids": [
+          "cs1_critical_frontier_20260810_211539_939912",
+          "cs1_critical_frontier_20260810_211759_882350",
+          "cs1_critical_frontier_20260810_212029_355311"
+        ],
+        "result_latency_sec": {
+          "median": 21.796016931533813,
+          "min": 21.74587345123291,
+          "max": 21.83710813522339
+        },
+        "pre_critical_sec": {
+          "median": 4.900697946548462,
+          "min": 4.82231879234314,
+          "max": 4.939385414123535
+        },
+        "critical_decode_sec": {
+          "median": 12.194574117660522,
+          "min": 12.187840461730957,
+          "max": 12.195082902908325
+        },
+        "post_critical_sec": {
+          "median": 4.7098822593688965,
+          "min": 4.700236082077026,
+          "max": 4.728980541229248
+        },
+        "critical_tpot_ms": {
+          "median": 23.864137216556795,
+          "min": 23.850959807692675,
+          "max": 23.86513288240377
+        },
+        "critical_tpot_p95_ms": {
+          "median": 24.116039276123047,
+          "min": 24.09982681274414,
+          "max": 24.140596389770508
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "critical_ttft_ms": {
+          "median": 78.81498336791992,
+          "min": 76.8423080444336,
+          "max": 89.11013603210449
+        },
+        "tool_latency_sec": {
+          "median": 1.1361027956008911,
+          "min": 1.0943832397460938,
+          "max": 1.1382052898406982
+        },
+        "max_defer_sec": {
+          "median": 41.256428718566895,
+          "min": 41.149641275405884,
+          "max": 41.30042004585266
+        },
+        "protected_decode_total_sec": {
+          "median": 12.194574117660522,
+          "min": 12.187840461730957,
+          "max": 12.195082902908325
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "unprotected_work_sec": {
+          "median": 9.600934028625488,
+          "min": 9.551299333572388,
+          "max": 9.649267673492432
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "effect": {
+        "workflow_speedup_x": 1.8348027761063246,
+        "workflow_latency_reduction_pct": 45.49822939977658,
+        "workflow_latency_saved_sec": 18.195375442504883,
+        "critical_decode_latency_saved_sec": 18.274484872817993
+      }
+    },
+    "Full workflow": {
+      "Default vLLM": {
+        "run_ids": [
+          "20260810_225656_210940",
+          "20260810_230013_015676",
+          "20260810_230309_301565"
+        ],
+        "result_latency_sec": {
+          "median": 77.660694,
+          "min": 77.564505,
+          "max": 77.743713
+        },
+        "pre_critical_sec": {
+          "median": 61.62822508811951,
+          "min": 61.476107597351074,
+          "max": 61.64209342002869
+        },
+        "critical_decode_sec": {
+          "median": 16.086889505386353,
+          "min": 16.03090786933899,
+          "max": 16.10004162788391
+        },
+        "post_critical_sec": {
+          "median": 0.00156104254151046,
+          "min": 0.001507897262570168,
+          "max": 0.0015779520874019681
+        },
+        "critical_tpot_ms": {
+          "median": 31.481192769836305,
+          "min": 31.371639666025423,
+          "max": 31.506930778637788
+        },
+        "critical_tpot_p95_ms": {
+          "median": 29.112815856933594,
+          "min": 29.088258743286133,
+          "max": 29.12163734436035
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 52981.0,
+          "min": 52426.0,
+          "max": 53299.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 9.0,
+          "min": 9.0,
+          "max": 9.0
+        },
+        "critical_ttft_ms": {
+          "median": 264.2781734466553,
+          "min": 263.3209228515625,
+          "max": 265.9125328063965
+        },
+        "tool_latency_sec": {
+          "median": 48.505616,
+          "min": 44.701355,
+          "max": 52.250168
+        },
+        "max_defer_sec": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "protected_decode_total_sec": {
+          "median": 46.15528106689453,
+          "min": 46.1030547618866,
+          "max": 46.156413555145264
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 15539.0,
+          "min": 15535.0,
+          "max": 16532.0
+        },
+        "unprotected_work_sec": {
+          "median": 31.55763923811341,
+          "min": 31.409223933105466,
+          "max": 31.587299444854736
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 15824.0,
+          "min": 15802.0,
+          "max": 16430.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 21012.0,
+          "min": 20943.0,
+          "max": 21089.0
+        }
+      },
+      "Online MAS-aware gating": {
+        "run_ids": [
+          "20260810_225455_504680",
+          "20260810_225833_616521",
+          "20260810_230139_499456"
+        ],
+        "result_latency_sec": {
+          "median": 68.436957,
+          "min": 68.160917,
+          "max": 68.474377
+        },
+        "pre_critical_sec": {
+          "median": 56.041359663009644,
+          "min": 55.789398431777954,
+          "max": 56.081849575042725
+        },
+        "critical_decode_sec": {
+          "median": 12.390952348709106,
+          "min": 12.369924545288086,
+          "max": 12.393981218338013
+        },
+        "post_critical_sec": {
+          "median": 0.0015940229339577172,
+          "min": 0.0015750762481729907,
+          "max": 0.0016161186523504512
+        },
+        "critical_tpot_ms": {
+          "median": 24.24843903856968,
+          "min": 24.20728873833285,
+          "max": 24.25436637639533
+        },
+        "critical_tpot_p95_ms": {
+          "median": 24.561405181884766,
+          "min": 24.5211124420166,
+          "max": 24.65200424194336
+        },
+        "overlap_resume_prefill_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "overlap_resume_prefill_steps": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "critical_ttft_ms": {
+          "median": 264.3089294433594,
+          "min": 257.0538520812988,
+          "max": 264.5456790924072
+        },
+        "tool_latency_sec": {
+          "median": 45.760613,
+          "min": 19.37854,
+          "max": 48.73499
+        },
+        "max_defer_sec": {
+          "median": 54.3364155292511,
+          "min": 53.24667954444885,
+          "max": 56.30771350860596
+        },
+        "protected_decode_total_sec": {
+          "median": 36.835617542266846,
+          "min": 36.8061408996582,
+          "max": 36.851900815963745
+        },
+        "evidence_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "unprotected_work_sec": {
+          "median": 31.58505618403626,
+          "min": 31.354776100341795,
+          "max": 31.63875945773316
+        },
+        "diagnosis_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "final_window_overlap_tokens": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "effect": {
+        "workflow_speedup_x": 1.1347771351084472,
+        "workflow_latency_reduction_pct": 11.876969577428708,
+        "workflow_latency_saved_sec": 9.223737,
+        "critical_decode_latency_saved_sec": 3.695937156677246
+      }
+    }
+  }
+}

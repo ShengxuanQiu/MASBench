@@ -27,6 +27,9 @@ def test_issue_to_verified_patch_dry_run_trace(tmp_path: Path) -> None:
     )
     config.extra["dry_run_patch"] = True
     config.extra["dry_run_tests"] = True
+    config.extra["enable_case_study_resume_window"] = True
+    config.extra["critical_prefill_budget_tokens"] = 512
+    config.extra["case_study_critical_output_tokens"] = 512
     workflow = build_workflow(config)
     summary = workflow.run()
 
@@ -39,5 +42,25 @@ def test_issue_to_verified_patch_dry_run_trace(tmp_path: Path) -> None:
     assert "patch_selection_summary" in event_types
     assert "tool_resume_burst_summary" in event_types
     assert "debug_loop_prefix_summary" in event_types
+    assert "workflow_result_ready" in event_types
+    resume_ready = [
+        event
+        for event in events
+        if event.get("event_type") == "llm_request_ready" and event.get("tool_resumed")
+    ]
+    assert {event["node_id"] for event in resume_ready} == {
+        "evidence_window_auditor_1_resume",
+        "evidence_window_auditor_2_resume",
+        "diagnosis_window_auditor_1_resume",
+        "diagnosis_window_auditor_2_resume",
+        "regression_auditor_1_resume",
+        "regression_auditor_2_resume",
+    }
+    eligible_windows = [event for event in events if event.get("event_type") == "case_study_eligible_window"]
+    assert {event["node_id"] for event in eligible_windows} == {
+        "evidence_window",
+        "diagnosis_window",
+        "final_window",
+    }
     assert summary["mode"] == "full"
     assert summary["full_workflow_name"] == "issue_to_verified_patch"

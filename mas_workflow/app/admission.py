@@ -33,14 +33,52 @@ class AdmissionController:
     DEFAULT = "default_vllm"
     CRITICAL_PATH_AWARE = "critical_path_aware"
 
-    def __init__(self, *, policy: str, max_defer_sec: float, trace: TraceContext) -> None:
+    def __init__(
+        self,
+        *,
+        policy: str,
+        max_defer_sec: float,
+        trace: TraceContext,
+        prefill_budget_tokens: int = 0,
+    ) -> None:
         if policy not in {self.DEFAULT, self.CRITICAL_PATH_AWARE}:
             raise ValueError(f"Unsupported admission policy: {policy}")
         self.policy = policy
         self.max_defer_sec = max(0.0, float(max_defer_sec))
+        self.prefill_budget_tokens = max(0, int(prefill_budget_tokens))
         self.trace = trace
         self._condition = threading.Condition()
         self._active_critical_decodes: set[str] = set()
+        self._active_structural_frontiers: set[str] = set()
+
+    def begin_structural_frontier(self, frontier_id: str) -> None:
+        with self._condition:
+            self._active_structural_frontiers.add(frontier_id)
+        self.trace.emit(
+            event_type="critical_frontier_start",
+            node_id=frontier_id,
+            node_name=frontier_id,
+            node_type="admission_controller",
+            admission_policy=self.policy,
+            frontier_id=frontier_id,
+            duration_source="online_runtime_observed",
+            replay_policy="live",
+        )
+
+    def end_structural_frontier(self, frontier_id: str) -> None:
+        with self._condition:
+            self._active_structural_frontiers.discard(frontier_id)
+            self._condition.notify_all()
+        self.trace.emit(
+            event_type="critical_frontier_end",
+            node_id=frontier_id,
+            node_name=frontier_id,
+            node_type="admission_controller",
+            admission_policy=self.policy,
+            frontier_id=frontier_id,
+            duration_source="online_runtime_observed",
+            replay_policy="live",
+        )
 
     def admit(
         self,
@@ -51,17 +89,20 @@ class AdmissionController:
         critical_path_candidate: bool,
         tool_resumed: bool,
         ready_ts: float,
+        prompt_tokens: int | None = None,
     ) -> AdmissionDecision:
+        exceeds_budget = prompt_tokens is None or int(prompt_tokens) > self.prefill_budget_tokens
         should_consider = (
             self.policy == self.CRITICAL_PATH_AWARE
             and not critical_path_candidate
             and tool_resumed
+            and exceeds_budget
         )
         defer_start: float | None = None
         timed_out = False
         if should_consider:
             with self._condition:
-                if self._active_critical_decodes:
+                if self._active_critical_decodes or self._active_structural_frontiers:
                     defer_start = time.time()
                     deadline = time.monotonic() + self.max_defer_sec
                     self._emit(
@@ -72,9 +113,12 @@ class AdmissionController:
                         ready_ts=ready_ts,
                         defer_start_ts=defer_start,
                         reason="non_critical_tool_resume_during_active_critical_decode",
+                        prompt_tokens=prompt_tokens,
+                        prefill_budget_tokens=self.prefill_budget_tokens,
                         active_critical_request_ids=sorted(self._active_critical_decodes),
+                        active_structural_frontiers=sorted(self._active_structural_frontiers),
                     )
-                    while self._active_critical_decodes:
+                    while self._active_critical_decodes or self._active_structural_frontiers:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             timed_out = True
@@ -116,6 +160,8 @@ class AdmissionController:
             reason=reason,
             critical_path_candidate=critical_path_candidate,
             tool_resumed=tool_resumed,
+            prompt_tokens=prompt_tokens,
+            prefill_budget_tokens=self.prefill_budget_tokens,
             defer_start_ts=defer_start,
             defer_end_ts=submit_ts if defer_start is not None else None,
             defer_duration_sec=defer_duration,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ..software_tools import apply_patch, revert_patch, run_tests, search_code
@@ -48,6 +49,9 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
         self.trace.motif_instance_id = ""
         self.trace.composed_from_topologies = list(self.spec.composed_from)
         self.motif_tags = ["full_workflow", self.spec.name, *self.spec.tags]
+        self._case_study_background_windows: list[
+            tuple[str, ThreadPoolExecutor, list[Any]]
+        ] = []
 
     def workflow_start(self) -> None:
         BaseTopology.workflow_start(self)
@@ -125,6 +129,8 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
 
         plan = self._stage_manager_planning(task)
         evidence = self._stage_evidence_collection(task, plan)
+        if self.config.extra.get("protect_case_study_structural_frontier"):
+            self.admission_controller.begin_structural_frontier("full_workflow_critical_frontier")
         synthesis = self._stage_evidence_synthesis(task, plan, evidence)
         diagnosis = self._stage_diagnosis(task, plan, synthesis)
         candidates = self._stage_parallel_patch_generation(task, plan, synthesis, diagnosis)
@@ -132,6 +138,11 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
         test_result = self._stage_test_execution(task, selected)
         reviewed = self._stage_review_debug_loop(task, synthesis, selected, test_result)
         final = self._stage_final_report(task, synthesis, selected, reviewed, test_result)
+        # These audit branches are deliberately off the result-critical path.
+        # Drain them only after final_report has published workflow_result_ready
+        # and released the protected structural frontier; draining here earlier
+        # would turn deferred background work into a dependency of the result.
+        self._drain_case_study_background_windows()
         self.emit_edge(src_node="final_report", dst_node="END", artifact_type="final_report", content=final, transfer_type="aggregation")
         return self.workflow_end(final)
 
@@ -189,6 +200,15 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
             return "python -m pytest " + " ".join(str(item) for item in fail_to_pass)
         return "python -m pytest -q"
 
+    @staticmethod
+    def _compact_for_prompt(value: Any, *, max_chars: int = 6000) -> str:
+        text = str(value)
+        if len(text) <= max_chars:
+            return text
+        head = max_chars // 2
+        tail = max_chars - head
+        return f"{text[:head]}\n...[truncated {len(text) - max_chars} chars for prompt packing]...\n{text[-tail:]}"
+
     def _meta(
         self,
         *,
@@ -207,6 +227,7 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
             "composed_from_motifs": list(self.composed_from_motifs),
             "agent_id": agent_id,
             "round": round_id,
+            "round_id": round_id,
             "request_id": f"{stage}:{agent_id}:{uuid.uuid4()}",
             "depends_on": list(parent_ids),
             "parent_node_ids": list(parent_ids),
@@ -344,7 +365,7 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
                 trace_fields=self._meta(stage=stage, motif_id=motif_id, agent_id=f"{agent}_web_search", parents=["manager_planner"]),
             )
             tool = self._emit_tool(node_id=f"{agent}_search_code", node_name=f"{agent} search_code", stage=stage, motif_id=motif_id, tool_name="search_code", fn=search_code, args=(query, self.config.repo_path), kwargs={"max_files": 30}, parents=["manager_planner"])
-            out = self.llm_agent(node_id=agent, node_name=agent, agent_role="researcher", system_prompt="Extract codebase evidence: file paths, symptoms, likely tests, and uncertainty.", user_prompt=f"Plan:\n{plan}\nWeb search result:\n{web_results}\nCode search result:\n{tool}", parents=[f"{agent}_web_search", f"{agent}_search_code"], parallel_group="codebase_evidence", criticality="background", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=agent, parents=[f"{agent}_web_search", f"{agent}_search_code"], fan_in_sources=[]))
+            out = self.llm_agent(node_id=agent, node_name=agent, agent_role="researcher", system_prompt="Extract codebase evidence: file paths, symptoms, likely tests, and uncertainty.", user_prompt=f"Plan:\n{plan}\nWeb search result:\n{web_results}\nCode search result:\n{tool}", parents=[f"{agent}_web_search", f"{agent}_search_code"], parallel_group="codebase_evidence", criticality="background", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=agent, parents=[f"{agent}_web_search", f"{agent}_search_code"], fan_in_sources=[], prompt_packing_policy="none", web_result_prompt_chars=len(str(web_results)), code_result_prompt_chars=len(str(tool))))
             self.emit_edge(src_node=agent, dst_node="evidence_synthesizer", artifact_type="evidence", content=out, transfer_type="aggregation", parallel_group="codebase_evidence")
             return agent, out
 
@@ -358,7 +379,16 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
         stage, motif_id = "evidence_synthesis", "researcher_synthesizer"
         start_idx, start = len(self.trace.events), time.perf_counter()
         synth_input = f"Issue:\n{task['problem_statement']}\nPlan:\n{plan}\nEvidence:\n" + "\n".join(f"{k}: {v}" for k, v in evidence.items())
-        synth = self.llm_agent(node_id="evidence_synthesizer", node_name="Evidence Synthesizer", agent_role="synthesizer", system_prompt="Synthesize evidence into concise localization and test hypotheses.", user_prompt=synth_input, parents=list(evidence), criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id="evidence_synthesizer", parents=list(evidence), critical=True, fan_in_sources=list(evidence), fan_in_tokens=estimate_tokens(synth_input), synthesizer_input_tokens=estimate_tokens(synth_input)))
+        if self.config.extra.get("enable_case_study_resume_window"):
+            self._launch_case_study_background_window(
+                window_id="evidence_window",
+                stage=stage,
+                task=task,
+                context=synth_input,
+                parent_node="codebase_evidence_fanin",
+                critical_node="evidence_synthesizer",
+            )
+        synth = self.llm_agent(node_id="evidence_synthesizer", node_name="Evidence Synthesizer", agent_role="synthesizer", system_prompt="Synthesize evidence into concise localization and test hypotheses.", user_prompt=synth_input, parents=list(evidence), criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id="evidence_synthesizer", parents=list(evidence), critical=True, fan_in_sources=list(evidence), fan_in_tokens=estimate_tokens(synth_input), synthesizer_input_tokens=estimate_tokens(synth_input), request_max_output_tokens=int(self.config.extra.get("case_study_critical_output_tokens") or self.config.max_output_tokens)))
         self.emit_edge(src_node="evidence_synthesizer", dst_node="diagnosis_debate", artifact_type="synthesis", content=synth, transfer_type="handoff")
         self._stage_summary(stage=stage, motif_id=motif_id, start_idx=start_idx, start_perf=start, fan_in_tokens=estimate_tokens(synth_input), synthesizer_input_tokens=estimate_tokens(synth_input))
         return synth
@@ -377,7 +407,16 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
         hypotheses = dict(self.run_parallel(roles, argue))
         self.barrier(barrier_id="diagnosis_debate_barrier", waiting_for_nodes=list(hypotheses))
         consensus_input = "\n".join(f"{k}: {v}" for k, v in hypotheses.items())
-        consensus = self.llm_agent(node_id="diagnosis_consensus", node_name="Diagnosis Consensus", agent_role="aggregator", system_prompt="Resolve conflicting hypotheses into one fix strategy.", user_prompt=consensus_input, parents=list(hypotheses), criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id="diagnosis_consensus", parents=list(hypotheses), critical=True, fan_in_tokens=estimate_tokens(consensus_input)))
+        if self.config.extra.get("enable_case_study_resume_window"):
+            self._launch_case_study_background_window(
+                window_id="diagnosis_window",
+                stage=stage,
+                task=task,
+                context=f"Evidence synthesis:\n{synthesis}\nDiagnosis hypotheses:\n{consensus_input}",
+                parent_node="diagnosis_debate_barrier",
+                critical_node="diagnosis_consensus",
+            )
+        consensus = self.llm_agent(node_id="diagnosis_consensus", node_name="Diagnosis Consensus", agent_role="aggregator", system_prompt="Resolve conflicting hypotheses into one fix strategy.", user_prompt=consensus_input, parents=list(hypotheses), criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id="diagnosis_consensus", parents=list(hypotheses), critical=True, fan_in_tokens=estimate_tokens(consensus_input), request_max_output_tokens=int(self.config.extra.get("case_study_critical_output_tokens") or self.config.max_output_tokens)))
         self._stage_summary(stage=stage, motif_id=motif_id, start_idx=start_idx, start_perf=start, fan_in_tokens=estimate_tokens(consensus_input))
         return consensus
 
@@ -428,29 +467,392 @@ class IssueToVerifiedPatchWorkflow(FullWorkflowRuntime):
     def _stage_review_debug_loop(self, task: dict[str, Any], synthesis: str, selected: dict[str, Any], test_result: dict[str, Any]) -> dict[str, Any]:
         stage, motif_id = "review_debug_loop", "retry_debug_loop"
         start_idx, start = len(self.trace.events), time.perf_counter()
-        stable_prefix = f"Issue:\n{task['problem_statement']}\nEvidence:\n{synthesis}\nSelected patch:\n{selected.get('selected_patch')}\nTest command:\n{self._test_command(task)}"
-        dynamic = str(test_result.get("run_tests", {}))
+        stable_prefix = f"Issue:\n{task['problem_statement']}\nEvidence:\n{synthesis}\nTest command:\n{self._test_command(task)}"
+        initial_patch = str(selected.get("selected_patch") or "")
+        dynamic = f"Initial selected patch:\n{initial_patch}\nInitial test result:\n{test_result.get('run_tests', {})}"
         stable_tokens = estimate_tokens(stable_prefix)
         result: dict[str, Any] = {"rounds": []}
         max_rounds = max(1, int(self.config.max_retries or 1))
-        current_patch = str(selected.get("selected_patch") or "")
+        current_patch = initial_patch
+        latest_test_node = "run_tests_tool"
         for round_id in range(max_rounds):
-            prompt = f"{stable_prefix}\nFailure log / current dynamic context:\n{dynamic}"
-            review = self.llm_agent(node_id=f"test_reviewer_r{round_id}", node_name=f"Test Reviewer R{round_id}", agent_role="reviewer", system_prompt="Review selected patch and test failure. Decide whether to debug.", user_prompt=prompt, parents=["run_tests_tool" if round_id == 0 else f"debugger_r{round_id-1}"], retry_count=round_id, criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=f"test_reviewer_r{round_id}", parents=["run_tests_tool" if round_id == 0 else f"debugger_r{round_id-1}"], round_id=round_id, critical=True, stable_prefix_tokens=stable_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic), potential_reusable_prefix_tokens=stable_tokens, reread_sources=["selected_patch", "test_log", "evidence_synthesis"]))
-            debug = self.llm_agent(node_id=f"debugger_r{round_id}", node_name=f"Debugger R{round_id}", agent_role="debugger", system_prompt="Produce a revised patch sketch from review and failure log.", user_prompt=f"{prompt}\nReview:\n{review}", parents=[f"test_reviewer_r{round_id}"], retry_count=round_id, criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=f"debugger_r{round_id}", parents=[f"test_reviewer_r{round_id}"], round_id=round_id, critical=True, stable_prefix_tokens=stable_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic + review), potential_reusable_prefix_tokens=stable_tokens, reread_sources=["selected_patch", "failure_log", "review_feedback", "evidence_synthesis"]))
+            current_patch_tokens = estimate_tokens(current_patch)
+            dynamic_tokens_before = estimate_tokens(dynamic)
+            prompt = f"{stable_prefix}\nCurrent patch / revision history:\n{current_patch}\nFailure log and prior feedback:\n{dynamic}"
+            review = self.llm_agent(node_id=f"test_reviewer_r{round_id}", node_name=f"Test Reviewer R{round_id}", agent_role="reviewer", system_prompt="Review current patch and latest test failure. Decide the next debugging action.", user_prompt=prompt, parents=[latest_test_node], retry_count=round_id, criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=f"test_reviewer_r{round_id}", parents=[latest_test_node], round_id=round_id, critical=True, stable_prefix_tokens=stable_tokens, current_patch_tokens=current_patch_tokens, dynamic_suffix_tokens=dynamic_tokens_before, potential_reusable_prefix_tokens=stable_tokens, reread_sources=["issue", "evidence_synthesis", "test_command", "current_patch", "failure_log"]))
+            debug_prompt = f"{prompt}\nReview feedback:\n{review}\nProduce revised patch for round {round_id}."
+            debug = self.llm_agent(node_id=f"debugger_r{round_id}", node_name=f"Debugger R{round_id}", agent_role="debugger", system_prompt="Produce a revised patch sketch from review and failure log.", user_prompt=debug_prompt, parents=[f"test_reviewer_r{round_id}"], retry_count=round_id, criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id=f"debugger_r{round_id}", parents=[f"test_reviewer_r{round_id}"], round_id=round_id, critical=True, stable_prefix_tokens=stable_tokens, current_patch_tokens=current_patch_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic + review), potential_reusable_prefix_tokens=stable_tokens, reread_sources=["issue", "evidence_synthesis", "test_command", "current_patch", "failure_log", "review_feedback"]))
+            apply_result = self._emit_tool(node_id=f"apply_patch_debug_r{round_id}", node_name=f"Apply Debug Patch R{round_id}", stage=stage, motif_id=motif_id, tool_name="apply_patch", fn=apply_patch, args=(debug, self.config.repo_path), kwargs={"dry_run": bool(self.config.extra.get("dry_run_patch", True))}, parents=[f"debugger_r{round_id}"], critical=True)
+            rerun_result = self._emit_tool(node_id=f"run_tests_debug_r{round_id}", node_name=f"Rerun Tests R{round_id}", stage=stage, motif_id=motif_id, tool_name="run_tests", fn=run_tests, args=(self._test_command(task), self.config.repo_path), kwargs={"dry_run": bool(self.config.extra.get("dry_run_tests", True))}, parents=[f"apply_patch_debug_r{round_id}"], critical=True, tool_stall=True)
+            self.trace.emit(
+                event_type="debug_loop_round_summary",
+                node_id=f"debug_loop_round_{round_id}_summary",
+                node_name=f"Debug Loop Round {round_id} Summary",
+                node_type="artifact",
+                stage=stage,
+                motif_id=motif_id,
+                round_id=round_id,
+                retry_count=round_id,
+                stable_prefix_tokens=stable_tokens,
+                current_patch_tokens=current_patch_tokens,
+                dynamic_suffix_tokens=dynamic_tokens_before,
+                review_feedback_tokens=estimate_tokens(review),
+                revision_tokens=estimate_tokens(debug),
+                new_test_result_tokens=estimate_tokens(str(rerun_result)),
+                potential_reusable_prefix_tokens=stable_tokens,
+                tool_wait_ms=int(apply_result.get("_tool_wait_ms", 0)) + int(rerun_result.get("_tool_wait_ms", 0)),
+                reread_sources=["issue", "evidence", "test_command", "current_patch", "failure_log", "review_feedback"],
+            )
+            self.trace.emit(
+                event_type="tool_resume_burst_summary",
+                node_id=f"debug_tool_resume_burst_r{round_id}",
+                node_name=f"Debug Tool Resume Burst R{round_id}",
+                node_type="artifact",
+                stage=stage,
+                motif_id=motif_id,
+                round_id=round_id,
+                tool_wait_ms=rerun_result.get("_tool_wait_ms", 0),
+                resume_agents=[f"test_reviewer_r{round_id + 1}", "final_report"] if round_id + 1 < max_rounds else ["final_report"],
+                post_tool_resume_burst_size=2 if round_id + 1 < max_rounds else 1,
+                tool_stall=True,
+                resume_after_tool=True,
+            )
             current_patch = debug
-            result["rounds"].append({"round": round_id, "review": review, "debug": debug, "input_tokens": estimate_tokens(prompt), "stable_prefix_tokens": stable_tokens, "dynamic_suffix_tokens": estimate_tokens(dynamic), "potential_reusable_prefix_tokens": stable_tokens})
-            dynamic = f"{dynamic}\nReview:\n{review}\nRevision:\n{debug}"
-        self.trace.emit(event_type="debug_loop_prefix_summary", node_id="debug_loop_prefix_summary", node_name="Debug Loop Prefix Summary", node_type="artifact", stage=stage, motif_id=motif_id, loop_rounds=len(result["rounds"]), stable_prefix_tokens=stable_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic), potential_reusable_prefix_tokens=stable_tokens * len(result["rounds"]), reread_sources=["issue", "evidence", "selected_patch", "test_command", "failure_log"])
+            latest_test_node = f"run_tests_debug_r{round_id}"
+            result["rounds"].append({"round": round_id, "review": review, "debug": debug, "apply_patch": apply_result, "run_tests": rerun_result, "input_tokens": estimate_tokens(prompt), "stable_prefix_tokens": stable_tokens, "current_patch_tokens": current_patch_tokens, "dynamic_suffix_tokens": dynamic_tokens_before, "potential_reusable_prefix_tokens": stable_tokens})
+            dynamic = f"{dynamic}\nReview round {round_id}:\n{review}\nRevision round {round_id}:\n{debug}\nRerun test result round {round_id}:\n{rerun_result}"
+        self.trace.emit(event_type="debug_loop_prefix_summary", node_id="debug_loop_prefix_summary", node_name="Debug Loop Prefix Summary", node_type="artifact", stage=stage, motif_id=motif_id, loop_rounds=len(result["rounds"]), stable_prefix_tokens=stable_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic), potential_reusable_prefix_tokens=stable_tokens * len(result["rounds"]), reread_sources=["issue", "evidence", "test_command", "current_patch", "failure_log", "review_feedback", "rerun_test_result"])
         self._stage_summary(stage=stage, motif_id=motif_id, start_idx=start_idx, start_perf=start, stable_prefix_tokens=stable_tokens, dynamic_suffix_tokens=estimate_tokens(dynamic), potential_reusable_prefix_tokens=stable_tokens * len(result["rounds"]))
         result["final_patch"] = current_patch
         return result
+
+    def _launch_case_study_background_window(
+        self,
+        *,
+        window_id: str,
+        stage: str,
+        task: dict[str, Any],
+        context: str,
+        parent_node: str,
+        critical_node: str,
+    ) -> None:
+        """Launch optional tool-resume agents beside a critical decode.
+
+        Their outputs are supplementary and have graph slack: they are drained
+        only after later non-critical fan-out stages, so gating protects the
+        current critical decode without serializing an immediate fan-in.
+        """
+        audit_count = max(
+            1,
+            int(self.config.extra.get("case_study_resume_agents_per_window") or 2),
+        )
+        audit_ids = [f"{window_id}_auditor_{index}" for index in range(1, audit_count + 1)]
+
+        def prepare(agent_id: str) -> tuple[str, str]:
+            pre_node = f"{agent_id}_pre"
+            plan = self.llm_agent(
+                node_id=pre_node,
+                node_name=f"{agent_id} pre-tool planning",
+                agent_role="workflow_auditor",
+                system_prompt="Plan one focused external check, then call search tools before continuing.",
+                user_prompt=f"Issue:\n{task['problem_statement']}\nCurrent workflow context:\n{context}",
+                parents=[parent_node],
+                criticality="background",
+                extra_metadata=self._meta(
+                    stage=stage,
+                    motif_id="tool_resume_background_window",
+                    agent_id=pre_node,
+                    parents=[parent_node],
+                    logical_agent_id=agent_id,
+                    case_study_window_id=window_id,
+                    function_call_lifecycle_stage="llm_1_pre_tool",
+                    request_max_output_tokens=64,
+                ),
+            )
+            return agent_id, plan
+
+        plans = dict(self.run_parallel(audit_ids, prepare))
+
+        def tool_and_resume(agent_id: str) -> tuple[str, str]:
+            pre_node = f"{agent_id}_pre"
+            tavily_node = f"{agent_id}_tavily"
+            code_node = f"{agent_id}_search_code"
+            resume_node = f"{agent_id}_resume"
+            query = (
+                f"{task['problem_statement']} {window_id} compatibility regression evidence "
+                f"{plans[agent_id][:500]}"
+            )
+            web_results = self.search(
+                node_id=tavily_node,
+                node_name=f"{agent_id} Tavily search",
+                query=query,
+                trace_fields=self._meta(
+                    stage=stage,
+                    motif_id="tool_resume_background_window",
+                    agent_id=tavily_node,
+                    parents=[pre_node],
+                    logical_agent_id=agent_id,
+                    case_study_window_id=window_id,
+                ),
+            )
+            code_results = self._emit_tool(
+                node_id=code_node,
+                node_name=f"{agent_id} repository search",
+                stage=stage,
+                motif_id="tool_resume_background_window",
+                tool_name="search_code",
+                fn=search_code,
+                args=(query, self.config.repo_path),
+                kwargs={"max_files": 30},
+                parents=[pre_node],
+            )
+            resume_prompt = (
+                f"Issue:\n{task['problem_statement']}\n"
+                f"Pre-tool plan:\n{plans[agent_id]}\n"
+                f"Live Tavily result:\n{web_results}\n"
+                f"Live repository search result:\n{code_results}\n"
+                f"Workflow context:\n{context}\n"
+                "Continue the same agent and return only supplementary evidence."
+            )
+            resumed = self.llm_agent(
+                node_id=resume_node,
+                node_name=f"{agent_id} tool resume",
+                agent_role="workflow_auditor",
+                system_prompt="Continue the same tool-using audit agent from its pre-tool state.",
+                user_prompt=resume_prompt,
+                parents=[pre_node, tavily_node, code_node],
+                parallel_group=f"{window_id}_resumes",
+                criticality="background",
+                extra_metadata=self._meta(
+                    stage=stage,
+                    motif_id="tool_resume_background_window",
+                    agent_id=resume_node,
+                    parents=[pre_node, tavily_node, code_node],
+                    logical_agent_id=agent_id,
+                    case_study_window_id=window_id,
+                    protected_critical_node=critical_node,
+                    background_resume_request=True,
+                    resume_after_tool=True,
+                    function_call_lifecycle_stage="llm_2_resume",
+                    ready_prompt_tokens=estimate_tokens(resume_prompt),
+                    request_max_output_tokens=128,
+                ),
+            )
+            self.emit_edge(
+                src_node=resume_node,
+                dst_node=f"{window_id}_background_drain",
+                artifact_type="supplementary_workflow_audit",
+                content=resumed,
+                transfer_type="background",
+                parallel_group=f"{window_id}_resumes",
+            )
+            return agent_id, resumed
+
+        executor = ThreadPoolExecutor(max_workers=len(audit_ids))
+        futures = [executor.submit(tool_and_resume, agent_id) for agent_id in audit_ids]
+        self._case_study_background_windows.append((window_id, executor, futures))
+        self.trace.emit(
+            event_type="case_study_eligible_window",
+            node_id=window_id,
+            node_name=window_id,
+            node_type="workflow_window",
+            stage=stage,
+            critical_node=critical_node,
+            resume_nodes=[f"{agent_id}_resume" for agent_id in audit_ids],
+            status="active",
+            duration_source="online_runtime_observed",
+            replay_policy="live",
+        )
+
+    def _drain_case_study_background_windows(self) -> None:
+        for window_id, executor, futures in self._case_study_background_windows:
+            results = dict(future.result() for future in futures)
+            executor.shutdown(wait=True)
+            self.barrier(
+                barrier_id=f"{window_id}_background_drain",
+                waiting_for_nodes=list(results),
+            )
+        self._case_study_background_windows.clear()
 
     def _stage_final_report(self, task: dict[str, Any], synthesis: str, selected: dict[str, Any], reviewed: dict[str, Any], test_result: dict[str, Any]) -> str:
         stage, motif_id = "final_report", "final_synthesizer/fan_in"
         start_idx, start = len(self.trace.events), time.perf_counter()
         final_input = f"Issue:\n{task['problem_statement']}\nEvidence:\n{synthesis}\nSelected patch:\n{selected}\nTest result:\n{test_result}\nReview/debug:\n{reviewed}"
-        final = self.llm_agent(node_id="final_report", node_name="Final Report", agent_role="finalizer", system_prompt="Write final report with candidate patch, test result, remaining risks, and trace-relevant bottleneck notes.", user_prompt=final_input, parents=["patch_selector", "run_tests_tool", "debug_loop_prefix_summary"], criticality="critical", extra_metadata=self._meta(stage=stage, motif_id=motif_id, agent_id="final_report", parents=["patch_selector", "run_tests_tool", "debug_loop_prefix_summary"], critical=True, fan_in_tokens=estimate_tokens(final_input)))
+        final_parents = ["patch_selector", "run_tests_tool", "debug_loop_prefix_summary"]
+
+        def write_final() -> str:
+            return self.llm_agent(
+                node_id="final_report",
+                node_name="Final Report",
+                agent_role="finalizer",
+                system_prompt="Write final report with candidate patch, test result, remaining risks, and trace-relevant bottleneck notes.",
+                user_prompt=final_input,
+                parents=final_parents,
+                criticality="critical",
+                extra_metadata=self._meta(
+                    stage=stage,
+                    motif_id=motif_id,
+                    agent_id="final_report",
+                    parents=final_parents,
+                    critical=True,
+                    fan_in_tokens=estimate_tokens(final_input),
+                    raw_final_input_tokens=estimate_tokens(final_input),
+                    packed_final_input_tokens=estimate_tokens(final_input),
+                    prompt_packing_policy="none",
+                    case_study_window_id="final_window",
+                    request_max_output_tokens=int(
+                        self.config.extra.get("case_study_critical_output_tokens")
+                        or self.config.max_output_tokens
+                    ),
+                ),
+            )
+
+        if self.config.extra.get("enable_case_study_resume_window"):
+            # These optional auditors are genuine tool-using agents, but they
+            # are not dependencies of the top-level final report. This exposes
+            # the MAS scheduling opportunity: their Tavily-return continuations
+            # can overlap the latency-critical final decode under default vLLM.
+            audit_count = max(
+                1,
+                int(self.config.extra.get("case_study_resume_agents_per_window") or 2),
+            )
+            audit_ids = [f"regression_auditor_{index}" for index in range(1, audit_count + 1)]
+
+            def prepare_audit(agent_id: str) -> tuple[str, str]:
+                pre_node = f"{agent_id}_pre"
+                plan = self.llm_agent(
+                    node_id=pre_node,
+                    node_name=f"{agent_id} pre-tool planning",
+                    agent_role="regression_auditor",
+                    system_prompt="Plan one focused external regression-risk search before using the web search tool.",
+                    user_prompt=f"Issue:\n{task['problem_statement']}\nCore evidence:\n{synthesis}",
+                    parents=["debug_loop_prefix_summary"],
+                    criticality="background",
+                    extra_metadata=self._meta(
+                        stage=stage,
+                        motif_id="tool_resume_regression_audit",
+                        agent_id=pre_node,
+                        parents=["debug_loop_prefix_summary"],
+                        logical_agent_id=agent_id,
+                        case_study_window_id="final_window",
+                        protected_critical_node="final_report",
+                        function_call_lifecycle_stage="llm_1_pre_tool",
+                        request_max_output_tokens=64,
+                    ),
+                )
+                return agent_id, plan
+
+            audit_plans = dict(self.run_parallel(audit_ids, prepare_audit))
+
+            def tool_and_resume(agent_id: str) -> tuple[str, str]:
+                pre_node = f"{agent_id}_pre"
+                tool_node = f"{agent_id}_tavily"
+                resume_node = f"{agent_id}_resume"
+                query = (
+                    f"{task['problem_statement']} regression risk compatibility tests "
+                    f"{audit_plans[agent_id][:500]}"
+                )
+                web_results = self.search(
+                    node_id=tool_node,
+                    node_name=f"{agent_id} Tavily search",
+                    query=query,
+                    trace_fields=self._meta(
+                        stage=stage,
+                        motif_id="tool_resume_regression_audit",
+                        agent_id=tool_node,
+                        parents=[pre_node],
+                        logical_agent_id=agent_id,
+                    ),
+                )
+                code_node = f"{agent_id}_search_code"
+                code_results = self._emit_tool(
+                    node_id=code_node,
+                    node_name=f"{agent_id} repository search",
+                    stage=stage,
+                    motif_id="tool_resume_regression_audit",
+                    tool_name="search_code",
+                    fn=search_code,
+                    args=(query, self.config.repo_path),
+                    kwargs={"max_files": 30},
+                    parents=[pre_node],
+                )
+                resume_prompt = (
+                    f"Issue:\n{task['problem_statement']}\n"
+                    f"Pre-tool audit plan:\n{audit_plans[agent_id]}\n"
+                    f"Live Tavily result:\n{web_results}\n"
+                    f"Live repository search result:\n{code_results}\n"
+                    f"Core workflow state:\n{final_input}\n"
+                    "Continue the same audit agent and summarize only supplementary regression risks."
+                )
+                resumed = self.llm_agent(
+                    node_id=resume_node,
+                    node_name=f"{agent_id} tool resume",
+                    agent_role="regression_auditor",
+                    system_prompt="Continue the tool-using regression audit from its pre-tool state.",
+                    user_prompt=resume_prompt,
+                    parents=[pre_node, tool_node, code_node],
+                    parallel_group="optional_regression_audits",
+                    criticality="background",
+                    extra_metadata=self._meta(
+                        stage=stage,
+                        motif_id="tool_resume_regression_audit",
+                        agent_id=resume_node,
+                        parents=[pre_node, tool_node, code_node],
+                        logical_agent_id=agent_id,
+                        case_study_window_id="final_window",
+                        protected_critical_node="final_report",
+                        background_resume_request=True,
+                        resume_after_tool=True,
+                        function_call_lifecycle_stage="llm_2_resume",
+                        ready_prompt_tokens=estimate_tokens(resume_prompt),
+                        request_max_output_tokens=128,
+                    ),
+                )
+                self.emit_edge(
+                    src_node=resume_node,
+                    dst_node="optional_audit_drain",
+                    artifact_type="supplementary_regression_audit",
+                    content=resumed,
+                    transfer_type="background",
+                    parallel_group="optional_regression_audits",
+                )
+                return agent_id, resumed
+
+            self.trace.emit(
+                event_type="case_study_eligible_window",
+                node_id="final_window",
+                node_name="final_window",
+                node_type="workflow_window",
+                stage=stage,
+                critical_node="final_report",
+                resume_nodes=[f"{agent_id}_resume" for agent_id in audit_ids],
+                status="active",
+                duration_source="online_runtime_observed",
+                replay_policy="live",
+            )
+            with ThreadPoolExecutor(max_workers=len(audit_ids)) as executor:
+                audit_futures = [executor.submit(tool_and_resume, agent_id) for agent_id in audit_ids]
+                final = write_final()
+                result_ready_ts = time.time()
+                self.trace.emit(
+                    event_type="workflow_result_ready",
+                    node_id="final_report",
+                    node_name="Final Report Ready",
+                    node_type="workflow_result",
+                    critical_path_candidate=True,
+                    result_ready_ts=result_ready_ts,
+                    output_hash=stable_hash(final),
+                    output_tokens_est=estimate_tokens(final),
+                    status="success",
+                    duration_source="online_runtime_observed",
+                    replay_policy="live",
+                )
+                if self.config.extra.get("protect_case_study_structural_frontier"):
+                    self.admission_controller.end_structural_frontier("full_workflow_critical_frontier")
+                audit_results = dict(future.result() for future in audit_futures)
+            self.barrier(barrier_id="optional_audit_drain", waiting_for_nodes=list(audit_results))
+        else:
+            final = write_final()
         self._emit_tool(node_id="revert_patch_tool", node_name="Revert Patch", stage=stage, motif_id=motif_id, tool_name="revert_patch", fn=revert_patch, args=(self.config.repo_path,), kwargs={"dry_run": bool(self.config.extra.get("dry_run_patch", True))}, parents=["final_report"])
         self._stage_summary(stage=stage, motif_id=motif_id, start_idx=start_idx, start_perf=start, fan_in_tokens=estimate_tokens(final_input))
         return final

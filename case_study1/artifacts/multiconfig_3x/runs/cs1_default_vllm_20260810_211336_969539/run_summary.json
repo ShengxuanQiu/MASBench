@@ -1,0 +1,23 @@
+{
+  "background": [
+    {
+      "branch": 1,
+      "prompt_tokens": 20032,
+      "resume_hash": "b134f4d950a667f82e26"
+    },
+    {
+      "branch": 2,
+      "prompt_tokens": 20746,
+      "resume_hash": "3e911e29e31265d7d353"
+    }
+  ],
+  "client_trace": "/data/home/shegnxuanqiu/mas-serving/case_study1/artifacts/multiconfig_3x/runs/cs1_default_vllm_20260810_211336_969539/client_trace.jsonl",
+  "drain_complete_sec": 30.590911149978638,
+  "experiment_config": "/data/home/shegnxuanqiu/mas-serving/case_study1/artifacts/multiconfig_3x/runs/cs1_default_vllm_20260810_211336_969539/experiment_config.json",
+  "model": "qwen3-8b-case-study1",
+  "policy": "default_vllm",
+  "real_tavily": true,
+  "real_vllm": true,
+  "result_ready_sec": 30.590360403060913,
+  "run_id": "cs1_default_vllm_20260810_211336_969539"
+}

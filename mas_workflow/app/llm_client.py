@@ -144,6 +144,11 @@ class LocalLLMClient:
         }
         if seed is not None:
             payload["seed"] = int(seed)
+        request_payload = (metadata or {}).get("_request_payload")
+        if request_payload:
+            if not isinstance(request_payload, dict):
+                raise TypeError("metadata._request_payload must be a dictionary")
+            payload.update(request_payload)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",

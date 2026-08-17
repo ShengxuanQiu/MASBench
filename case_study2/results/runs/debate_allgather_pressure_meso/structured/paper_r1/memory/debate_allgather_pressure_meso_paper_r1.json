@@ -1,0 +1,254 @@
+{
+  "created_at": 1786950251.382964,
+  "frozen_at": 1786950287.269098,
+  "records": [
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches to disk.",
+      "evidence_refs": [
+        "a_0001"
+      ],
+      "keywords": [
+        "KV cache persistence",
+        "reduced prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786950253.5159013,
+      "token_count": 16,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by tracking entity relationships across agents.",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "opinion_1",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786950257.6992447,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by tracking entity relationships across agents.",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "opinion_2",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786950259.1236837,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by tracking entity relationships across agents.",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "opinion_3",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786950260.4740293,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by tracking entity relationships across agents.",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "opinion_4",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786950261.9023414,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches to disk.",
+      "evidence_refs": [
+        "a_0006"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "disk persistence"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "agent_1_round_1",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786950267.8972278,
+      "token_count": 16,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches to disk.",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "disk persistence"
+      ],
+      "memory_id": "m_0007",
+      "source_agent": "agent_2_round_1",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786950269.037678,
+      "token_count": 16,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by maintaining persistent KV caches.",
+      "evidence_refs": [
+        "a_0008"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0008",
+      "source_agent": "agent_3_round_1",
+      "source_artifact_id": "a_0008",
+      "timestamp": 1786950270.1578212,
+      "token_count": 14,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by using persistent KV caches.",
+      "evidence_refs": [
+        "a_0009"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0009",
+      "source_agent": "agent_4_round_1",
+      "source_artifact_id": "a_0009",
+      "timestamp": 1786950271.2779996,
+      "token_count": 14,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches to disk.",
+      "evidence_refs": [
+        "a_0010"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "disk persistence"
+      ],
+      "memory_id": "m_0010",
+      "source_agent": "agent_1_round_2",
+      "source_artifact_id": "a_0010",
+      "timestamp": 1786950277.254728,
+      "token_count": 16,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches to disk.",
+      "evidence_refs": [
+        "a_0011"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "disk persistence"
+      ],
+      "memory_id": "m_0011",
+      "source_agent": "agent_2_round_2",
+      "source_artifact_id": "a_0011",
+      "timestamp": 1786950278.4131982,
+      "token_count": 16,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches.",
+      "evidence_refs": [
+        "a_0012"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0012",
+      "source_agent": "agent_3_round_2",
+      "source_artifact_id": "a_0012",
+      "timestamp": 1786950279.4891095,
+      "token_count": 14,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by persisting KV caches.",
+      "evidence_refs": [
+        "a_0013"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "KV caches",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0013",
+      "source_agent": "agent_4_round_2",
+      "source_artifact_id": "a_0013",
+      "timestamp": 1786950280.6395752,
+      "token_count": 14,
+      "type": "claim"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "debate_allgather_pressure_meso_paper_r1"
+}

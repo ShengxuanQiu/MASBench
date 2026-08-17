@@ -1,0 +1,139 @@
+{
+  "created_at": 1786950456.905764,
+  "frozen_at": 1786950477.820679,
+  "records": [
+    {
+      "content": "Graph-aware context management reduces redundant prefill by filtering irrelevant evidence.",
+      "evidence_refs": [
+        "a_0001"
+      ],
+      "keywords": [
+        "graph-aware",
+        "prefill",
+        "redundancy",
+        "evidence",
+        "multi-agent"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786950460.7252235,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by tracking information flow.",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "group_1_agent_1",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786950463.5928154,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill in multi-agent workflows.",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "group_2_agent_1",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786950465.0959084,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by identifying overlapping information across agents.",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "group_1_agent_2",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786950465.1917589,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by identifying overlapping information across agents.",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "group_2_agent_2",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786950466.6843312,
+      "token_count": 15,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill by filtering irrelevant evidence.",
+      "evidence_refs": [
+        "a_0006",
+        "a_0001"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "evidence filtering"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "group_1_synth",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786950471.1725483,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "Graph-aware context management reduces redundant prefill in multi-agent workflows.",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "keywords": [
+        "graph-aware",
+        "context management",
+        "redundant prefill",
+        "multi-agent workflows"
+      ],
+      "memory_id": "m_0007",
+      "source_agent": "group_2_synth",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786950472.1329167,
+      "token_count": 13,
+      "type": "claim"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "hierarchical_synthesis_pressure_meso_paper_r1"
+}

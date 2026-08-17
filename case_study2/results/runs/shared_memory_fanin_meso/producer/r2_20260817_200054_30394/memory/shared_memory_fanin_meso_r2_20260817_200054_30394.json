@@ -1,0 +1,123 @@
+{
+  "created_at": 1786968059.8825579,
+  "frozen_at": 1786968093.0970547,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "Graph-aware context management reduces token amplification during prefill by tracking token usage and preventing duplication.",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "shared_memory_fanout",
+      "keywords": [
+        "tokens",
+        "amplification",
+        "prefill",
+        "shared memory"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "writer_1",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786968077.5246906,
+      "token_count": 19,
+      "type": "evidence"
+    },
+    {
+      "content": "evidence preservation tradeoffs with faithfulness and coverage",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "shared_memory_fanout",
+      "keywords": [
+        "graph",
+        "evidence",
+        "coverage",
+        "faithfulness"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "writer_2",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786968079.5899885,
+      "token_count": 10,
+      "type": "evidence"
+    },
+    {
+      "content": "Graph-aware context management reduces latency and TTFT by preventing token duplication.",
+      "evidence_refs": [
+        "a_0006"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "token duplication",
+        "latency",
+        "TTFT",
+        "context tracking"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "reader_1",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786968083.965884,
+      "token_count": 14,
+      "type": "claim"
+    },
+    {
+      "content": "graph fan-out and reuse reduce redundant prefill while preserving evidence coverage",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "fan-out",
+        "reuse",
+        "evidence",
+        "prefill"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "reader_2",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786968084.4465382,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "deployment overhead and crossover reduced by graph-aware context management",
+      "evidence_refs": [
+        "a_0008"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "context management",
+        "overhead",
+        "crossover",
+        "evidence"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "reader_4",
+      "source_artifact_id": "a_0008",
+      "timestamp": 1786968085.161417,
+      "token_count": 10,
+      "type": "claim"
+    },
+    {
+      "content": "provenance and coverage in evidence preservation",
+      "evidence_refs": [
+        "a_0009"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "provenance",
+        "coverage",
+        "evidence",
+        "token"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "reader_3",
+      "source_artifact_id": "a_0009",
+      "timestamp": 1786968085.1843543,
+      "token_count": 8,
+      "type": "keyword_summary"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "shared_memory_fanin_meso_r2_20260817_200054_30394"
+}

@@ -1,0 +1,123 @@
+{
+  "created_at": 1786967874.8191504,
+  "frozen_at": 1786967907.9770613,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "measured token amplification through prefill optimization and context compression",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "shared_memory_fanout",
+      "keywords": [
+        "tokens",
+        "amplification",
+        "prefill",
+        "context compression"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "writer_1",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786967892.722413,
+      "token_count": 12,
+      "type": "evidence"
+    },
+    {
+      "content": "evidence preservation tradeoffs: evidence, faithfulness, coverage",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "shared_memory_fanout",
+      "keywords": [
+        "evidence",
+        "faithfulness",
+        "coverage",
+        "graph-aware"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "writer_2",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786967895.081172,
+      "token_count": 12,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "graph-aware workflows reduce latency and TTFT through prefill optimization",
+      "evidence_refs": [
+        "a_0006"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "prefill",
+        "latency",
+        "TTFT",
+        "evidence"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "reader_1",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786967899.713815,
+      "token_count": 12,
+      "type": "claim"
+    },
+    {
+      "content": "graph fan-out and reuse reduce redundant prefill while preserving evidence coverage",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "fan-out",
+        "reuse",
+        "evidence",
+        "token amplification"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "reader_2",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786967900.2411463,
+      "token_count": 13,
+      "type": "claim"
+    },
+    {
+      "content": "deployment overhead and crossover are balanced through context compression and shared evidence",
+      "evidence_refs": [
+        "a_0008"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "context compression",
+        "evidence coverage",
+        "prefill optimization",
+        "graph topology"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "reader_4",
+      "source_artifact_id": "a_0008",
+      "timestamp": 1786967900.5031264,
+      "token_count": 12,
+      "type": "claim"
+    },
+    {
+      "content": "provenance and coverage in evidence preservation through context compression",
+      "evidence_refs": [
+        "a_0009"
+      ],
+      "graph_reason": "reader_fanin_compaction",
+      "keywords": [
+        "context compression",
+        "evidence coverage",
+        "provenance",
+        "token amplification"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "reader_3",
+      "source_artifact_id": "a_0009",
+      "timestamp": 1786967900.7416017,
+      "token_count": 11,
+      "type": "keyword_summary"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "shared_memory_fanin_meso_r1_20260817_195748_10724"
+}

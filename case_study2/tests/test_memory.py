@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from case_study2.memory import TaskMemoryStore, _parse_json_object
+from case_study2.memory import TaskMemoryStore, pairwise_distinctiveness, terms
 from case_study2.trace import TraceWriter
 
 
 def test_store_append_retrieve_and_freeze(tmp_path: Path) -> None:
-    trace = TraceWriter(tmp_path / "trace.jsonl", run_id="r", workload="w", mode="structured")
+    trace = TraceWriter(tmp_path / "trace.jsonl", run_id="r", workload="w", mode="producer")
     store = TaskMemoryStore(tmp_path / "memory", "task", trace)
     store.append(
         {"source_agent": "agent_A", "artifact_id": "a_1"},
@@ -22,18 +22,17 @@ def test_store_append_retrieve_and_freeze(tmp_path: Path) -> None:
         store.append({"source_agent": "x", "artifact_id": "a_2"}, [])
 
 
-def test_parser_accepts_think_and_fence() -> None:
-    parsed = _parse_json_object('<think>ignored</think>```json\n{"records": [{"type": "claim"}]}\n```')
-    assert parsed["records"][0]["type"] == "claim"
+def test_terms_and_distinctiveness() -> None:
+    assert {"graph-aware", "prefill"} <= terms("Graph-aware prefill reuse")
+    score = pairwise_distinctiveness([{"prefill", "batching"}, {"provenance", "coverage"}])
+    assert score == 1.0
 
 
-def test_placeholder_record_is_not_valid_memory(tmp_path: Path) -> None:
-    from case_study2.memory import AsyncMemoryAgent
-
-    agent = object.__new__(AsyncMemoryAgent)
-    agent.token_count = lambda text: len(text.split())
+def test_store_rejects_invalid_record(tmp_path: Path) -> None:
+    trace = TraceWriter(tmp_path / "trace.jsonl", run_id="r", workload="w", mode="producer")
+    store = TaskMemoryStore(tmp_path / "memory", "task", trace)
     with pytest.raises(ValueError):
-        agent._validated_records(
-            '{"records":[{"type":"claim","content":"...","keywords":["..."],"evidence_refs":["a_1"]}]}',
-            "a_1",
+        store.append(
+            {"source_agent": "agent_A", "artifact_id": "a_1"},
+            [{"type": "unknown", "content": "", "token_count": 0}],
         )

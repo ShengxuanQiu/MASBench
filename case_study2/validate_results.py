@@ -34,7 +34,7 @@ def validate(root: Path, expected_runs: int | None = None) -> list[str]:
             raise AssertionError(f"{run_dir}: incomplete SSE timing")
         if not (run_dir / "tavily_snapshot.json").exists():
             raise AssertionError(f"{run_dir}: missing Tavily snapshot")
-        if summary["mode"] == "structured":
+        if summary["mode"] == "producer":
             memories = list((run_dir / "memory").glob("*.json"))
             if len(memories) != 1:
                 raise AssertionError(f"{run_dir}: expected one task memory file")
@@ -45,6 +45,16 @@ def validate(root: Path, expected_runs: int | None = None) -> list[str]:
                 raise AssertionError(f"{run_dir}: invalid record type")
             if float(summary["evidence_source_coverage"]) != 1.0:
                 raise AssertionError(f"{run_dir}: source coverage is incomplete")
+            if float(summary["memory_focus_coverage"]) != 1.0:
+                raise AssertionError(f"{run_dir}: graph-assigned focus coverage is incomplete")
+            if float(summary["memory_grounding_ratio"]) < 0.5:
+                raise AssertionError(f"{run_dir}: memory is weakly grounded in producer answers")
+            if float(summary["memory_distinctiveness"]) < 0.35:
+                raise AssertionError(f"{run_dir}: source memories are insufficiently distinct")
+            if summary["execution"].get("memory_materialization") != "producer_same_generation":
+                raise AssertionError(f"{run_dir}: memory was not produced in the source request")
+            if any(event["event_type"].startswith("memory_llm") for event in events):
+                raise AssertionError(f"{run_dir}: found forbidden second-pass memory LLM request")
         checked.append(f"{summary['workload']}/{summary['mode']}/{summary['run_id']}")
     return checked
 

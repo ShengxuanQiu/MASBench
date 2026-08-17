@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import threading
 import time
@@ -17,7 +18,7 @@ from transformers import AutoTokenizer
 from mas_workflow.app.llm_client import LocalLLMClient
 from mas_workflow.app.search_providers import TavilySearchProvider
 
-from .memory import AsyncMemoryAgent, TaskMemoryStore
+from .memory import TaskMemoryStore, pairwise_distinctiveness, terms
 from .trace import TraceWriter, read_jsonl
 
 
@@ -25,6 +26,27 @@ WORKLOADS = {
     "debate_allgather_pressure_meso",
     "shared_memory_fanin_meso",
     "hierarchical_synthesis_pressure_meso",
+}
+
+QUALITY_DIMENSIONS = {
+    "debate_allgather_pressure_meso": [
+        ("serving", "prefill", "batching", "decode"),
+        ("dependency", "fan-out", "critical", "topology"),
+        ("structured", "retrieval", "cache", "reuse"),
+        ("faithfulness", "coverage", "provenance"),
+    ],
+    "shared_memory_fanin_meso": [
+        ("latency", "ttft", "prefill"),
+        ("token", "amplification", "fan-out", "reuse"),
+        ("provenance", "coverage", "evidence"),
+        ("overhead", "crossover", "tradeoff"),
+    ],
+    "hierarchical_synthesis_pressure_meso": [
+        ("latency", "prefill"),
+        ("provenance", "evidence"),
+        ("context", "reuse"),
+        ("compression", "faithfulness"),
+    ],
 }
 
 
@@ -41,6 +63,12 @@ def task_consistency_score(text: str) -> float:
     return matched / len(required_concepts)
 
 
+def workload_quality_score(workload: str, text: str) -> float:
+    lowered = text.lower()
+    dimensions = QUALITY_DIMENSIONS[workload]
+    return sum(any(term in lowered for term in alternatives) for alternatives in dimensions) / len(dimensions)
+
+
 def percentile(values: list[float], q: float) -> float | None:
     if not values:
         return None
@@ -49,33 +77,9 @@ def percentile(values: list[float], q: float) -> float | None:
     return ordered[index]
 
 
-def overlap_duration(interval: tuple[float, float], others: list[tuple[float, float]]) -> float:
-    start, end = interval
-    clipped = sorted((max(start, a), min(end, b)) for a, b in others if min(end, b) > max(start, a))
-    merged: list[list[float]] = []
-    for left, right in clipped:
-        if not merged or left > merged[-1][1]:
-            merged.append([left, right])
-        else:
-            merged[-1][1] = max(merged[-1][1], right)
-    return sum(right - left for left, right in merged)
-
-
-def union_duration(intervals: list[tuple[float, float]]) -> float:
-    merged: list[list[float]] = []
-    for left, right in sorted(intervals):
-        if right <= left:
-            continue
-        if not merged or left > merged[-1][1]:
-            merged.append([left, right])
-        else:
-            merged[-1][1] = max(merged[-1][1], right)
-    return sum(right - left for left, right in merged)
-
-
 class GraphMemoryWorkflow:
     def __init__(self, config: dict[str, Any], *, workload: str, mode: str, run_dir: Path, run_id: str) -> None:
-        if workload not in WORKLOADS or mode not in {"raw", "structured"}:
+        if workload not in WORKLOADS or mode not in {"raw", "producer"}:
             raise ValueError(f"unsupported workload/mode: {workload}/{mode}")
         self.config = config
         self.workload = workload
@@ -92,24 +96,10 @@ class GraphMemoryWorkflow:
             max_tokens=int(config["main_model"]["max_tokens"]),
         )
         self.memory_store: TaskMemoryStore | None = None
-        self.memory_agent: AsyncMemoryAgent | None = None
-        if mode == "structured":
+        self._producer_records: dict[str, dict[str, Any]] = {}
+        self._producer_record_lock = threading.Lock()
+        if mode == "producer":
             self.memory_store = TaskMemoryStore(run_dir / "memory", self.task_id, self.trace)
-            memory_client = LocalLLMClient(
-                model=config["memory_model"]["served_name"],
-                base_url=config["memory_model"]["base_url"],
-                temperature=0.0,
-                max_tokens=int(config["memory_model"]["max_tokens"]),
-            )
-            self.memory_agent = AsyncMemoryAgent(
-                client=memory_client,
-                store=self.memory_store,
-                trace=self.trace,
-                token_count=self.tokens,
-                max_workers=int(config["memory_model"]["max_workers"]),
-                max_tokens=int(config["memory_model"]["max_tokens"]),
-                seed=int(config["seed"]),
-            )
         self.artifacts: dict[str, dict[str, Any]] = {}
         self._artifact_index = 0
         self._artifact_lock = threading.Lock()
@@ -117,6 +107,33 @@ class GraphMemoryWorkflow:
 
     def tokens(self, text: str) -> int:
         return len(self.tokenizer.encode(text, add_special_tokens=False))
+
+    def policy(
+        self,
+        *,
+        reason: str,
+        focus: str,
+        focus_terms: list[str],
+        expected_consumers: int = 1,
+        fanin_width: int = 1,
+        multi_round_reuse: bool = False,
+    ) -> dict[str, Any]:
+        threshold = int(self.config["producer_memory"]["graph_degree_threshold"])
+        enabled = (
+            expected_consumers >= threshold
+            or fanin_width >= threshold
+            or multi_round_reuse
+        )
+        return {
+            "enabled": enabled,
+            "reason": reason if enabled else "below_graph_benefit_threshold",
+            "focus": focus,
+            "focus_terms": focus_terms,
+            "expected_consumers": expected_consumers,
+            "fanin_width": fanin_width,
+            "multi_round_reuse": multi_round_reuse,
+            "threshold": threshold,
+        }
 
     def _activity(self, kind: str, node_id: str, fn: Callable[[], Any]) -> Any:
         start = time.time()
@@ -133,8 +150,14 @@ class GraphMemoryWorkflow:
         content: str,
         *,
         artifact_type: str,
-        memory_eligible: bool = True,
+        policy: dict[str, Any] | None = None,
     ) -> str:
+        decision = policy or self.policy(
+            reason="direct_handoff",
+            focus=source_agent,
+            focus_terms=[source_agent],
+        )
+        memory_eligible = bool(decision["enabled"])
         with self._artifact_lock:
             self._artifact_index += 1
             artifact_id = f"a_{self._artifact_index:04d}"
@@ -146,11 +169,53 @@ class GraphMemoryWorkflow:
                 "token_count": self.tokens(content),
                 "created_ts": time.time(),
                 "memory_eligible": memory_eligible,
+                "graph_reason": decision["reason"],
+                "expected_consumers": decision["expected_consumers"],
+                "fanin_width": decision["fanin_width"],
+                "multi_round_reuse": decision["multi_round_reuse"],
             }
             self.artifacts[artifact_id] = row
         self.trace.emit("artifact_created", **{key: value for key, value in row.items() if key != "content"})
-        if self.memory_agent is not None and memory_eligible:
-            self.memory_agent.schedule(row, objective=self.config["objective"])
+        self.trace.emit(
+            "memory_policy_decision",
+            source_agent=source_agent,
+            source_artifact_id=artifact_id,
+            eligible=memory_eligible,
+            materialized=self.mode == "producer" and memory_eligible,
+            policy="graph_aware_producer_materialization",
+            **decision,
+        )
+        if self.mode == "producer" and memory_eligible:
+            assert self.memory_store is not None
+            with self._producer_record_lock:
+                materialized = self._producer_records.pop(source_agent, None)
+            if materialized is None:
+                raise RuntimeError(f"producer-side memory missing for eligible artifact from {source_agent}")
+            record = dict(materialized["record"])
+            refs = [str(ref) for ref in record.get("evidence_refs", []) if str(ref)]
+            if artifact_id not in refs:
+                refs.insert(0, artifact_id)
+            record["evidence_refs"] = refs[:8]
+            record["token_count"] = self.tokens(record["content"])
+            appended = self.memory_store.append(row, [record])
+            self.trace.emit(
+                "producer_memory_materialized",
+                source_artifact_id=artifact_id,
+                source_agent=source_agent,
+                source_tokens=row["token_count"],
+                structured_tokens=sum(item["token_count"] for item in appended),
+                producer_completion_tokens=materialized["completion_tokens"],
+                answer_tokens=materialized["answer_tokens"],
+                answer_words=materialized["answer_words"],
+                extra_output_tokens=max(0, materialized["completion_tokens"] - materialized["answer_tokens"]),
+                materialization="same_generation",
+                graph_reason=decision["reason"],
+                expected_consumers=decision["expected_consumers"],
+                fanin_width=decision["fanin_width"],
+                grounding_ratio=materialized["grounding_ratio"],
+                focus_match=materialized["focus_match"],
+                memory_terms=materialized["memory_terms"],
+            )
         return artifact_id
 
     def search(self) -> str:
@@ -190,7 +255,37 @@ class GraphMemoryWorkflow:
             result_tokens=self.tokens(text),
             result_hash=result.result_hash,
         )
-        return self.artifact("tavily_grounding", text, artifact_type="tool_evidence")
+        tool_policy = self.policy(
+            reason="shared_tool_fanout",
+            focus="external evidence and named systems",
+            focus_terms=["evidence", "system", "agent", "memory", "context"],
+            expected_consumers={
+                "debate_allgather_pressure_meso": 9,
+                "shared_memory_fanin_meso": 2,
+                "hierarchical_synthesis_pressure_meso": 2,
+            }[self.workload],
+            multi_round_reuse=self.workload == "debate_allgather_pressure_meso",
+        )
+        if self.mode == "producer" and tool_policy["enabled"]:
+            tool_view = (result.answer or "").strip()
+            if not tool_view and result.results:
+                tool_view = str(result.results[0].get("content") or result.results[0].get("title") or "")
+            with self._producer_record_lock:
+                self._producer_records["tavily_grounding"] = {
+                    "record": {
+                        "type": "evidence",
+                        "content": tool_view,
+                        "keywords": sorted(self.config["search_queries"][self.workload].lower().split())[:8],
+                        "evidence_refs": [str(item.get("url")) for item in result.results[:4] if item.get("url")],
+                    },
+                    "completion_tokens": 0,
+                    "answer_tokens": 0,
+                    "answer_words": 0,
+                    "grounding_ratio": 1.0,
+                    "focus_match": True,
+                    "memory_terms": sorted(terms(tool_view)),
+                }
+        return self.artifact("tavily_grounding", text, artifact_type="tool_evidence", policy=tool_policy)
 
     def context(self, consumer: str, role: str, artifact_ids: list[str], *, current: str = "") -> str:
         if self.mode == "raw":
@@ -208,23 +303,13 @@ class GraphMemoryWorkflow:
                 )
             return "\n\n".join(sections)
 
-        assert self.memory_agent is not None and self.memory_store is not None
+        assert self.memory_store is not None
         eligible_ids = [
             artifact_id for artifact_id in artifact_ids if self.artifacts[artifact_id]["memory_eligible"]
         ]
         direct_ids = [
             artifact_id for artifact_id in artifact_ids if not self.artifacts[artifact_id]["memory_eligible"]
         ]
-        wait_start = time.time()
-        waited = self.memory_agent.wait_for(eligible_ids) if eligible_ids else 0.0
-        self.trace.emit(
-            "memory_consumer_wait",
-            consumer=consumer,
-            source_artifact_ids=eligible_ids,
-            start_ts=wait_start,
-            end_ts=time.time(),
-            wait_sec=waited,
-        )
         query = f"role={role}; objective={self.config['objective']}; current context={current}"
         rows = self.memory_store.retrieve(
             query=query,
@@ -271,10 +356,28 @@ class GraphMemoryWorkflow:
         parents: list[str],
         context_consumer: bool,
         max_tokens: int | None = None,
+        memory_policy: dict[str, Any] | None = None,
     ) -> str:
         user = f"Task objective:\n{self.config['objective']}\n\nAvailable context:\n{context}\n\nInstruction:\n{instruction}"
+        producer_side = self.mode == "producer" and bool(memory_policy and memory_policy["enabled"])
+        requested_max_tokens = max_tokens or int(self.config["main_model"]["max_tokens"])
+        min_answer_words = max(24, round(requested_max_tokens * 0.40))
+        max_answer_words = max(min_answer_words + 8, round(requested_max_tokens * 0.75))
+        memory_instruction = (
+            f" Produce the complete requested answer first, preserving the statement count and using "
+            f"{min_answer_words}-{max_answer_words} words. Then append exactly one final line in this compact "
+            "format: the literal opening tag <MEMORY>, followed by a single-line JSON object with exactly the "
+            "keys t, c, and k, followed by the literal closing tag </MEMORY>. Allowed t values are claim, "
+            "evidence, constraint, keyword_summary. Write c as a new, answer-specific factual summary of 8-18 "
+            f"words focused on {memory_policy['focus']!r}; c must include at least one of these anchor terms "
+            f"verbatim: {', '.join(memory_policy['focus_terms'])}. Write k as 1-4 answer-specific keywords. "
+            "Capture a concrete mechanism, measurement, named evidence, limitation, or decision—not merely the "
+            "task objective. Never copy wording from these format instructions. "
+            "Do not add text after </MEMORY> and do not shorten the answer merely because the sidecar is requested."
+            if producer_side else ""
+        )
         messages = [
-            {"role": "system", "content": f"You are the {role} agent. Be evidence-grounded, satisfy the requested detail, and do not invent sources. /no_think"},
+            {"role": "system", "content": f"You are the {role} agent. Be evidence-grounded, satisfy the requested detail, and do not invent sources.{memory_instruction} /no_think"},
             {"role": "user", "content": user},
         ]
         request_id = f"{self.run_id}__main__{node_id}"
@@ -293,15 +396,72 @@ class GraphMemoryWorkflow:
         def call() -> tuple[str, dict[str, Any]]:
             submit = time.time()
             self.trace.emit("llm_request_submit", request_id=request_id, node_id=node_id, submit_ts=submit)
+            metadata: dict[str, Any] = {"request_id_for_backend": request_id, "agent_id": node_id, "priority": "normal"}
             return self.main.invoke_messages_streaming_with_metadata(
                 messages,
-                metadata={"request_id_for_backend": request_id, "agent_id": node_id, "priority": "normal"},
-                max_tokens=max_tokens or int(self.config["main_model"]["max_tokens"]),
+                metadata=metadata,
+                max_tokens=requested_max_tokens
+                + (int(self.config.get("producer_memory", {}).get("max_extra_tokens", 80)) if producer_side else 0),
                 seed=int(self.config["seed"]),
             )
 
         content, metadata = self._activity("main_llm", node_id, call)
         usage = metadata.get("usage") or {}
+        returned_content = content
+        if producer_side:
+            match = re.search(r"<MEMORY>\s*(\{.*?\})\s*</MEMORY>\s*$", content, flags=re.DOTALL)
+            if match is None:
+                raise ValueError(f"producer-side memory sidecar missing from {node_id}")
+            parsed = json.loads(match.group(1))
+            answer = content[: match.start()].strip()
+            record = {
+                "type": parsed.get("t"),
+                "content": parsed.get("c"),
+                "keywords": parsed.get("k", []),
+                "evidence_refs": [],
+            }
+            if not answer or not str(record.get("content", "")).strip():
+                raise ValueError(f"invalid producer-side dual view from {node_id}")
+            record_type = str(record.get("type", "")).strip()
+            if record_type not in {"claim", "evidence", "constraint", "keyword_summary"}:
+                raise ValueError(f"invalid producer-side memory type from {node_id}: {record_type}")
+            memory_words = str(record["content"]).split()
+            forbidden = {"at most 18 words", "compact factual summary", "answer-specific factual summary"}
+            if not 6 <= len(memory_words) <= 22 or str(record["content"]).strip().lower() in forbidden:
+                raise ValueError(f"invalid producer-side memory content from {node_id}: {record['content']!r}")
+            answer_terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", answer.lower()))
+            memory_terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", str(record["content"]).lower()))
+            grounded = answer_terms & memory_terms
+            if len(grounded) < 2:
+                raise ValueError(f"producer-side memory from {node_id} is not grounded in its answer")
+            focus_terms = {item.lower() for item in memory_policy["focus_terms"]}
+            focus_match = bool(memory_terms & focus_terms)
+            if not focus_match:
+                raise ValueError(f"producer-side memory from {node_id} misses its graph-assigned focus")
+            objective_only = memory_terms <= terms(self.config["objective"])
+            if objective_only:
+                raise ValueError(f"producer-side memory from {node_id} only restates the objective")
+            answer_words = len(answer.split())
+            if answer_words < max(20, min_answer_words - 20):
+                raise ValueError(
+                    f"producer-side answer from {node_id} is too short: "
+                    f"{answer_words} words < {max(20, min_answer_words - 20)}"
+                )
+            record["content"] = str(record["content"]).strip()
+            record["keywords"] = [str(item).strip() for item in record.get("keywords", []) if str(item).strip()][:8]
+            record["evidence_refs"] = [str(item).strip() for item in record.get("evidence_refs", []) if str(item).strip()][:8]
+            completion_tokens = int(usage.get("completion_tokens") or self.tokens(content))
+            with self._producer_record_lock:
+                self._producer_records[node_id] = {
+                    "record": record,
+                    "completion_tokens": completion_tokens,
+                    "answer_tokens": self.tokens(answer),
+                    "answer_words": answer_words,
+                    "grounding_ratio": len(grounded) / len(memory_terms),
+                    "focus_match": focus_match,
+                    "memory_terms": sorted(memory_terms),
+                }
+            returned_content = answer
         self.trace.emit(
             "llm_request_end",
             request_id=request_id,
@@ -319,8 +479,10 @@ class GraphMemoryWorkflow:
             tpot_sec=metadata.get("tpot_sec"),
             stream_inter_token_ms=metadata.get("stream_inter_token_ms"),
             timing_source=metadata.get("timing_source"),
+            producer_sidecar=producer_side,
+            answer_tokens=self.tokens(returned_content),
         )
-        return content
+        return returned_content
 
     def parallel(self, items: list[Any], fn: Callable[[Any], tuple[str, str]]) -> dict[str, str]:
         with ThreadPoolExecutor(max_workers=len(items)) as executor:
@@ -334,6 +496,7 @@ class GraphMemoryWorkflow:
         instruction: str,
         *,
         max_tokens: int | None = None,
+        output_policy: dict[str, Any] | None = None,
     ) -> str:
         context = self.context(node, role, source_ids, current=instruction)
         output = self.llm(
@@ -344,25 +507,42 @@ class GraphMemoryWorkflow:
             parents=source_ids,
             context_consumer=True,
             max_tokens=max_tokens,
+            memory_policy=output_policy,
         )
-        return self.artifact(node, output, artifact_type="agent_output")
+        return self.artifact(node, output, artifact_type="agent_output", policy=output_policy)
 
     def debate(self) -> str:
         n = int(self.config["workloads"][self.workload]["num_agents"])
         rounds = int(self.config["workloads"][self.workload]["rounds"])
+        focuses = {
+            1: ("serving interference and batching", ["prefill", "batching", "decode"]),
+            2: ("workflow topology and dependency", ["dependency", "fan-out", "critical"]),
+            3: ("structured representation and reuse", ["structured", "retrieval", "cache"]),
+            4: ("faithfulness and provenance", ["faithfulness", "coverage", "provenance"]),
+        }
 
         def opinion(i: int) -> tuple[str, str]:
             node = f"opinion_{i}"
+            focus, anchors = focuses[i]
+            policy = self.policy(
+                reason="all_gather_fanout",
+                focus=focus,
+                focus_terms=anchors,
+                expected_consumers=n,
+                multi_round_reuse=True,
+            )
             out = self.llm(
                 node,
                 "peer",
-                f"Develop distinct position {i} as exactly {6 + 2 * i} numbered, self-contained evidence statements.",
+                f"Develop exactly {6 + 2 * i} numbered, self-contained statements about {focus}. "
+                f"Use the anchor concepts {', '.join(anchors)} and include concrete mechanisms or limitations.",
                 "Grounding evidence will be integrated downstream.",
                 parents=[],
                 context_consumer=False,
                 max_tokens=160 + 64 * i,
+                memory_policy=policy,
             )
-            return node, self.artifact(node, out, artifact_type="opinion")
+            return node, self.artifact(node, out, artifact_type="opinion", policy=policy)
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             web_future = executor.submit(self.search)
@@ -374,38 +554,69 @@ class GraphMemoryWorkflow:
 
             def update(i: int) -> tuple[str, str]:
                 node = f"agent_{i}_round_{round_id}"
+                focus, anchors = focuses[i]
+                policy = self.policy(
+                    reason="multi_round_all_gather" if round_id < rounds else "all_gather_terminal_fanin",
+                    focus=focus,
+                    focus_terms=anchors,
+                    expected_consumers=n if round_id < rounds else 1,
+                    fanin_width=1 if round_id < rounds else n + 1,
+                    multi_round_reuse=round_id < rounds,
+                )
                 artifact_id = self.consume_and_run(
                     node,
                     "debater",
                     sources,
-                    f"Update position {i} after all-gather round {round_id}; return exactly {6 + 2 * i} numbered synthesis statements.",
+                    f"Update the {focus} position after all-gather round {round_id}; return exactly "
+                    f"{6 + 2 * i} numbered statements, retain the anchors {', '.join(anchors)}, and cite "
+                    "specific agreements or conflicts from peer evidence.",
                     max_tokens=160 + 48 * i,
+                    output_policy=policy,
                 )
                 return node, artifact_id
 
             previous = self.parallel(list(range(1, n + 1)), update)
         consensus_context = self.context("consensus_reviewer", "reviewer", [web, *previous.values()], current="Form consensus")
-        consensus_output = self.llm("consensus_reviewer", "reviewer", "Form a consensus preserving disagreements and evidence.", consensus_context, parents=[web, *previous.values()], context_consumer=True, max_tokens=192)
-        consensus = self.artifact("consensus_reviewer", consensus_output, artifact_type="agent_output", memory_eligible=False)
+        consensus_output = self.llm("consensus_reviewer", "reviewer", "Form a consensus that explicitly preserves serving, topology, representation, and faithfulness findings.", consensus_context, parents=[web, *previous.values()], context_consumer=True, max_tokens=224)
+        consensus = self.artifact("consensus_reviewer", consensus_output, artifact_type="agent_output")
         final_context = self.context("finalizer", "finalizer", [consensus], current="Produce final")
-        final_output = self.llm("finalizer", "finalizer", "Produce the final concise answer.", final_context, parents=[consensus], context_consumer=True, max_tokens=128)
-        return self.artifact("finalizer", final_output, artifact_type="agent_output", memory_eligible=False)
+        final_output = self.llm("finalizer", "finalizer", "Produce exactly four one-sentence bullets covering serving, graph topology, structured reuse, and faithfulness; use at most 140 words total and no preamble.", final_context, parents=[consensus], context_consumer=True, max_tokens=224)
+        return self.artifact("finalizer", final_output, artifact_type="agent_output")
 
     def shared_fanin(self) -> str:
         settings = self.config["workloads"][self.workload]
+        writer_focuses = {
+            1: ("measured token amplification", ["tokens", "amplification", "prefill"]),
+            2: ("evidence preservation tradeoffs", ["evidence", "faithfulness", "coverage"]),
+        }
+        reader_focuses = {
+            1: "latency and TTFT",
+            2: "graph fan-out and reuse",
+            3: "source provenance and coverage",
+            4: "deployment overhead and crossover",
+        }
 
         def draft(i: int) -> tuple[str, str]:
             node = f"writer_{i}_private_draft"
+            focus, anchors = writer_focuses[i]
+            policy = self.policy(
+                reason="writer_fanin_compaction",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=2,
+            )
             out = self.llm(
                 node,
                 "evidence writer",
-                f"Prepare exactly {6 + 4 * i} numbered findings from perspective {i}; each finding must be a complete sentence.",
+                f"Prepare exactly {6 + 4 * i} numbered findings about {focus}; use the anchors "
+                f"{', '.join(anchors)} and make every finding a complete sentence.",
                 "External grounding will be integrated in the writer synthesis stage.",
                 parents=[],
                 context_consumer=False,
                 max_tokens=160 + 96 * i,
+                memory_policy=policy,
             )
-            return node, self.artifact(node, out, artifact_type="private_draft", memory_eligible=False)
+            return node, self.artifact(node, out, artifact_type="private_draft", policy=policy)
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             web_future = executor.submit(self.search)
@@ -419,12 +630,21 @@ class GraphMemoryWorkflow:
 
         def writer(i: int) -> tuple[str, str]:
             node = f"writer_{i}"
+            focus, anchors = writer_focuses[i]
+            policy = self.policy(
+                reason="shared_memory_fanout",
+                focus=focus,
+                focus_terms=anchors,
+                expected_consumers=int(settings["readers"]),
+            )
             aid = self.consume_and_run(
                 node,
                 "evidence writer",
                 [web, drafts[f"writer_{i}_private_draft"]],
-                f"Integrate grounding and draft into exactly {8 + 4 * i} numbered evidence statements.",
+                f"Integrate grounding and draft into exactly {8 + 4 * i} numbered statements about {focus}; "
+                f"retain the anchors {', '.join(anchors)} and concrete evidence.",
                 max_tokens=224 + 96 * i,
+                output_policy=policy,
             )
             return node, aid
 
@@ -433,41 +653,71 @@ class GraphMemoryWorkflow:
 
         def reader(i: int) -> tuple[str, str]:
             node = f"reader_{i}"
+            focus = reader_focuses[i]
+            anchors = {
+                1: ["latency", "TTFT"],
+                2: ["fan-out", "reuse"],
+                3: ["provenance", "coverage"],
+                4: ["overhead", "crossover"],
+            }[i]
+            policy = self.policy(
+                reason="reader_fanin_compaction",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=int(settings["readers"]),
+            )
             aid = self.consume_and_run(
                 node,
                 "memory reader",
                 sources,
-                f"Derive exactly {4 + 2 * i} numbered implications from shared evidence.",
+                f"Derive exactly {4 + 2 * i} numbered implications about {focus}; include "
+                f"{', '.join(anchors)} and trace claims to shared evidence.",
                 max_tokens=112 + 32 * i,
+                output_policy=policy,
             )
             return node, aid
 
         readers = self.parallel(list(range(1, int(settings["readers"]) + 1)), reader)
         review_context = self.context("memory_reviewer", "reviewer", list(readers.values()), current="Review implications")
-        review_output = self.llm("memory_reviewer", "reviewer", "Review implications, resolve contradictions, retain evidence.", review_context, parents=list(readers.values()), context_consumer=True, max_tokens=160)
-        review = self.artifact("memory_reviewer", review_output, artifact_type="agent_output", memory_eligible=False)
+        review_output = self.llm("memory_reviewer", "reviewer", "Review implications and retain distinct latency, reuse, provenance, and crossover evidence.", review_context, parents=list(readers.values()), context_consumer=True, max_tokens=224)
+        review = self.artifact("memory_reviewer", review_output, artifact_type="agent_output")
         final_context = self.context("finalizer", "finalizer", [review], current="Produce final")
-        final_output = self.llm("finalizer", "finalizer", "Produce the final concise answer.", final_context, parents=[review], context_consumer=True, max_tokens=128)
-        return self.artifact("finalizer", final_output, artifact_type="agent_output", memory_eligible=False)
+        final_output = self.llm("finalizer", "finalizer", "Produce exactly four one-sentence bullets covering latency, token amplification, provenance, and deployment crossover; use at most 140 words total and no preamble.", final_context, parents=[review], context_consumer=True, max_tokens=224)
+        return self.artifact("finalizer", final_output, artifact_type="agent_output")
 
     def hierarchical(self) -> str:
         settings = self.config["workloads"][self.workload]
         groups = int(settings["groups"])
         per_group = int(settings["agents_per_group"])
+        focuses = {
+            (1, 1): ("local prefill cost", ["prefill", "latency"]),
+            (1, 2): ("local evidence provenance", ["evidence", "provenance"]),
+            (2, 1): ("cross-group context reuse", ["context", "reuse"]),
+            (2, 2): ("semantic compression risk", ["compression", "faithfulness"]),
+        }
 
         def researcher(item: tuple[int, int]) -> tuple[str, str]:
             g, i = item
             node = f"group_{g}_agent_{i}"
+            focus, anchors = focuses[(g, i)]
+            policy = self.policy(
+                reason="hierarchical_local_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=per_group + 1,
+            )
             out = self.llm(
                 node,
                 "researcher",
-                f"Develop group {g} perspective {i} as exactly {6 + 2 * (i + g)} numbered evidence statements.",
+                f"Develop exactly {6 + 2 * (i + g)} numbered statements about {focus}; include the anchors "
+                f"{', '.join(anchors)} and concrete mechanisms or risks.",
                 "Grounding evidence will be integrated downstream.",
                 parents=[],
                 context_consumer=False,
                 max_tokens=176 + 64 * (i + g - 1),
+                memory_policy=policy,
             )
-            return node, self.artifact(node, out, artifact_type="group_evidence")
+            return node, self.artifact(node, out, artifact_type="group_evidence", policy=policy)
 
         items = [(g, i) for g in range(1, groups + 1) for i in range(1, per_group + 1)]
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -483,16 +733,31 @@ class GraphMemoryWorkflow:
                 if node.startswith(f"group_{g}_")
             }
             node = f"group_{g}_synth"
-            aid = self.consume_and_run(node, "group synthesizer", [web, *agents.values()], f"Synthesize group {g} evidence.", max_tokens=192)
+            focus = "runtime and provenance synthesis" if g == 1 else "reuse and faithfulness synthesis"
+            anchors = ["latency", "provenance"] if g == 1 else ["reuse", "faithfulness"]
+            policy = self.policy(
+                reason="hierarchical_global_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=groups,
+            )
+            aid = self.consume_and_run(
+                node,
+                "group synthesizer",
+                [web, *agents.values()],
+                f"Synthesize group {g} evidence about {focus}; explicitly retain {', '.join(anchors)}.",
+                max_tokens=224,
+                output_policy=policy,
+            )
             return node, aid
 
         group_outputs = self.parallel(list(range(1, groups + 1)), group)
         review_context = self.context("cross_group_reviewer", "cross-group reviewer", list(group_outputs.values()), current="Compare groups")
-        review_output = self.llm("cross_group_reviewer", "cross-group reviewer", "Compare group summaries and select robust evidence.", review_context, parents=list(group_outputs.values()), context_consumer=True, max_tokens=160)
-        review = self.artifact("cross_group_reviewer", review_output, artifact_type="agent_output", memory_eligible=False)
+        review_output = self.llm("cross_group_reviewer", "cross-group reviewer", "Compare groups and preserve latency, provenance, reuse, and faithfulness evidence.", review_context, parents=list(group_outputs.values()), context_consumer=True, max_tokens=224)
+        review = self.artifact("cross_group_reviewer", review_output, artifact_type="agent_output")
         final_context = self.context("global_synthesizer", "finalizer", [review], current="Produce final")
-        final_output = self.llm("global_synthesizer", "finalizer", "Produce the final concise synthesis.", final_context, parents=[review], context_consumer=True, max_tokens=128)
-        return self.artifact("global_synthesizer", final_output, artifact_type="agent_output", memory_eligible=False)
+        final_output = self.llm("global_synthesizer", "finalizer", "Produce exactly four one-sentence bullets covering latency, provenance, reuse, and faithfulness; use at most 140 words total and no preamble.", final_context, parents=[review], context_consumer=True, max_tokens=224)
+        return self.artifact("global_synthesizer", final_output, artifact_type="agent_output")
 
     def run(self) -> dict[str, Any]:
         self.start_ts = time.time()
@@ -505,17 +770,16 @@ class GraphMemoryWorkflow:
             final_id = self.hierarchical()
         result_ts = time.time()
         self.trace.emit("workflow_result_ready", result_ts=result_ts, result_artifact_id=final_id)
-        if self.memory_agent is not None:
-            self.memory_agent.wait_all()
-            assert self.memory_store is not None
+        if self.memory_store is not None:
             self.memory_store.freeze()
-            self.memory_agent.close()
         end_ts = time.time()
         self.trace.emit("workflow_end", result_ts=result_ts, end_ts=end_ts, result_latency_sec=result_ts - self.start_ts, drain_latency_sec=end_ts - self.start_ts)
         summary = summarize(self.run_dir / "trace.jsonl")
         summary["final_answer"] = self.artifacts[final_id]["content"]
         summary["task_consistency"] = task_consistency_score(summary["final_answer"])
         summary["task_consistency_definition"] = "lexical_required_concept_coverage"
+        summary["workload_quality_score"] = workload_quality_score(self.workload, summary["final_answer"])
+        summary["workload_quality_definition"] = "workload_specific_dimension_coverage"
         (self.run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return summary
 
@@ -536,15 +800,9 @@ def summarize(trace_path: Path) -> dict[str, Any]:
     consumed_ids.update(source for e in retrievals for source in e["source_artifact_ids"])
     unique_tokens = sum(int(created[source]["token_count"]) for source in consumed_ids)
     actual_tokens = direct_tokens + retrieval_tokens
-    memory_ends = [e for e in events if e["event_type"] == "memory_construction_end"]
-    activities = [(float(e["start_ts"]), float(e["end_ts"])) for e in events if e["event_type"] == "graph_activity_end"]
-    wait_intervals = [
-        (float(e["start_ts"]), float(e["end_ts"]))
-        for e in events
-        if e["event_type"] == "memory_consumer_wait" and float(e["wait_sec"]) > 0
-    ]
-    memory_duration = sum(float(e["duration_sec"]) for e in memory_ends)
-    memory_overlap = sum(overlap_duration((float(e["start_ts"]), float(e["end_ts"])), activities) for e in memory_ends)
+    producer_materializations = [e for e in events if e["event_type"] == "producer_memory_materialized"]
+    llm_materializations = [e for e in producer_materializations if int(e["producer_completion_tokens"]) > 0]
+    policy_decisions = [e for e in events if e["event_type"] == "memory_policy_decision"]
     expected = {(e["consumer"], source) for e in retrievals for source in e["source_artifact_ids"]}
     covered = {(e["consumer"], source) for e in retrievals for source in e["retrieved_source_artifact_ids"]}
     if raw_edges:
@@ -559,11 +817,11 @@ def summarize(trace_path: Path) -> dict[str, Any]:
         for source in e["source_artifact_ids"]:
             per_artifact_consumers.setdefault(source, set()).add(e["consumer"])
     return {
-        "schema_version": "masbench_case_study2.summary.v1",
+        "schema_version": "masbench_case_study2.summary.v2",
         "run_id": events[0]["run_id"],
         "workload": events[0]["workload"],
         "mode": events[0]["mode"],
-        "execution": {"main_llm": "real_vllm_sse", "tool": "live_tavily", "memory_llm": "real_vllm_sse" if memory_ends else "not_used"},
+        "execution": {"main_llm": "real_vllm_sse", "tool": "live_tavily", "memory_materialization": "producer_same_generation" if producer_materializations else "not_used"},
         "result_latency_sec": float(workflow_end["result_latency_sec"]),
         "drain_latency_sec": float(workflow_end["drain_latency_sec"]),
         "consumer_input_tokens": sum(int(e["input_tokens"]) for e in consumers),
@@ -572,24 +830,30 @@ def summarize(trace_path: Path) -> dict[str, Any]:
         "consumer_latency_median_sec": statistics.median([float(e["request_latency_sec"]) for e in consumers]),
         "consumer_latency_p95_sec": percentile([float(e["request_latency_sec"]) for e in consumers], 0.95),
         "raw_propagated_tokens": raw_actual,
-        "direct_passthrough_tokens": direct_tokens if mode == "structured" else 0,
+        "direct_passthrough_tokens": direct_tokens if mode == "producer" else 0,
         "raw_equivalent_tokens": raw_equivalent,
         "unique_artifact_tokens": unique_tokens,
         "repeated_context_tokens": max(0, raw_equivalent - unique_tokens),
         "actual_context_tokens": actual_tokens,
         "duplication_ratio": raw_equivalent / unique_tokens if unique_tokens else 0.0,
         "actual_amplification_ratio": actual_tokens / unique_tokens if unique_tokens else 0.0,
-        "structured_memory_tokens": sum(int(e["structured_tokens"]) for e in memory_ends),
+        "structured_memory_tokens": sum(int(e["structured_tokens"]) for e in producer_materializations),
         "retrieval_tokens": retrieval_tokens,
-        "compression_ratio": (sum(int(e["source_tokens"]) for e in memory_ends) / sum(int(e["structured_tokens"]) for e in memory_ends)) if memory_ends and sum(int(e["structured_tokens"]) for e in memory_ends) else None,
-        "memory_wait_sec": sum(float(e["wait_sec"]) for e in events if e["event_type"] == "memory_consumer_wait"),
-        "memory_wait_wall_sec": union_duration(wait_intervals),
-        "memory_construction_overlap_ratio": memory_overlap / memory_duration if memory_duration else None,
+        "compression_ratio": (sum(int(e["source_tokens"]) for e in producer_materializations) / sum(int(e["structured_tokens"]) for e in producer_materializations)) if producer_materializations and sum(int(e["structured_tokens"]) for e in producer_materializations) else None,
+        "avoided_propagation_tokens": max(0, raw_equivalent - actual_tokens),
         "evidence_source_coverage": evidence_coverage,
         "artifact_consumer_count": {source: len(consumers_) for source, consumers_ in sorted(per_artifact_consumers.items())},
         "tool_latency_sec": sum(float(e["latency_sec"]) for e in events if e["event_type"] == "tool_return"),
         "main_request_count": len(llms),
-        "memory_request_count": len([e for e in events if e["event_type"] == "memory_llm_end"]),
+        "producer_sidecar_main_request_count": len([e for e in llms if e.get("producer_sidecar")]),
+        "producer_memory_extra_output_tokens": sum(int(e["extra_output_tokens"]) for e in producer_materializations),
+        "answer_output_tokens": sum(int(e.get("answer_tokens") or e["output_tokens"]) for e in llms),
+        "total_completion_tokens": sum(int(e["output_tokens"]) for e in llms),
+        "memory_grounding_ratio": statistics.median(float(e["grounding_ratio"]) for e in llm_materializations) if llm_materializations else None,
+        "memory_focus_coverage": sum(bool(e["focus_match"]) for e in llm_materializations) / len(llm_materializations) if llm_materializations else None,
+        "memory_distinctiveness": pairwise_distinctiveness([set(e["memory_terms"]) for e in llm_materializations]),
+        "graph_eligible_artifact_count": sum(bool(e["eligible"]) for e in policy_decisions),
+        "graph_bypassed_artifact_count": sum(not bool(e["eligible"]) for e in policy_decisions),
     }
 
 
@@ -597,7 +861,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
     parser.add_argument("--workload", choices=sorted(WORKLOADS), required=True)
-    parser.add_argument("--mode", choices=["raw", "structured"], required=True)
+    parser.add_argument("--mode", choices=["raw", "producer"], required=True)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--output-root", type=Path, default=Path(__file__).with_name("results") / "runs")
     args = parser.parse_args()

@@ -16,8 +16,13 @@ WORKLOADS=(
 )
 
 for repeat in $(seq 1 "${REPEATS}"); do
+  if (( repeat % 2 == 1 )); then
+    MODES=(raw producer)
+  else
+    MODES=(producer raw)
+  fi
   for workload in "${WORKLOADS[@]}"; do
-    for mode in raw structured; do
+    for mode in "${MODES[@]}"; do
       run_id="r${repeat}_$(date +%Y%m%d_%H%M%S)_${RANDOM}"
       /opt/anaconda3/bin/conda run -n MAS --no-capture-output \
         python -m case_study2.workflow --workload "${workload}" --mode "${mode}" --run-id "${run_id}"

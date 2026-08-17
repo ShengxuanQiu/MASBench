@@ -1,0 +1,85 @@
+{
+  "created_at": 1786967944.349149,
+  "frozen_at": 1786967966.299563,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "local prefill cost, latency, prefill, context management",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "graph_reason": "hierarchical_local_fanin",
+      "keywords": [
+        "prefill",
+        "latency",
+        "context management",
+        "redundancy"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "group_1_agent_1",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786967949.9691892,
+      "token_count": 12,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "cross-group context reuse preserves evidence coverage through graph-aware context management",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "graph_reason": "hierarchical_local_fanin",
+      "keywords": [
+        "context",
+        "reuse",
+        "graph-aware",
+        "evidence"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "group_2_agent_1",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786967950.877763,
+      "token_count": 12,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "local evidence provenance ensures evidence tracking and reduces redundant prefill",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "hierarchical_local_fanin",
+      "keywords": [
+        "evidence",
+        "provenance",
+        "graph-aware",
+        "workflow"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "group_1_agent_2",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786967951.401523,
+      "token_count": 12,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "compression risks threaten faithfulness in evidence coverage",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "hierarchical_local_fanin",
+      "keywords": [
+        "compression",
+        "faithfulness",
+        "evidence",
+        "graph-aware"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "group_2_agent_2",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786967951.7349267,
+      "token_count": 8,
+      "type": "constraint"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "hierarchical_synthesis_pressure_meso_r1_20260817_195858_893"
+}

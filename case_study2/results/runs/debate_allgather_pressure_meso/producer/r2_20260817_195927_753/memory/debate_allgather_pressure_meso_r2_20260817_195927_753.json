@@ -1,0 +1,263 @@
+{
+  "created_at": 1786967973.2038417,
+  "frozen_at": 1786968008.109341,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "Multi-agent debate systems use collective communication to share context among agents, but often face redundancy and memory management issues. TokenDance and CortexDebate address these challenges by optimizing context reuse and reducing input context length. These systems aim to improve efficiency and scalability in multi-agent large language model applications.",
+      "evidence_refs": [
+        "a_0001",
+        "https://huggingface.co/papers?q=multi-agent+LLM",
+        "https://arxiv.org/html/2603.20640v2",
+        "https://aclanthology.org/2025.findings-acl.495.pdf",
+        "https://d2jud02ci9yv69.cloudfront.net/2025-04-28-mad-159/blog/mad"
+      ],
+      "graph_reason": "shared_tool_fanout",
+      "keywords": [
+        "all-gather",
+        "context",
+        "debate",
+        "inference",
+        "llm",
+        "multi-agent",
+        "redundancy"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786967974.390097,
+      "token_count": 58,
+      "type": "evidence"
+    },
+    {
+      "content": "serving interference and batching with prefill optimization",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "graph_reason": "all_gather_fanout",
+      "keywords": [
+        "prefill",
+        "batching",
+        "decode",
+        "graph-aware"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "opinion_1",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786967978.306149,
+      "token_count": 9,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "workflow topology and dependency, critical dependency, fan-out, context management",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "graph_reason": "all_gather_fanout",
+      "keywords": [
+        "dependency",
+        "fan-out",
+        "critical",
+        "context management"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "opinion_2",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786967979.3382332,
+      "token_count": 13,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "structured retrieval cache reduces redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "all_gather_fanout",
+      "keywords": [
+        "structured",
+        "retrieval",
+        "cache",
+        "reuse"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "opinion_3",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786967980.9360244,
+      "token_count": 11,
+      "type": "claim"
+    },
+    {
+      "content": "faithfulness and provenance ensure coverage in graph-aware workflows",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "all_gather_fanout",
+      "keywords": [
+        "graph-aware",
+        "coverage",
+        "provenance",
+        "faithfulness"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "opinion_4",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786967981.484849,
+      "token_count": 11,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "serving interference and batching with prefill optimization",
+      "evidence_refs": [
+        "a_0006"
+      ],
+      "graph_reason": "multi_round_all_gather",
+      "keywords": [
+        "prefill",
+        "batching",
+        "decode",
+        "context management"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "agent_1_round_1",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786967987.4168293,
+      "token_count": 9,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "workflow topology and dependency, critical dependency, fan-out, context management",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "graph_reason": "multi_round_all_gather",
+      "keywords": [
+        "context management",
+        "critical dependency",
+        "fan-out",
+        "workflow topology"
+      ],
+      "memory_id": "m_0007",
+      "source_agent": "agent_2_round_1",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786967988.6237047,
+      "token_count": 13,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "faithfulness and provenance ensure coverage in graph-aware workflows",
+      "evidence_refs": [
+        "a_0008"
+      ],
+      "graph_reason": "multi_round_all_gather",
+      "keywords": [
+        "faithfulness",
+        "provenance",
+        "coverage",
+        "workflow"
+      ],
+      "memory_id": "m_0008",
+      "source_agent": "agent_4_round_1",
+      "source_artifact_id": "a_0008",
+      "timestamp": 1786967988.8150632,
+      "token_count": 11,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "structured retrieval cache reduces redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0009"
+      ],
+      "graph_reason": "multi_round_all_gather",
+      "keywords": [
+        "structured",
+        "retrieval",
+        "cache",
+        "workflow"
+      ],
+      "memory_id": "m_0009",
+      "source_agent": "agent_3_round_1",
+      "source_artifact_id": "a_0009",
+      "timestamp": 1786967990.588077,
+      "token_count": 11,
+      "type": "claim"
+    },
+    {
+      "content": "serving interference and batching with prefill optimization",
+      "evidence_refs": [
+        "a_0010"
+      ],
+      "graph_reason": "all_gather_terminal_fanin",
+      "keywords": [
+        "prefill",
+        "batching",
+        "decode",
+        "context management"
+      ],
+      "memory_id": "m_0010",
+      "source_agent": "agent_1_round_2",
+      "source_artifact_id": "a_0010",
+      "timestamp": 1786967996.61224,
+      "token_count": 9,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "workflow topology and dependency, critical dependency, fan-out, context management",
+      "evidence_refs": [
+        "a_0011"
+      ],
+      "graph_reason": "all_gather_terminal_fanin",
+      "keywords": [
+        "context management",
+        "critical dependency",
+        "fan-out",
+        "workflow topology"
+      ],
+      "memory_id": "m_0011",
+      "source_agent": "agent_2_round_2",
+      "source_artifact_id": "a_0011",
+      "timestamp": 1786967998.278693,
+      "token_count": 13,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "faithfulness and provenance ensure coverage in graph-aware workflows",
+      "evidence_refs": [
+        "a_0012"
+      ],
+      "graph_reason": "all_gather_terminal_fanin",
+      "keywords": [
+        "faithfulness",
+        "provenance",
+        "coverage",
+        "workflow"
+      ],
+      "memory_id": "m_0012",
+      "source_agent": "agent_4_round_2",
+      "source_artifact_id": "a_0012",
+      "timestamp": 1786967998.3500705,
+      "token_count": 11,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "structured retrieval cache reduces redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0013"
+      ],
+      "graph_reason": "all_gather_terminal_fanin",
+      "keywords": [
+        "structured",
+        "retrieval",
+        "cache",
+        "workflow"
+      ],
+      "memory_id": "m_0013",
+      "source_agent": "agent_3_round_2",
+      "source_artifact_id": "a_0013",
+      "timestamp": 1786968000.0044637,
+      "token_count": 11,
+      "type": "claim"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "debate_allgather_pressure_meso_r2_20260817_195927_753"
+}

@@ -1,0 +1,45 @@
+{
+  "seed": 42,
+  "objective": "Explain how graph-aware context management can reduce redundant prefill in multi-agent workflows while preserving evidence coverage.",
+  "main_model": {
+    "path": "/data/home/shegnxuanqiu/deepthink-with-confidence-openai/Qwen3-8B",
+    "served_name": "qwen3-8b-case-study2",
+    "base_url": "http://127.0.0.1:8201/v1",
+    "max_tokens": 192
+  },
+  "retrieval": {
+    "method": "role_aware_lexical",
+    "top_k": 8
+  },
+  "producer_memory": {
+    "max_extra_tokens": 96,
+    "graph_degree_threshold": 3
+  },
+  "tavily": {
+    "max_results": 5,
+    "search_depth": "advanced",
+    "include_raw_content": false
+  },
+  "workloads": {
+    "debate_allgather_pressure_meso": {
+      "num_agents": 4,
+      "rounds": 2
+    },
+    "shared_memory_fanin_meso": {
+      "writers": 2,
+      "readers": 4
+    },
+    "hierarchical_synthesis_pressure_meso": {
+      "groups": 2,
+      "agents_per_group": 2
+    }
+  },
+  "search_queries": {
+    "debate_allgather_pressure_meso": "multi-agent debate all-gather context redundancy LLM inference",
+    "shared_memory_fanin_meso": "multi-agent shared memory evidence fan-in context compression",
+    "hierarchical_synthesis_pressure_meso": "hierarchical multi-agent synthesis graph context propagation"
+  },
+  "selected_workload": "debate_allgather_pressure_meso",
+  "selected_mode": "producer",
+  "run_id": "r1_20260817_195628_30422"
+}

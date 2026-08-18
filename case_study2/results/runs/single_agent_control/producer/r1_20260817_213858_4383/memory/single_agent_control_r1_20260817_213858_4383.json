@@ -1,0 +1,8 @@
+{
+  "created_at": 1786973942.175912,
+  "frozen_at": 1786973951.7842705,
+  "materialization": "producer_same_generation",
+  "records": [],
+  "state": "frozen",
+  "task_id": "single_agent_control_r1_20260817_213858_4383"
+}

@@ -1,0 +1,110 @@
+{
+  "created_at": 1786974274.3299675,
+  "frozen_at": 1786974289.6426995,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "Multi-agent independent fan-in synthesis involves parallel execution of agents, followed by aggregation of results through voting or synthesis. It enhances speed and diversity but requires careful conflict resolution. The synthesis step can introduce errors if not managed properly.",
+      "evidence_refs": [
+        "a_0001",
+        "https://www.glukhov.org/ai-systems/architecture/multi-agent-orchestration-patterns",
+        "https://handsonai.info/agentic-building-blocks/agents/orchestration-patterns/parallel",
+        "https://simonevellei.com/en/the-parallel-research-pattern-fan-out-fan-in-for-multi-agent-ai",
+        "https://beam.ai/agentic-insights/multi-agent-orchestration-patterns-production"
+      ],
+      "graph_reason": "shared_tool_fanout",
+      "keywords": [
+        "aggregation",
+        "context",
+        "fan-in",
+        "independent",
+        "multi-agent",
+        "synthesis"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786974275.7069662,
+      "token_count": 44,
+      "type": "evidence"
+    },
+    {
+      "content": "fan-in aggregation preserves evidence coverage through synthesis",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "graph_reason": "independent_terminal_fanin",
+      "keywords": [
+        "fan-in",
+        "aggregation",
+        "evidence",
+        "synthesis"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "independent_specialist_1",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786974279.6119275,
+      "token_count": 8,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "downstream prefill reduces latency through graph-aware context reuse",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "graph_reason": "independent_terminal_fanin",
+      "keywords": [
+        "downstream prefill",
+        "latency",
+        "graph-aware",
+        "evidence coverage"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "independent_specialist_3",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786974280.6671495,
+      "token_count": 11,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "context token growth is reduced via graph-aware context management in multi-agent workflows",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "independent_terminal_fanin",
+      "keywords": [
+        "context",
+        "tokens",
+        "graph",
+        "evidence"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "independent_specialist_2",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786974281.0247307,
+      "token_count": 14,
+      "type": "evidence"
+    },
+    {
+      "content": "evidence preservation through graph-aware context management ensures coverage",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "independent_terminal_fanin",
+      "keywords": [
+        "graph",
+        "evidence",
+        "coverage",
+        "redundancy"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "independent_specialist_4",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786974281.2626054,
+      "token_count": 10,
+      "type": "evidence"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "independent_fanin_r2_20260817_214430_22218"
+}

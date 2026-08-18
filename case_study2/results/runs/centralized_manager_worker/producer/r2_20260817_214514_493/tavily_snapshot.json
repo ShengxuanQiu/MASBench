@@ -1,0 +1,49 @@
+{
+  "provider": "tavily",
+  "query": "manager worker multi-agent context sharing communication",
+  "answer": "A manager agent delegates tasks to worker agents, shares context to coordinate efforts, and ensures efficient communication in multi-agent systems. Effective state management and context passing are crucial for task completion. Multi-agent systems benefit from shared context and real-time communication.",
+  "results": [
+    {
+      "title": "Multi-Agent Context Sharing Patterns: A Guide for Developers | Fastio",
+      "url": "https://fast.io/resources/multi-agent-context-sharing-patterns",
+      "content": "### Start with multi agent context sharing patterns on Fastio\n\nFastio gives teams shared workspaces, MCP tools, and searchable file context to run multi agent context sharing patterns workflows with reliable agent and human handoffs.\n\n## 3. Message Passing and Hierarchical Delegation\n\nMessage passing involves direct communication between agents. This is common in frameworks like AutoGen or CrewAI, where a \"manager\" agent delegates specific sub-tasks to specialized \"worker\" agents.\n\nIn a hierarchical model, the manager agent receives the high-level goal, breaks it down into a plan, and passes limited context to sub-agents. This \"context scoping\" prevents sub-agents from becoming overwhelmed with irrelevant data, keeping token costs low and accuracy high.\n\nBest For: [...] As AI workflows evolve from single-prompt interactions to complex multi-agent systems, coordination becomes the primary bottleneck. Context management is cited as the top challenge in multi-agent system design. When agents operate in isolation, they often repeat work, overwrite each other's progress, or fail to account for intermediate results produced by their peers.\n\nAccording to recent industry benchmarks, multi-agent systems with a structured shared context complete complex tasks 2-4 times faster than those using simple sequential handoffs. This efficiency comes from reducing the \"context bloat\" that occurs when every agent is forced to ingest the entire conversation history. Instead, specialized patterns allow agents to access only the specific data they need, when they need it. [...] # How to Implement Multi-Agent Context Sharing Patterns\n\nMulti-agent context sharing patterns are architectural frameworks that define how AI agents exchange state and memory. Efficient sharing allows teams to coordinate multiple agents without redundant processing or context conflicts. Implementing the right pattern can help multi-agent systems complete complex tasks up to four times faster than isolated agents.\n\nCoordinating multiple AI agents requires a robust pattern for sharing state and context.\n\n## How to implement multi agent context sharing patterns reliably",
+      "score": 0.8332299,
+      "raw_content": null,
+      "id": "63c4cf-00"
+    },
+    {
+      "title": "Manager Agent in Multi-Agent Systems",
+      "url": "https://www.emergentmind.com/topics/manager-agent",
+      "content": "Workspace and Feedback Stores: Shared dictionaries or key-value stores persist intermediate artifacts, facilitate inter-agent context sharing, and encode task state (Ji et al., 7 Aug 2025).\n Structured Messaging: JSON-based or protocol-defined feedback channels communicate refinement requests or corrections (e.g., targeted hints for code augmentation) (Ji et al., 7 Aug 2025).\n Memory Integration: Episodic or semantic memory systems track collaboration summaries, past context, and skill snippets; manager agents summarize multi-agent histories into concise events, maximizing long-horizon context preservation (Zhang et al., 30 Jan 2026, Jiang et al., 6 Feb 2026). [...] A manager agent is a central coordinating component in multi-agent systems—spanning AI orchestration, workflow management, distributed monitoring, and human-AI collaboration—which decomposes high-level objectives into structured sub-tasks, allocates tasks to workers, regulates context, arbitrates resource sharing, and assures workflow correctness. Manager agents are prominent in domains ranging from industrial anomaly detection pipelines and hierarchical memory-based teams to contract-making in self-interested multi-agent environments, with diverse architectural instantiations: LLM-driven orchestration loops, parallel-asynchronous thread controllers, contract-based incentive designers, POSG (Partially Observable Stochastic Game) planners, and OS-level orchestrators. Empirical studies [...] In each context, manager agent patterns are tuned to domain-specific error models, communication substrates, and optimization targets.\n\nReferences",
+      "score": 0.79119295,
+      "raw_content": null,
+      "id": "82fa22-01"
+    },
+    {
+      "title": "Multi-Agents: What's Actually Working - Cognition",
+      "url": "https://cognition.com/blog/multi-agents-working",
+      "content": "This is live in Devin today. A manager Devin can break a larger task into pieces, spawn child Devins to work on them, and coordinate their progress through an internal MCP. Getting it to feel coherent took more context engineering than we expected. Managers trained on small-scoped delegation default to being overly prescriptive, which backfires when the manager lacks deep codebase context. Agents assume they share state with their children when they don't. Cross-agent communication, a sub-agent writing messages back to its manager to be passed to other agents in the agent team, doesn't happen by default, because models haven't been trained in environments where it needed to. Each of these took dedicated work to fix, and we're still improving on all of them. [...] 1. Share as much context as possible between the agents. Make sure they see the same sources of information, stay on the same page (todo list, plan files), and share the same priors about the overall task they are meant to accomplish. Help them communicate if needed\n2. Actions carry implicit decisions. When one agent makes certain changes or edits, it might make implicit choices (style, code patterns, how certain edge cases should be handled) that might conflict with the implicit choices of other parallel agents. As a result, decision-making can get quite fragmented in a multi-agent world where multiple agents are taking write actions.",
+      "score": 0.72254705,
+      "raw_content": null,
+      "id": "ced406-02"
+    },
+    {
+      "title": "Multi-Agent System Explained: What It Is, Benefits, & Uses",
+      "url": "https://www.kimi.com/resources/multi-agent",
+      "content": "A content production pipeline often follows this model. A manager agent receives the brief, assigns research to one agent, drafting to another, and editing to a third, then reviews the consolidated draft before publishing. Each specialist focuses only on its own stage, while the supervisor maintains coherence across the entire document.\n\n### Cooperative multi-agent systems\n\nCooperative architectures treat agents as peers working toward a shared objective. They share tools, data, and intermediate results in real time, often through a shared workspace or message bus. This pattern emphasizes shared context, real-time communication between equals, and flexible task division that can shift based on current load or agent availability. [...] How do agents communicate in a multi-agent system?\n\nAgents communicate by sharing messages, intermediate results, and status updates through a shared workspace, message bus, or direct API calls. Communication protocols can range from simple JSON over HTTP to specialized agent languages such as FIPA ACL. Effective communication requires clear message formatting, conflict resolution rules, and a shared context layer so every agent understands the current state of the task.\n\nWhat are common multi-agent system failure modes? [...] Autonomy: Each agent can act on a specific part of the task without waiting for continuous user input. That does not mean the system is fully independent; it means agents can make local decisions within the scope of their assigned role.\n Specialization: Multi-agent systems work best when agents have clearly different roles. A research agent, writing agent, analysis agent, and review agent can each focus on a narrower task than a single general assistant, which makes the overall output more precise and consistent.\n Communication: Agents need a way to share findings, pass along intermediate results, request clarification, and report progress. Without communication, a set of agents is just a collection of isolated workers.",
+      "score": 0.70214266,
+      "raw_content": null,
+      "id": "bfc8b6-03"
+    },
+    {
+      "title": "Multi-Agent Orchestration: How to Coordinate AI Agents at",
+      "url": "https://gurusup.com/blog/multi-agent-orchestration-guide",
+      "content": "## State management and context passing\n\nThe hardest problem in multi-agent orchestration isn't routing , it's state. When a customer says \"I need help with my recent order\" to a triage agent, and the triage agent routes to a billing specialist, what context transfers? The full conversation history? Just the last message? A structured summary? Too little context and the worker agent asks the customer to repeat everything. Too much context and you waste tokens, increase latency, and risk the worker agent getting distracted by irrelevant information.\n\nProduction systems typically implement one of three state management strategies:",
+      "score": 0.57952,
+      "raw_content": null,
+      "id": "a4f717-04"
+    }
+  ],
+  "result_hash": "9f7afff7f2f38eda3070396b5eb0e3bba67e0c18ebe1b10221b44220f986827b",
+  "measured_duration_sec": 0.7766917280387133
+}

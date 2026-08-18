@@ -1,0 +1,110 @@
+{
+  "created_at": 1786974029.2144566,
+  "frozen_at": 1786974049.7125123,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "manager dependency plan ensures minimal redundant prefill through graph-aware context tracking",
+      "evidence_refs": [
+        "a_0001"
+      ],
+      "graph_reason": "manager_plan_broadcast",
+      "keywords": [
+        "manager",
+        "dependency",
+        "plan",
+        "context"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "manager_plan",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786974034.7539148,
+      "token_count": 13,
+      "type": "constraint"
+    },
+    {
+      "content": "A manager agent delegates tasks to worker agents, shares context to coordinate efforts, and ensures efficient communication in multi-agent systems. Effective state management and context passing are crucial for task completion. Multi-agent systems benefit from shared context and real-time communication.",
+      "evidence_refs": [
+        "a_0002",
+        "https://fast.io/resources/multi-agent-context-sharing-patterns",
+        "https://www.emergentmind.com/topics/manager-agent",
+        "https://cognition.com/blog/multi-agents-working",
+        "https://www.kimi.com/resources/multi-agent"
+      ],
+      "graph_reason": "shared_tool_fanout",
+      "keywords": [
+        "communication",
+        "context",
+        "manager",
+        "multi-agent",
+        "sharing",
+        "worker"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786974035.535755,
+      "token_count": 48,
+      "type": "evidence"
+    },
+    {
+      "content": "worker context reuse reduces redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "graph_reason": "manager_collection_fanin",
+      "keywords": [
+        "worker",
+        "context",
+        "reuse",
+        "graph-aware"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "manager_worker_1",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786974040.136095,
+      "token_count": 11,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "manager dependency control reduces redundant prefill through graph-aware context tracking",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "manager_collection_fanin",
+      "keywords": [
+        "manager",
+        "dependency",
+        "control",
+        "context"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "manager_worker_2",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786974040.517156,
+      "token_count": 12,
+      "type": "constraint"
+    },
+    {
+      "content": "coordination overhead reduced by worker context sharing",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "manager_collection_fanin",
+      "keywords": [
+        "coordination",
+        "overhead",
+        "worker",
+        "context"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "manager_worker_3",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786974041.3057168,
+      "token_count": 8,
+      "type": "constraint"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "centralized_manager_worker_r1_20260817_214025_31673"
+}

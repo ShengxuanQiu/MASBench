@@ -1,0 +1,49 @@
+{
+  "provider": "tavily",
+  "query": "LLM agent retry debug loop repeated context inference",
+  "answer": "Retry logic in LLM agents uses adaptive strategies to handle failures, often employing frameworks like LangChain for context-aware retries. Debugging loops involve detecting repeated actions and managing context to prevent infinite loops. Effective caching reduces redundant computations and costs.",
+  "results": [
+    {
+      "url": "https://arxiv.org/html/2603.18897v1",
+      "title": "Accelerating LLM Agents via Pattern-Aware Speculative ...",
+      "content": "Refer to caption\n\n#### 2.1.2. The Agent Execution Model\n\nLLM agents naturally follow an Iterative LLM–Tool Loop, as shown in Figure 2. In each iteration, the LLM is conditioned on the current context and execution history, and then either (i) emits the final answer and terminates, or (ii) decides to invoke a tool with concrete parameters. If a tool is invoked, the system executes the call, appends the tool output back into the session state, and resumes LLM inference on the updated context.\n\nThis loop repeats until the LLM determines that enough evidence has been gathered and produces the final result as the session output. From a system perspective, end-to-end latency is jointly determined by LLM inference and tool execution.\n\n### 2.2. Problems and Challenges [...] Because agent loops intensify context reuse and long-context pressure, many efforts focus on KV/prefix/context caching and memory management, including KV reuse/compression and context caching schemes (34; 20; 8; 49; 16; 47; 21; 35).\nHowever, these systems primarily optimize LLM inference/serving and largely treat tool execution as an external interruption, leaving end-to-end tool latency unaddressed compared to PASTE. [...] (1) Producer-Consumer Pattern: In web tasks, the visit call requires a URL. In 95% of cases, this URL is a strict substring of the JSON output from the preceding search call. Agents typically select URLs containing query keywords, such as matching the term Prometheus in the page title for a Prometheus-related query. In coding tasks, the file\\_editor requires a filename, which could be distilled directly from the output of a prior grep call.\n\n(2) Repetitive-Debug Pattern: In coding tasks, agents follow an iterative debugging loop that involves file edits and environment modifications. After completing a fix, the agent immediately executes the program to verify the result, which creates a tight edit verify dependency cycle.",
+      "score": 0.63125396,
+      "raw_content": null,
+      "id": "e6647d-00"
+    },
+    {
+      "url": "https://www.meritshot.com/blog/ai-agent-looping-how-to-stop",
+      "title": "Why Your AI Agent Keeps Looping and How to Stop It | Meritshot Blog",
+      "content": "Action repetition detection: Hash each tool call (tool name + parameters). If the same hash appears twice within the current task execution, flag it. Three identical tool calls in one task is definitionally a loop. This is cheap to implement and catches the majority of tool calling loops automatically.\n\nTime-per-step tracking: LLM inference takes roughly constant time per token. If a step is taking significantly longer than average, the agent is either processing an unexpectedly large context (which may indicate memory management problems) or is stuck in a sub-loop the outer loop can't see. [...] LLM-based agents operate in a reasoning loop. They observe the current state, decide on an action, execute the action, observe the result, and repeat. This loop is intentional and necessary. The problem is that nothing in the base architecture guarantees the loop terminates.\n\nThree specific failure patterns account for the majority of real-world loops:\n\nPattern 1: Goal ambiguity. The agent doesn't have a precise enough representation of what \"done\" looks like. It takes an action, the result is partially useful, and the agent can't determine whether that partial result satisfies the goal or whether more action is needed. So it acts again. And again. [...] ### Working Memory Overflow\n\nLLM context windows are long but finite. On complex multi-step tasks, early observations and completed actions scroll out of the context window as new content is added. The agent effectively forgets what it already did.\n\nThe fix is external working memory — a structured scratchpad maintained outside the LLM context that records completed steps, retrieved facts, and current state. At each step, a compressed summary of this scratchpad is injected into the prompt rather than the full conversation history. The agent always has access to \"what has been done\" without it consuming the entire context window.\n\n### Episodic Memory Contamination",
+      "score": 0.54724693,
+      "raw_content": null,
+      "id": "96757b-01"
+    },
+    {
+      "url": "https://github.com/run-llama/llama_index/discussions/20485",
+      "title": "I’m curious how people here are thinking about managing agentic LLM systems once they’re running in production. · run-llama/llama_index · Discussion #20485 · GitHub",
+      "content": "differed? ```  4. Replay for debugging  Feed the same state snapshot → get deterministic behavior Results In a 4-agent system:    80% fewer tokens (no repeated context passing)  Debugging time cut significantly (just inspect state)  Easy to set guardrails (check state before each action)   This pattern is called stigmergy — coordination through shared state rather than direct messaging. Working example:  | [...] task and you retry, you need to know which steps completed successfully and which didn't. Naive retry from scratch can cause double-writes, duplicate notifications, or repeated expensive API calls.  Cost surprises are common — agents in production find edge cases that cause them to loop or call expensive models more than expected. Rate limits + circuit breakers + per-session cost caps prevent a single bad agent run from generating a surprise $500 API bill.  Human escalation paths need to be designed upfront — agents that get stuck should have a defined path to asking for help rather than looping indefinitely. This is cultural/architectural — teams that don't design the escalation path end up with infinite loops.  State management between sessions — for long-running agents, what happens",
+      "score": 0.5331307,
+      "raw_content": null,
+      "id": "0beed9-02"
+    },
+    {
+      "url": "https://www.readysetcloud.io/blog/allen.helton/your-agent-is-repeating-itself",
+      "title": "Your agent is repeating itself | Ready, Set, Cloud!",
+      "content": "What I was talking about was caching. Caching in agentic development is not only the easiest way to decrease Time to First Token (TTFT), but also a significant money saver as well. When you return a response without running inference, your applications appear snappier and also avoid LLM usage costs.\n\nBut caching isn’t as easy with agents as it is when you’re throwing it in front of your database. Agents generally have two types of caching: exact-match KV caching and semantic caching. The sole purpose of these tiers is to avoid unnecessary and expensive compute costs.\n\nFor many large-scale agent applications, exact-match and semantic caching solve different kinds of repetition. Luckily, it’s easier to implement than you might think with the right tooling.",
+      "score": 0.528899,
+      "raw_content": null,
+      "id": "fdb99a-03"
+    },
+    {
+      "url": "https://sparkco.ai/blog/mastering-retry-logic-agents-a-deep-dive-into-2025-best-practices",
+      "title": "Mastering Retry Logic Agents: A Deep Dive into 2025 Best Practices",
+      "content": "The evolution of retry logic in AI and LLM-based systems has ushered in a new era of intelligent, context-aware mechanisms. Such systems employ adaptive retry strategies, dynamically adjusting based on the context and nature of the encountered errors. For example, modern AI agents utilize frameworks like LangChain, AutoGen, and CrewAI to achieve refined retry strategies that not only consider the type of error but also the operational context, improving decision-making in real-time scenarios. [...] # Executive Summary: Retry Logic Agents\n\nIn the realm of AI-driven applications and large language model (LLM) systems, retry logic agents have emerged as critical components for robust and resilient operations. These agents orchestrate retries in response to failures, employing intelligent mechanisms that adapt to the context and nature of errors encountered.",
+      "score": 0.5050542,
+      "raw_content": null,
+      "id": "30ba5d-04"
+    }
+  ],
+  "result_hash": "2b560f1670a55a3cbff21c1e047c3f6304a6bf930faecd82a473bd64452cbb39",
+  "measured_duration_sec": 4.7202062580036
+}

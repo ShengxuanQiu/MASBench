@@ -1,0 +1,49 @@
+{
+  "provider": "tavily",
+  "query": "multi-agent graph context propagation redundant prefill",
+  "answer": "Multi-agent systems often face data movement challenges; efficient caching and propagation techniques reduce redundant recomputes. GPU performance can suffer due to excessive data movement. Multi-agent path finding uses mutex propagation to eliminate redundant constraints.",
+  "results": [
+    {
+      "url": "https://www.weka.io/article/multi-agent-ai-why-data-movement-matters-more-than-just-compute-and-memory",
+      "title": "GPU utilization suffers when data can't keep up | WEKA",
+      "content": "Performance tests coordinated by NVIDIA shows that NeuralMesh, using a custom NIXL + RDMA path in an 8-GPU H100 rig, streamed KV Cache “from token warehouse” at near memory speed. That means for multi-agent systems where agents are generating and reusing large context windows, NeuralMesh can keep up without huge recompute (redundant inference prefill) overheads.\n\nConsider a simple workload:\n\n 10 agents each generate ~5,000 tokens of context and 10MB of tool output. That’s ~100MB of data moving across the system per round.\n Now scale to 100 agents. Compute has grown 10×, but data movement has grown 100×.",
+      "score": 0.7293082,
+      "raw_content": null,
+      "id": "027d76-00"
+    },
+    {
+      "url": "https://arxiv.org/html/2511.01633v1",
+      "title": "Scaling Graph Chain-of-Thought Reasoning: A Multi-Agent Framework with Efficient LLM Serving",
+      "content": "(1) Single-agent limitations. Existing Graph-CoT frameworks struggle with complex multi-hop reasoning under a single-agent architecture. As reasoning steps increase, input sequences grow longer and accumulate redundant context, causing information dilution and the “lost-in-the-middle” problem. Consequently, Graph-CoT accuracy drops sharply with increasing step depth, e.g., the GPTScore (Fu et al. 2024) declines from 0.42 at 3 steps to 0.17 at 9 steps (Figure 2). In contrast, our multi-agent design achieves comparable reasoning with fewer steps and greater accuracy. Moreover, existing Graph-CoT frameworks suffer from high token overhead due to repeated prefixes and growing context (e.g., $1.9∼\\sim$3.6 per GPT-4.5 query; see Table 1). [...] Building on GLM ’s multi-agent Graph-CoT reasoning framework, this section presents graph-cot aware LLM inference optimizations aimed at enhancing end-to-end inference efficiency, reducing end-to-end latency, and improving throughput. Specifically:\n(1) We propose a vertex-centric KV cache reuse model that leverages the graph structure to share prefix KV caches across queries, reducing latency during the LLM prefill stage;\n(2) We introduce an efficient KV cache scheduling strategy that minimizes redundant KV computations and improves cache hit rates under high-throughput workloads;\n(3) We design a novel pipelined execution strategy that overlaps retrieval with the LLM inference stage, effectively hiding retrieval latency and improving overall system responsiveness. [...] We first examine the total number of tokens consumed during inference. As shown in Figure 10, Graph-CoT exhibits substantial token overhead due to iterative multi-step reasoning, long shared prefixes, and redundant context retention. In contrast, GLM achieves significantly lower token usage. Specifically, the average token consumption per instance ranges from 1,538 ∼\\sim 2,974 tokens in GLM, compared to 22,613 ∼\\sim 45,490 tokens in Graph-CoT, representing up to a 95.7% reduction.",
+      "score": 0.6063825,
+      "raw_content": null,
+      "id": "5f6fc4-01"
+    },
+    {
+      "url": "https://ojs.aaai.org/index.php/ICAPS/article/download/6677/6531/9906",
+      "title": "Multi-Agent Path Finding with Mutex Propagation",
+      "content": "In practice, to keep the sizes of the constraint sets Ci and Cj small (which could reduce the runtime of the low-level search of CBS), we remove the constraints on all such MDD nodes n from the constraint set Ck, k ∈{i, j}, if the con-straints on all of n’s predecessors in the MDD are also in Ck. Such constraints are redundant because the agent can-not reach n.loc at timestep n.level. [...] 1 Introduction The Multi-Agent Path Finding (MAPF) problem is a gener-alization of the single-agent path ﬁnding problem to multi-ple agents. Each agent is required to move from a given start vertex to a given goal vertex on a given graph while avoid-ing conﬂicts with other agents. A conﬂict happens when two agents stay at the same vertex or traverse the same edge in opposite directions at the same time. Common objectives for the MAPF problem include minimizing the sum of the path costs and the makespan. Under both objectives, the MAPF problem arises in many real-world application domains, in-cluding automated warehouse robots (Wurman, D’Andrea, and Mountz 2008) and aircraft-towing vehicles (Morris et al. 2016). [...] In the context of MAPF, MDDs are directed and lev-eled data structures that resemble planning graphs. However, each action has a single precondition because each agent at each timestep can either wait at its current vertex u or tra-verse some edge ⟨u, v⟩, both with the single precondition of the agent being at vertex u at that timestep. Therefore, there is no necessity to represent the action layers explicitly, and a collection of MDDs built individually for each agent can be seen as a special case of a planning graph. Similarly, the mutex propagation rules can also be simpliﬁed in the case of MDDs, as explained in Section 3.2, resulting in the follow-ing semantics. If two MDD nodes ni of MDDi and nj of MDDj at level t are mutex, then there do not exist conﬂict-free sub-paths that move",
+      "score": 0.5585443,
+      "raw_content": null,
+      "id": "b262b0-02"
+    },
+    {
+      "url": "https://idm-lab.org/bib/abstracts/papers/aij22.pdf",
+      "title": "Multi-agent path finding with mutex propagation",
+      "content": "In practice, to keep the sizes of the constraint sets Ci and C j small (which could reduce the runtime of the low-level search of CBS), we remove the constraints on all such MDD nodes n from the constraint set Ck, k ∈{i, j}, if the constraints on all predecessors of MDD node n in the MDD are also in constraint set Ck. Such constraints are redundant because the agent cannot reach vertex n.loc at timestep n.level. [...] 3.2. Mutex propagation on MDDs In the context of MAPF, MDDs are directed and leveled data structures that resemble planning graphs. However, each action has a single precondition because each agent at each timestep can either wait at its current vertex u or traverse some edge ⟨u, v⟩, both with the single precondition of the agent being in vertex u at that timestep. Therefore, it is not necessary to represent the action layers explicitly, and a collection of MDDs built individually for each agent can be seen as a special case of a planning graph. In addition, MDD nodes carry information about reachability both from the start vertex and to the goal vertex. Therefore, unlike planning graphs, MDDs don’t represent non-goal propositions in the last level. Similarly, the mutex propagation rules [...] Artiﬁcial Intelligence 311 (2022) 103766 Contents lists available at ScienceDirect Artiﬁcial Intelligence www.elsevier.com/locate/artint Multi-agent path ﬁnding with mutex propagation ✩ Han Zhang a, Jiaoyang Li a, Pavel Surynek b,∗, T.K. Satish Kumar a, Sven Koenig a a University of Southern California, Los Angeles, USA b Czech Technical University, Prague, Czechia a r t i c l e i n f o a b s t r a c t Article history: Received 17 April 2021 Received in revised form 6 July 2022 Accepted 10 July 2022 Available online 16 July 2022 Keywords: Heuristic search Multi-agent path ﬁnding Satisﬁability solving Mutex propagation is a form of eﬃcient constraint propagation popularly used in AI plan-ning to tightly approximate the reachable states from a given state. We utilize this idea in the context",
+      "score": 0.5518883,
+      "raw_content": null,
+      "id": "fe3732-03"
+    },
+    {
+      "url": "https://github.com/tmgthb/Autonomous-Agents",
+      "title": "Autonomous Agents (LLMs) research papers. Updated Daily.",
+      "content": "Kamera: introduces a position-invariant KV caching framework that enables training-free reuse of multimodal context by separating content from position and applying a low-rank conditioning patch to restore cross-chunk binding.\n   The framework utilizes a canonical KV store and an exact RoPE relocation operator to eliminate redundant re-prefills, while a rank-m conditioning patch corrects the diffuse, deep-layer deficit caused by cross-chunk dependencies.\n   Kamera achieves near-ceiling accuracy across diverse LLM architectures (MLA, GQA, MHA) by treating context as a set of reusable chunks, enabling efficient window operations like reordering, sliding-window survival, and reversible eviction.\n\n  \n\nHoloAgent-0: A Unified Embodied Agent Framework with 3D Spatial Memory [...] SupplyNet: introduces a gamified visual simulation system that leverages a contextual graph-based LLM multi-agent framework to model interdependent supply chain dynamics.\n   The system integrates an interactive network view, a branching timeline for counterfactual exploration, and a task-oriented analysis console to provide responsive feedback and support structured performance breakdowns.\n   SupplyNet utilizes LLM agents to simulate human-like business managers, enabling learners to trace causal propagation and test decision strategies within a manipulable decision space.\n\n  \n\nAutomated Summarization of Software Documents: An LLM-based Multi-Agent Approach",
+      "score": 0.3775871,
+      "raw_content": null,
+      "id": "ec626b-04"
+    }
+  ],
+  "result_hash": "b4eac433bcf1d328cc41ac2e403e784e42e585ea99d12e8a7534e51428934214",
+  "measured_duration_sec": 1.1067868230165914
+}

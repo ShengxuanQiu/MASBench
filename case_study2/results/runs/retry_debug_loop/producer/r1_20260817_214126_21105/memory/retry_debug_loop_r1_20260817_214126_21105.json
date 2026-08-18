@@ -1,0 +1,74 @@
+{
+  "created_at": 1786974089.9926581,
+  "frozen_at": 1786974119.299749,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "Retry logic in LLM agents uses adaptive strategies to handle failures, often employing frameworks like LangChain for context-aware retries. Debugging loops involve detecting repeated actions and managing context to prevent infinite loops. Effective caching reduces redundant computations and costs.",
+      "evidence_refs": [
+        "a_0001",
+        "https://arxiv.org/html/2603.18897v1",
+        "https://www.meritshot.com/blog/ai-agent-looping-how-to-stop",
+        "https://github.com/run-llama/llama_index/discussions/20485",
+        "https://www.readysetcloud.io/blog/allen.helton/your-agent-is-repeating-itself"
+      ],
+      "graph_reason": "shared_tool_fanout",
+      "keywords": [
+        "agent",
+        "context",
+        "debug",
+        "inference",
+        "llm",
+        "loop",
+        "repeated",
+        "retry"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786974091.97308,
+      "token_count": 47,
+      "type": "evidence"
+    },
+    {
+      "content": "retry history and context reduce redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "graph_reason": "loop_carried_state",
+      "keywords": [
+        "retry",
+        "context",
+        "prefill",
+        "history"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "initial_attempt",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786974097.1610389,
+      "token_count": 12,
+      "type": "claim"
+    },
+    {
+      "content": "retry history and context reduce redundant prefill in multi-agent workflows",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "loop_carried_state",
+      "keywords": [
+        "retry",
+        "context",
+        "debug",
+        "prefill"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "debug_round_1",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786974107.114241,
+      "token_count": 12,
+      "type": "evidence"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "retry_debug_loop_r1_20260817_214126_21105"
+}

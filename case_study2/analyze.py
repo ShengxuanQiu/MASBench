@@ -16,12 +16,20 @@ FIGURES = ROOT / "figures"
 TABLES = ROOT / "tables"
 COLORS = {"raw": "#475EA4", "producer": "#B0D7E6", "neutral": "#ABB2BC"}
 ORDER = [
-    "debate_allgather_pressure_meso",
+    "single_agent_control",
+    "independent_fanin",
+    "centralized_manager_worker",
     "shared_memory_fanin_meso",
+    "debate_allgather_pressure_meso",
+    "retry_debug_loop",
     "hierarchical_synthesis_pressure_meso",
+    "issue_to_patch_workflow",
 ]
-LABELS = ["Debate\nall-gather", "Shared-memory\nfan-in", "Hierarchical\nsynthesis"]
-SHORT_LABELS = ["All-gather", "Fan-in", "Hierarchical"]
+LABELS = [
+    "Single / Linear", "Independent\nFan-In", "Manager–Worker", "Shared Store",
+    "All-Gather", "Retry Loop", "Hierarchical", "Issue-to-Patch",
+]
+SHORT_LABELS = [label.replace("\n", " ") for label in LABELS]
 
 
 def load_rows() -> list[dict[str, Any]]:
@@ -30,6 +38,7 @@ def load_rows() -> list[dict[str, Any]]:
         row = json.loads(path.read_text(encoding="utf-8"))
         if row.get("mode") not in {"raw", "producer"}:
             continue
+        row["tool_excluded_latency_sec"] = float(row["result_latency_sec"]) - float(row["tool_latency_sec"])
         row["summary_path"] = str(path.relative_to(ROOT))
         rows.append(row)
     return rows
@@ -47,12 +56,6 @@ def med(rows: list[dict[str, Any]], workload: str, mode: str, field: str) -> flo
     return statistics.median(values(rows, workload, mode, field))
 
 
-def spread(rows: list[dict[str, Any]], workload: str, mode: str, field: str) -> tuple[float, float]:
-    samples = values(rows, workload, mode, field)
-    center = statistics.median(samples)
-    return center - min(samples), max(samples) - center
-
-
 def style_axis(ax: Any) -> None:
     for spine in ax.spines.values():
         spine.set_visible(True)
@@ -62,39 +65,64 @@ def style_axis(ax: Any) -> None:
     ax.tick_params(labelsize=8)
 
 
+def raw_reuse_distribution(row: dict[str, Any]) -> list[float]:
+    """Token-weight artifact reuse by observed raw graph consumer multiplicity."""
+    summary_path = ROOT / row["summary_path"]
+    events = [json.loads(line) for line in summary_path.with_name("trace.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    created = {event["artifact_id"]: int(event["token_count"]) for event in events if event["event_type"] == "artifact_created"}
+    consumers: dict[str, set[str]] = {}
+    for event in events:
+        if event["event_type"] == "context_propagation":
+            consumers.setdefault(event["source_artifact_id"], set()).add(event["consumer"])
+    buckets = [0.0, 0.0, 0.0, 0.0]
+    for artifact_id, artifact_consumers in consumers.items():
+        count = len(artifact_consumers)
+        bucket = 0 if count == 1 else 1 if count == 2 else 2 if count <= 4 else 3
+        buckets[bucket] += created.get(artifact_id, 0)
+    total = sum(buckets)
+    return [100 * value / total if total else 0.0 for value in buckets]
+
+
 def figure1(rows: list[dict[str, Any]]) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.55))
-    x = np.arange(len(ORDER))
-    unique = np.array([med(rows, workload, "raw", "unique_artifact_tokens") for workload in ORDER])
-    repeated = np.array([med(rows, workload, "raw", "repeated_context_tokens") for workload in ORDER])
-    raw_actual = np.array([med(rows, workload, "raw", "actual_context_tokens") for workload in ORDER])
-    producer_actual = np.array([med(rows, workload, "producer", "actual_context_tokens") for workload in ORDER])
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.65), sharey=True, gridspec_kw={"width_ratios": [0.9, 1.15]})
+    y = np.arange(len(ORDER))
+    amplification = np.array([med(rows, workload, "raw", "duplication_ratio") for workload in ORDER])
+    propagated = np.array([med(rows, workload, "raw", "raw_equivalent_tokens") for workload in ORDER])
 
-    axes[0].bar(x, unique, color=COLORS["neutral"], edgecolor="#59616C", linewidth=0.7, label="Unique artifact tokens", zorder=3)
-    axes[0].bar(x, repeated, bottom=unique, color=COLORS["raw"], edgecolor="#59616C", linewidth=0.7, label="Repeated propagation", zorder=3)
-    for index, workload in enumerate(ORDER):
-        amp = med(rows, workload, "raw", "duplication_ratio")
-        axes[0].text(index, unique[index] + repeated[index], f"{amp:.2f}×", ha="center", va="bottom", fontsize=8, weight="bold")
-    axes[0].set_title("(a) Graph-induced context amplification", loc="left", fontsize=10, weight="bold")
-    axes[0].set_ylabel("Raw-equivalent downstream tokens")
-    axes[0].set_xticks(x, LABELS)
-    axes[0].legend(frameon=False, fontsize=7.5, loc="upper right")
-    style_axis(axes[0])
+    axes[0].hlines(y, 1.0, amplification, color="#9BA3AE", linewidth=2.0, zorder=2)
+    axes[0].scatter(amplification, y, s=48, color=COLORS["raw"], edgecolor="#334780", linewidth=0.7, zorder=3)
+    axes[0].axvline(1.0, color="#7D848D", linewidth=0.9, linestyle=(0, (3, 3)), zorder=1)
+    pad = max(0.05, 0.025 * max(amplification))
+    for index, (ratio, tokens) in enumerate(zip(amplification, propagated)):
+        axes[0].text(ratio + pad, index, f"{ratio:.2f}×  ({tokens / 1000:.1f}K)", va="center", fontsize=7.6)
+    axes[0].set_yticks(y, SHORT_LABELS)
+    axes[0].invert_yaxis()
+    axes[0].set_xlabel("Propagation amplification (×)")
+    axes[0].set_title("(a) Raw graph amplification", loc="left", fontsize=10, weight="bold")
+    axes[0].set_xlim(0.85, max(amplification) * 1.22)
 
-    width = 0.34
-    axes[1].bar(x - width / 2, raw_actual, width, color=COLORS["raw"], edgecolor="#475EA4", linewidth=0.7, label="Raw propagation", zorder=3)
-    axes[1].bar(x + width / 2, producer_actual, width, color=COLORS["producer"], edgecolor="#475EA4", linewidth=0.7, label="Producer-side memory", zorder=3)
-    for index in range(len(ORDER)):
-        reduction = 100 * (1 - producer_actual[index] / raw_actual[index])
-        axes[1].text(index, max(raw_actual[index], producer_actual[index]), f"−{reduction:.1f}%", ha="center", va="bottom", fontsize=8, weight="bold")
-    axes[1].set_title("(b) Graph-aware materialization removes retransmission", loc="left", fontsize=10, weight="bold")
-    axes[1].set_ylabel("Actual downstream context tokens")
-    axes[1].set_xticks(x, LABELS)
-    axes[1].legend(frameon=False, fontsize=7.5, loc="upper right")
-    style_axis(axes[1])
-
-    fig.suptitle("Structural Context Replication in Real MAS Executions", fontsize=12, weight="bold", y=1.02)
-    fig.tight_layout(w_pad=1.8)
+    distributions = []
+    for workload in ORDER:
+        samples = [raw_reuse_distribution(row) for row in rows if row["workload"] == workload and row["mode"] == "raw"]
+        distributions.append(np.median(np.asarray(samples), axis=0))
+    distributions_array = np.asarray(distributions)
+    reuse_colors = [COLORS["neutral"], COLORS["producer"], COLORS["raw"], "#2E3D70"]
+    reuse_labels = ["Consumed 1×", "Consumed 2×", "Consumed 3–4×", "Consumed ≥5×"]
+    left = np.zeros(len(ORDER))
+    for bucket, (color, label) in enumerate(zip(reuse_colors, reuse_labels)):
+        axes[1].barh(y, distributions_array[:, bucket], left=left, height=0.62, color=color, edgecolor="white", linewidth=0.55, label=label, zorder=3)
+        left += distributions_array[:, bucket]
+    axes[1].set_xlim(0, 100)
+    axes[1].set_xlabel("Share of unique artifact tokens (%)")
+    axes[1].set_title("(b) Token-weighted artifact reuse", loc="left", fontsize=10, weight="bold")
+    handles, legend_labels = axes[1].get_legend_handles_labels()
+    for ax in axes:
+        style_axis(ax)
+        ax.grid(axis="x", color="#E3E6EA", linewidth=0.7, zorder=0)
+        ax.grid(axis="y", visible=False)
+    fig.suptitle("Structural Context Replication in Raw MAS Executions", fontsize=11.5, weight="bold", y=1.0)
+    fig.legend(handles, legend_labels, frameon=False, fontsize=7.6, ncol=4, loc="lower center", bbox_to_anchor=(0.69, -0.01))
+    fig.tight_layout(w_pad=1.6, rect=(0, 0.055, 1, 1))
     FIGURES.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIGURES / "fig1_structural_context_replication.png", dpi=300, bbox_inches="tight")
     fig.savefig(FIGURES / "fig1_structural_context_replication.pdf", bbox_inches="tight")
@@ -102,43 +130,26 @@ def figure1(rows: list[dict[str, Any]]) -> None:
 
 
 def figure2(rows: list[dict[str, Any]]) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(11.2, 3.35))
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 3.75))
     x = np.arange(len(ORDER))
-    width = 0.34
-    for mode, offset in [("raw", -width / 2), ("producer", width / 2)]:
+    for mode, marker in [("raw", "o"), ("producer", "s")]:
         latency = [med(rows, workload, mode, "result_latency_sec") for workload in ORDER]
-        latency_err = np.array([spread(rows, workload, mode, "result_latency_sec") for workload in ORDER]).T
         ttft = [1000 * med(rows, workload, mode, "consumer_ttft_median_sec") for workload in ORDER]
-        ttft_err = 1000 * np.array([spread(rows, workload, mode, "consumer_ttft_median_sec") for workload in ORDER]).T
-        label = "Raw" if mode == "raw" else "Producer-side"
-        axes[0].bar(x + offset, latency, width, yerr=latency_err, capsize=2.5, color=COLORS[mode], edgecolor="#475EA4", linewidth=0.7, label=label, zorder=3)
-        axes[1].bar(x + offset, ttft, width, yerr=ttft_err, capsize=2.5, color=COLORS[mode], edgecolor="#475EA4", linewidth=0.7, label=label, zorder=3)
+        label = "Raw propagation" if mode == "raw" else "Graph-aware memory"
+        marker_edge = "#334780" if mode == "raw" else "#475EA4"
+        axes[0].plot(x, latency, color=COLORS[mode], marker=marker, markersize=5.5, markeredgecolor=marker_edge, linewidth=2.0, label=label, zorder=3)
+        axes[1].plot(x, ttft, color=COLORS[mode], marker=marker, markersize=5.5, markeredgecolor=marker_edge, linewidth=2.0, label=label, zorder=3)
 
     axes[0].set_title("(a) End-to-end latency", loc="left", fontsize=9.5, weight="bold")
     axes[0].set_ylabel("Workflow latency (s)")
-    axes[1].set_title("(b) Downstream prefill cost", loc="left", fontsize=9.5, weight="bold")
+    axes[1].set_title("(b) Downstream consumer TTFT", loc="left", fontsize=9.5, weight="bold")
     axes[1].set_ylabel("Median consumer TTFT (ms)")
 
-    generation_saved = np.array([
-        med(rows, workload, "raw", "answer_output_tokens") - med(rows, workload, "producer", "answer_output_tokens")
-        for workload in ORDER
-    ])
-    propagation_avoided = np.array([med(rows, workload, "producer", "avoided_propagation_tokens") for workload in ORDER])
-    sidecar = np.array([med(rows, workload, "producer", "producer_memory_extra_output_tokens") for workload in ORDER])
-    token_width = 0.24
-    axes[2].bar(x - token_width, propagation_avoided, token_width, color=COLORS["raw"], label="Avoided propagation", zorder=3)
-    axes[2].bar(x, generation_saved, token_width, color=COLORS["producer"], edgecolor="#475EA4", linewidth=0.6, label="Shorter LLM answers", zorder=3)
-    axes[2].bar(x + token_width, -sidecar, token_width, color=COLORS["neutral"], edgecolor="#59616C", linewidth=0.6, label="Sidecar overhead", zorder=3)
-    axes[2].axhline(0, color="#50545B", linewidth=0.8)
-    axes[2].set_title("(c) Token-level benefit attribution", loc="left", fontsize=9.5, weight="bold")
-    axes[2].set_ylabel("Tokens saved (+) / added (−)")
-    axes[2].legend(frameon=False, fontsize=6.8, loc="upper right")
-
     for ax in axes:
-        ax.set_xticks(x, SHORT_LABELS, rotation=12)
+        ax.set_xticks(x, LABELS, rotation=26, ha="right", rotation_mode="anchor")
         style_axis(ax)
-    axes[0].legend(frameon=False, fontsize=7.5, loc="upper right")
-    fig.tight_layout(w_pad=1.35)
+    axes[0].legend(frameon=False, fontsize=7.4, loc="best")
+    fig.tight_layout(w_pad=1.5)
     FIGURES.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIGURES / "fig2_quantitative_results.png", dpi=300, bbox_inches="tight")
     fig.savefig(FIGURES / "fig2_quantitative_results.pdf", bbox_inches="tight")
@@ -157,6 +168,7 @@ def write_outputs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "actual_context_tokens", "raw_equivalent_tokens", "unique_artifact_tokens",
         "duplication_ratio", "result_latency_sec", "consumer_ttft_median_sec",
         "consumer_latency_median_sec", "tool_latency_sec", "evidence_source_coverage",
+        "tool_excluded_latency_sec",
         "task_consistency", "workload_quality_score", "answer_output_tokens",
         "total_completion_tokens", "producer_memory_extra_output_tokens",
         "avoided_propagation_tokens", "memory_grounding_ratio", "memory_focus_coverage",
@@ -182,6 +194,10 @@ def write_outputs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def report(aggregated: list[dict[str, Any]]) -> None:
     lookup = {(row["workload"], row["mode"]): row for row in aggregated}
+    single_raw = lookup[("single_agent_control", "raw")]
+    single_producer = lookup[("single_agent_control", "producer")]
+    full_raw = lookup[("issue_to_patch_workflow", "raw")]
+    full_producer = lookup[("issue_to_patch_workflow", "producer")]
     result_lines: list[str] = []
     attribution_lines: list[str] = []
     quality_lines: list[str] = []
@@ -198,13 +214,17 @@ def report(aggregated: list[dict[str, Any]]) -> None:
             f"{raw['actual_context_tokens']:.0f} → {producer['actual_context_tokens']:.0f} ({context_reduction:.1f}%↓) |"
         )
         answer_saved = raw["answer_output_tokens"] - producer["answer_output_tokens"]
+        compression = f"{producer['compression_ratio']:.1f}×" if producer["compression_ratio"] is not None else "N/A"
         attribution_lines.append(
             f"| {label} | {answer_saved:.0f} | {producer['avoided_propagation_tokens']:.0f} | "
-            f"{producer['producer_memory_extra_output_tokens']:.0f} | {producer['compression_ratio']:.1f}× |"
+            f"{producer['producer_memory_extra_output_tokens']:.0f} | {compression} |"
         )
+        focus = f"{producer['memory_focus_coverage']:.0%}" if producer["memory_focus_coverage"] is not None else "N/A"
+        grounding = f"{producer['memory_grounding_ratio']:.3f}" if producer["memory_grounding_ratio"] is not None else "N/A"
+        distinctive = f"{producer['memory_distinctiveness']:.3f}" if producer["memory_distinctiveness"] is not None else "N/A"
         quality_lines.append(
-            f"| {label} | {producer['evidence_source_coverage']:.0%} | {producer['memory_focus_coverage']:.0%} | "
-            f"{producer['memory_grounding_ratio']:.3f} | {producer['memory_distinctiveness']:.3f} | "
+            f"| {label} | {producer['evidence_source_coverage']:.0%} | {focus} | "
+            f"{grounding} | {distinctive} | "
             f"{raw['workload_quality_score']:.2f} / {producer['workload_quality_score']:.2f} |"
         )
 
@@ -218,7 +238,11 @@ MAS 的上下文开销不是普通的“单个 prompt 很长”，而是 workflo
 
 ![Structural context replication](figures/fig1_structural_context_replication.png)
 
+Figure 1 是纯 Motivation/Observation 图，只统计 Raw Context Propagation，不包含优化结果。左图给出 `total propagated / unique artifact` amplification，并在标注中同时给出真实传播 token 数；右图按 artifact 的真实 consumer multiplicity 将 unique artifact tokens 分为 1×、2×、3–4× 与 ≥5×。两图共同说明：冗余来自 graph edge 对 artifact 的结构性复用，而非偶然出现的单个长 prompt。
+
 ![Quantitative results](figures/fig2_quantitative_results.png)
+
+Figure 2 才比较 Raw 与 Graph-Aware Producer-Side Memory，并严格复用 Figure 1 的八个配置与顺序。左图是包含实时 Tavily 的 observed end-to-end workflow latency；右图是 downstream consumer median TTFT。`Single / Linear` 是 graph policy 不启用 memory 的负对照；`Issue-to-Patch` 是包含 plan broadcast、evidence fan-in、diagnosis、patch candidate、review/debug 和 finalization 的完整多阶段 reasoning workflow。回归测试仅被提出、没有伪造为已执行，因此不称为 `issue_to_verified_patch`。
 
 ## 2. 为什么不强制 Raw 与 Producer 输出相同 token budget
 
@@ -228,7 +252,7 @@ MAS 的上下文开销不是普通的“单个 prompt 很长”，而是 workflo
 2. **propagation/prefill reduction**：同一 compact record 被多个 consumer 重用，避免 raw artifact 沿每条 edge 重传；
 3. **sidecar overhead**：producer 为形成 structured record 新增的 decode tokens。
 
-Figure 2(c) 分开报告三项，因而不会把 generation shortening 全部包装成 Prefill 优化。质量约束、source coverage、focus coverage、grounding 与 distinctiveness 必须同时成立，才允许把 token reduction 计为有效收益。
+正文图只保留 E2E latency 与 downstream TTFT；三项 token attribution 在 Section 5.1 的独立表格中报告，因而不会把 generation shortening 全部包装成 Prefill 优化。质量约束、source coverage、focus coverage、grounding 与 distinctiveness 必须同时成立，才允许把 token reduction 计为有效收益。
 
 ## 3. 在线系统设计
 
@@ -256,27 +280,29 @@ runtime 将 answer 与 sidecar 分离；answer 保留为原始 artifact，sideca
 
 ### 3.3 质量防线
 
-- sidecar 必须为 6–22 words，禁止格式占位符；
+- sidecar 必须为 5–22 words，禁止格式占位符；
 - 至少两个 content terms 必须出现在 producer answer 中；
 - 必须命中 graph 分配的 role/focus anchor；
 - memory 不能只复述全局 objective；
 - retrieval 强制 source provenance coverage；
 - trace 记录 grounding ratio、focus match 和 memory terms；
-- validation 要求 source/focus coverage=100%、grounding≥0.5、pairwise distinctiveness≥0.35。
+- validation 要求 source/focus coverage=100%、grounding≥0.5；对拥有多个语义分支的 graph 还要求 pairwise distinctiveness≥0.35。Retry Loop 刻意承载同一状态跨 round 重用，因此 distinctiveness 不作为其有效性门槛。
 
 ## 4. 实验设置
 
 - Main model：Qwen3-8B，单张 NVIDIA RTX A6000，MAS conda 环境中的真实 vLLM；temperature=0，OpenAI-compatible SSE streaming。
 - Tool：每个 run 实时调用 Tavily advanced search，5 results；不使用 synthetic/recorded tool result。
-- Workloads：`debate_allgather_pressure_meso`、`shared_memory_fanin_meso`、`hierarchical_synthesis_pressure_meso`。
+- Workloads：`single_agent_control`、`independent_fanin`、`centralized_manager_worker`、`shared_memory_fanin_meso`、`debate_allgather_pressure_meso`、`retry_debug_loop`、`hierarchical_synthesis_pressure_meso`，以及完整的 `issue_to_patch_workflow`。它们覆盖 linear、independent fan-in、centralized manager–worker、shared-store fan-in、all-gather、multi-round retry、hierarchical composition 和 full software reasoning graph。
 - Compared settings：Raw Context Propagation 与 Graph-Aware Producer-Side Memory。
-- 每个 workload/mode 重复 2 次，共 12 个正式 run；柱高为 median，error bar 为 observed min–max。Tavily latency 独立记录。
+- 每个 workload/mode 重复 2 次，共 32 个正式 run；Figure 2 折线点为 median。由于两次重复不足以形成可靠置信区间，正文图不画 error bar；observed min/max 仍保存在 `tables/aggregate_summary.json`。Tavily latency 独立记录，尤其用于解释 Single / Linear 负对照和 full workflow 的外部服务波动。
 
 ## 5. 实验结果
 
 | Workflow | E2E latency | Consumer TTFT | Actual downstream context |
 |---|---:|---:|---:|
 {chr(10).join(result_lines)}
+
+这里必须区分外部 tool 波动与 serving 收益。Single / Linear 没有 eligible artifact，实际 downstream context 基本不变；其 tool-excluded latency 为 {single_raw['tool_excluded_latency_sec']:.2f} → {single_producer['tool_excluded_latency_sec']:.2f} s，说明图中的 observed E2E 差异主要来自实时 Tavily，而不是优化“凭空加速”负对照。Issue-to-Patch 的 tool-excluded latency 仍为 {full_raw['tool_excluded_latency_sec']:.2f} → {full_producer['tool_excluded_latency_sec']:.2f} s（{full_raw['tool_excluded_latency_sec'] / full_producer['tool_excluded_latency_sec']:.2f}×），与 observed E2E 方向一致。All-Gather 的 observed E2E 为 1.14×，且 consumer TTFT 下降 74.5%，是最清晰的受控 serving 证据。Hierarchical 的 context reduction 仅 17.8%，TTFT 没有改善但 E2E 仍小幅下降，明确展示该方法的收益取决于 graph reuse 强度，而非对所有 graph 一律成立。
 
 ### 5.1 收益归因
 

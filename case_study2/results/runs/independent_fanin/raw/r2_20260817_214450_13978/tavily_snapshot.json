@@ -1,0 +1,49 @@
+{
+  "provider": "tavily",
+  "query": "multi-agent independent fan-in synthesis context aggregation",
+  "answer": "Multi-agent independent fan-in synthesis involves parallel execution of agents, followed by aggregation of results through voting or synthesis. It enhances speed and diversity but requires careful conflict resolution. The synthesis step can introduce errors if not managed properly.",
+  "results": [
+    {
+      "title": "Multi-Agent Orchestration Patterns: A Practical Guide - Rost Glukhov | Personal site and technical blog",
+      "url": "https://www.glukhov.org/ai-systems/architecture/multi-agent-orchestration-patterns",
+      "content": "## Pattern 3: Fan-Out / Fan-In\n\n### How It Works\n\nFan-Out / Fan-In is parallel execution with aggregation. A dispatcher routes work to multiple agents running simultaneously, then a collector aggregates their results via voting, weighted merging, or LLM synthesis. Agents operate independently throughout execution and do not communicate with each other — the only shared boundary is the collector.\n\ngraph TD D[Dispatcher] --> AA[Agent A] D --> AB[Agent B] D --> AC[Agent C] AA --> C[Collector  \nmerge] AB --> C AC --> C\n\n### When to Use It\n\n Multi-perspective analysis where diverse viewpoints are valuable\n Concurrent code review (multiple reviewers in parallel)\n 4+ independent tasks that can be decomposed upfront\n Workloads where wall-clock time matters more than token efficiency",
+      "score": 0.6829338,
+      "raw_content": null,
+      "id": "b1cfc2-00"
+    },
+    {
+      "title": "Parallel (Fan-Out / Fan-In) | Hands-on AI Playbook",
+      "url": "https://handsonai.info/agentic-building-blocks/agents/orchestration-patterns/parallel",
+      "content": "│ ┌─────────┐ │\n\n└───▸│ Agent C │───┘\n\n└─────────┘\n\n```\n\n1. Fan-out — The coordinator distributes work to multiple agents. This can be the same task (for diversity) or different subtasks (for speed).\n2. Execute — Each agent works independently and concurrently. They don’t communicate with each other.\n3. Fan-in — The aggregator collects all results and combines them. Aggregation strategies include:\n    Merge — combine all outputs into one (e.g., assembling report sections)\n    Vote — take the majority answer (e.g., classification confidence)\n    Select — pick the best output based on a quality criterion\n    Synthesize — produce a new output informed by all results\n\n## Example\n\nSection titled “Example”\n\n### Market research report\n\nSection titled “Market research report” [...] Section titled “Market research report”\n\nA strategy team needs a competitive landscape analysis:\n\n Agent A — Researches competitor pricing and positioning\n Agent B — Analyzes market trends and growth projections\n Agent C — Reviews customer sentiment and product reviews\n Aggregator — Synthesizes all three into a unified market research report\n\nEach agent works with different data sources and produces a different section. The aggregator assembles the report and resolves any contradictions.\n\n### Code review with voting\n\nSection titled “Code review with voting”\n\nThree reviewer agents independently review the same pull request:\n\n Reviewer 1 — Focuses on correctness and logic errors\n Reviewer 2 — Focuses on security vulnerabilities\n Reviewer 3 — Focuses on performance and readability [...] Speed. If three independent subtasks each take 30 seconds sequentially, that’s 90 seconds. In parallel, it’s 30 seconds.\n\nDiversity. Running the same task through multiple agents (or the same agent with different prompts) produces varied perspectives. A coordinator can then select the best result, synthesize multiple viewpoints, or use majority voting to improve reliability.\n\n## How It Works\n\nSection titled “How It Works”\n\n```\n\n┌─────────┐\n\n┌───▸│ Agent A │───┐\n\n│ └─────────┘ │\n\n┌────────┐ │ ┌─────────┐ │ ┌────────────┐\n\n│ Input │─┼───▸│ Agent B │───┼─▸│ Aggregator │\n\n└────────┘ │ └─────────┘ │ └────────────┘\n\n│ ┌─────────┐ │\n\n└───▸│ Agent C │───┘\n\n└─────────┘\n\n```",
+      "score": 0.666736,
+      "raw_content": null,
+      "id": "7fe15d-01"
+    },
+    {
+      "url": "https://simonevellei.com/en/the-parallel-research-pattern-fan-out-fan-in-for-multi-agent-ai",
+      "title": "The parallel research pattern: fan-out / fan-in for multi-agent AI - Simone Vellei - Blog",
+      "content": "Fan-out / fan-in sits in the sweet spot when you have multiple independent perspectives and care about wall-clock latency. It does not require a supervisor agent or a shared blackboard—just goroutines and a well-designed synthesis prompt.\n\n## When to use this pattern\n\nThis pattern works well when: [...] The synthesizer’s input token count scales with the sum of all worker outputs. With the 150–200-word limit per worker, the synthesis prompt is around 600–700 words—well within the context window of any current model.\n\n## Comparison with other patterns\n\n| Pattern | Worker independence | LLM calls | Latency model |\n ---  --- |\n| Sequential pipeline | Dependent | N sequential | Sum of all steps |\n| Fan-out / fan-in | Independent | N parallel + 1 | Max of workers + 1 |\n| Supervisor-blackboard | Dependent | N + routing | Sum + routing overhead |\n| Evaluator-optimizer | Dependent (iterative) | 2 × iterations | Iterations × step latency | [...] ## The fan-in: building the synthesis prompt\n\nThe fan-in is the step where parallel work becomes sequential. All worker outputs are assembled into a single structured prompt for the synthesizer:",
+      "score": 0.61251885,
+      "raw_content": null,
+      "id": "a14c5f-02"
+    },
+    {
+      "title": "6 Multi-Agent Orchestration Patterns for Production (2026) - Beam AI",
+      "url": "https://beam.ai/agentic-insights/multi-agent-orchestration-patterns-production",
+      "content": "The less obvious problem is overhead. A four-agent pipeline accumulates roughly 950ms of coordination overhead while actual processing takes 500ms. A three-agent pipeline consumes 29,000 tokens versus 10,000 for an equivalent single-agent approach. If your pipeline doesn't need the specialization, you're paying 3x for the same result.\n\n## 3. Fan-out / fan-in\n\nMultiple agents execute simultaneously on the same input or on independent subtasks. A dispatcher sends work out, a collector aggregates results using voting, weighted merging, or LLM-based synthesis. [...] The aggregation step itself introduces error. LLM-based synthesis can hallucinate consensus that doesn't exist in the underlying results. If your parallel agents disagree (sentiment says buy, fundamentals says sell), you need an explicit conflict resolution strategy, not just \"summarize the results.\"\n\n## 4. Multi-agent debate\n\nMultiple agents participate in a shared conversation, contributing perspectives, challenging each other, and refining positions across rounds. Includes maker-checker loops where one agent generates and another validates until approved. [...] Independent parallel work? Fan-out/fan-in. Four or more tasks with no dependencies between them.\n\nNeed quality verification? Multi-agent debate. Especially maker-checker loops where accuracy matters more than speed.\n\nUnpredictable routing? Dynamic handoff. You cannot know which specialist is needed until the conversation unfolds.\n\nOpen-ended problem? Adaptive planning. The plan itself needs to be discovered, not just executed.",
+      "score": 0.5843666,
+      "raw_content": null,
+      "id": "bb1adf-03"
+    },
+    {
+      "url": "https://agentpatterns.ai/patterns/multi-agent/fan-out-synthesis",
+      "title": "Fan-Out Synthesis Pattern for AI Agent Development - AgentPatterns.ai",
+      "content": "Also known as\n\nFan-Out Pattern, Parallel Dispatch, Scatter-Gather. The fan-out-then-synthesize variant adds a dedicated merge step after parallel execution. See Agent Composition Patterns, Orchestrator-Worker, and Sub-Agents Fan-Out.\n\n## Structure¶\n\n1. Fan-out — spawn N agents with identical instructions but independent contexts. Each one produces a distinct solution.\n2. Synthesis — a synthesis agent critiques all N outputs, scores them against defined criteria, and assembles a merged solution from the strongest parts.\n3. Validation — pass the merged output through a committee review loop before you accept it. [...] Skip to content\n\n Structure\n Why parallel diversity helps\n Why it works\n Diversity mechanisms\n Synthesis agent responsibilities\n Cost trade-off\n When this backfires\n Integration with committee review\n Key Takeaways\n Example\n FAQ\n Related\n\nagent-design cost-performance multi-agent tool-agnostic workflows \n\n# Fan-Out Synthesis Pattern¶\n\n> Fan-out spawns N independent agents on one problem, then a synthesis agent merges the strongest elements from each attempt into a single output.\n\nLearn it hands-on with the Fan-Out and Synthesis guided lesson, which includes quizzes.\n\nAlso known as [...] Conformity bias collapses diversity. Agents given the same prompt can converge on the same approach rather than genuinely independent solutions. A study of multi-agent LLM failures builds a taxonomy in which inter-agent misalignment is one of three failure categories, so running more agents does not guarantee the diversity that fan-out depends on (Cemri et al., 2025 — Why Do Multi-Agent LLM Systems Fail?). Constrained solution spaces amplify the convergence.\n A weak synthesis agent makes things worse. If the synthesizer cannot judge which elements are strongest, the merge step adds errors rather than removing them, and the result can be worse than the best individual attempt. This is the highest-risk component.",
+      "score": 0.53298485,
+      "raw_content": null,
+      "id": "bcc9f8-04"
+    }
+  ],
+  "result_hash": "7704340f827c04aa8f8686d85c1acdb00f38676b9ccf1b9b1a7cb24db3b52da7",
+  "measured_duration_sec": 4.286747461010236
+}

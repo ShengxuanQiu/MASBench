@@ -10,9 +10,14 @@ set +a
 
 REPEATS="${REPEATS:-2}"
 WORKLOADS=(
+  single_agent_control
+  independent_fanin
+  centralized_manager_worker
   debate_allgather_pressure_meso
   shared_memory_fanin_meso
+  retry_debug_loop
   hierarchical_synthesis_pressure_meso
+  issue_to_patch_workflow
 )
 
 for repeat in $(seq 1 "${REPEATS}"); do

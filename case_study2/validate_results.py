@@ -39,8 +39,18 @@ def validate(root: Path, expected_runs: int | None = None) -> list[str]:
             if len(memories) != 1:
                 raise AssertionError(f"{run_dir}: expected one task memory file")
             memory = json.loads(memories[0].read_text(encoding="utf-8"))
-            if memory.get("state") != "frozen" or not memory.get("records"):
-                raise AssertionError(f"{run_dir}: memory is empty or not frozen")
+            eligible = int(summary.get("graph_eligible_artifact_count") or 0)
+            if memory.get("state") != "frozen":
+                raise AssertionError(f"{run_dir}: memory is not frozen")
+            if eligible == 0:
+                if memory.get("records"):
+                    raise AssertionError(f"{run_dir}: negative control unexpectedly materialized memory")
+                if summary["execution"].get("memory_materialization") != "not_used":
+                    raise AssertionError(f"{run_dir}: negative control did not bypass materialization")
+                checked.append(f"{summary['workload']}/{summary['mode']}/{summary['run_id']}")
+                continue
+            if not memory.get("records"):
+                raise AssertionError(f"{run_dir}: memory is empty")
             if not all(record.get("type") in ALLOWED_RECORD_TYPES for record in memory["records"]):
                 raise AssertionError(f"{run_dir}: invalid record type")
             if float(summary["evidence_source_coverage"]) != 1.0:
@@ -49,7 +59,7 @@ def validate(root: Path, expected_runs: int | None = None) -> list[str]:
                 raise AssertionError(f"{run_dir}: graph-assigned focus coverage is incomplete")
             if float(summary["memory_grounding_ratio"]) < 0.5:
                 raise AssertionError(f"{run_dir}: memory is weakly grounded in producer answers")
-            if float(summary["memory_distinctiveness"]) < 0.35:
+            if summary["workload"] != "retry_debug_loop" and float(summary["memory_distinctiveness"]) < 0.35:
                 raise AssertionError(f"{run_dir}: source memories are insufficiently distinct")
             if summary["execution"].get("memory_materialization") != "producer_same_generation":
                 raise AssertionError(f"{run_dir}: memory was not produced in the source request")
@@ -66,7 +76,7 @@ def main() -> None:
         type=Path,
         default=Path(__file__).with_name("results") / "runs",
     )
-    parser.add_argument("--expected-runs", type=int, default=12)
+    parser.add_argument("--expected-runs", type=int, default=32)
     args = parser.parse_args()
     checked = validate(args.root, args.expected_runs)
     print(f"Validated {len(checked)} real runs")

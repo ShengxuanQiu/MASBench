@@ -1,0 +1,223 @@
+{
+  "created_at": 1786974523.1093614,
+  "frozen_at": 1786974585.6610136,
+  "materialization": "producer_same_generation",
+  "records": [
+    {
+      "content": "The `separability_matrix` in Astropy incorrectly computes separability for nested CompoundModels. The issue was reported and fixed in GitHub issue #12907. The fix ensures correct computation for nested compound models.",
+      "evidence_refs": [
+        "a_0001",
+        "https://openai.com/index/introducing-codex",
+        "https://github.com/astropy/astropy/issues/12906",
+        "https://huggingface.co/datasets/HeyixInn0/SWExploit",
+        "https://github.com/astropy/astropy/issues/18523"
+      ],
+      "graph_reason": "shared_tool_fanout",
+      "keywords": [
+        "astropy",
+        "bug",
+        "compoundmodel",
+        "fix",
+        "nested",
+        "separability_matrix"
+      ],
+      "memory_id": "m_0001",
+      "source_agent": "tavily_grounding",
+      "source_artifact_id": "a_0001",
+      "timestamp": 1786974537.7985737,
+      "token_count": 45,
+      "type": "evidence"
+    },
+    {
+      "content": "nested CompoundModel separability_matrix requires parameter hierarchy validation",
+      "evidence_refs": [
+        "a_0002"
+      ],
+      "graph_reason": "full_workflow_plan_broadcast",
+      "keywords": [
+        "nested",
+        "CompoundModel",
+        "separability_matrix",
+        "regression"
+      ],
+      "memory_id": "m_0002",
+      "source_agent": "issue_manager_plan",
+      "source_artifact_id": "a_0002",
+      "timestamp": 1786974541.8687012,
+      "token_count": 10,
+      "type": "claim"
+    },
+    {
+      "content": "nested CompoundModel separability_matrix requires parameter hierarchy validation",
+      "evidence_refs": [
+        "a_0003"
+      ],
+      "graph_reason": "full_workflow_evidence_fanin",
+      "keywords": [
+        "nested",
+        "CompoundModel",
+        "hierarchy",
+        "validation"
+      ],
+      "memory_id": "m_0003",
+      "source_agent": "issue_evidence_1",
+      "source_artifact_id": "a_0003",
+      "timestamp": 1786974546.395054,
+      "token_count": 10,
+      "type": "evidence"
+    },
+    {
+      "content": "separability matrix implementation requires parameter hierarchy validation",
+      "evidence_refs": [
+        "a_0004"
+      ],
+      "graph_reason": "full_workflow_evidence_fanin",
+      "keywords": [
+        "separability",
+        "matrix",
+        "nested",
+        "validation"
+      ],
+      "memory_id": "m_0004",
+      "source_agent": "issue_evidence_2",
+      "source_artifact_id": "a_0004",
+      "timestamp": 1786974546.4897768,
+      "token_count": 9,
+      "type": "evidence"
+    },
+    {
+      "content": "regression test design for separability matrix validation",
+      "evidence_refs": [
+        "a_0005"
+      ],
+      "graph_reason": "full_workflow_evidence_fanin",
+      "keywords": [
+        "regression",
+        "test",
+        "separability",
+        "nested"
+      ],
+      "memory_id": "m_0005",
+      "source_agent": "issue_evidence_3",
+      "source_artifact_id": "a_0005",
+      "timestamp": 1786974546.8956664,
+      "token_count": 9,
+      "type": "keyword_summary"
+    },
+    {
+      "content": "evidence synthesis for nested separability in CompoundModels",
+      "evidence_refs": [
+        "a_0006"
+      ],
+      "graph_reason": "full_workflow_cross_stage_reuse",
+      "keywords": [
+        "nested",
+        "separability",
+        "validation",
+        "regression"
+      ],
+      "memory_id": "m_0006",
+      "source_agent": "issue_evidence_synthesis",
+      "source_artifact_id": "a_0006",
+      "timestamp": 1786974551.389686,
+      "token_count": 10,
+      "type": "evidence"
+    },
+    {
+      "content": "root cause is separability failure in nested CompoundModels",
+      "evidence_refs": [
+        "a_0007"
+      ],
+      "graph_reason": "full_workflow_diagnosis_fanin",
+      "keywords": [
+        "separability",
+        "nested",
+        "CompoundModel",
+        "regression"
+      ],
+      "memory_id": "m_0007",
+      "source_agent": "issue_diagnosis_1",
+      "source_artifact_id": "a_0007",
+      "timestamp": 1786974556.1865585,
+      "token_count": 10,
+      "type": "claim"
+    },
+    {
+      "content": "regression risk in nested CompoundModels",
+      "evidence_refs": [
+        "a_0008"
+      ],
+      "graph_reason": "full_workflow_diagnosis_fanin",
+      "keywords": [
+        "regression",
+        "nested",
+        "separability",
+        "CompoundModels"
+      ],
+      "memory_id": "m_0008",
+      "source_agent": "issue_diagnosis_3",
+      "source_artifact_id": "a_0008",
+      "timestamp": 1786974556.5194714,
+      "token_count": 7,
+      "type": "claim"
+    },
+    {
+      "content": "minimal patch for matrix in nested CompoundModels",
+      "evidence_refs": [
+        "a_0009"
+      ],
+      "graph_reason": "full_workflow_diagnosis_fanin",
+      "keywords": [
+        "matrix",
+        "patch",
+        "nested",
+        "separability"
+      ],
+      "memory_id": "m_0009",
+      "source_agent": "issue_diagnosis_2",
+      "source_artifact_id": "a_0009",
+      "timestamp": 1786974556.8531039,
+      "token_count": 8,
+      "type": "claim"
+    },
+    {
+      "content": "patch constraints for nested separability_matrix behavior",
+      "evidence_refs": [
+        "a_0010"
+      ],
+      "graph_reason": "full_workflow_patch_fanout",
+      "keywords": [
+        "separability",
+        "nested",
+        "patch",
+        "regression"
+      ],
+      "memory_id": "m_0010",
+      "source_agent": "issue_diagnosis_consensus",
+      "source_artifact_id": "a_0010",
+      "timestamp": 1786974559.981213,
+      "token_count": 8,
+      "type": "constraint"
+    },
+    {
+      "content": "selected patch and verification plan for nested CompoundModel separability",
+      "evidence_refs": [
+        "a_0013"
+      ],
+      "graph_reason": "full_workflow_selected_patch_reuse",
+      "keywords": [
+        "nested",
+        "separability",
+        "verification"
+      ],
+      "memory_id": "m_0011",
+      "source_agent": "issue_patch_selector",
+      "source_artifact_id": "a_0013",
+      "timestamp": 1786974572.5539703,
+      "token_count": 11,
+      "type": "claim"
+    }
+  ],
+  "state": "frozen",
+  "task_id": "issue_to_patch_workflow_r2_20260817_214839_21687"
+}

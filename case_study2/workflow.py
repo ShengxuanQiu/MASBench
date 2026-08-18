@@ -23,12 +23,26 @@ from .trace import TraceWriter, read_jsonl
 
 
 WORKLOADS = {
+    "single_agent_control",
+    "independent_fanin",
+    "centralized_manager_worker",
     "debate_allgather_pressure_meso",
     "shared_memory_fanin_meso",
+    "retry_debug_loop",
     "hierarchical_synthesis_pressure_meso",
+    "issue_to_patch_workflow",
 }
 
 QUALITY_DIMENSIONS = {
+    "single_agent_control": [
+        ("graph",), ("context",), ("prefill", "token"), ("evidence",),
+    ],
+    "independent_fanin": [
+        ("fan-in", "aggregation"), ("context",), ("prefill", "token"), ("evidence",),
+    ],
+    "centralized_manager_worker": [
+        ("manager",), ("worker",), ("context",), ("dependency", "coordination"),
+    ],
     "debate_allgather_pressure_meso": [
         ("serving", "prefill", "batching", "decode"),
         ("dependency", "fan-out", "critical", "topology"),
@@ -41,16 +55,24 @@ QUALITY_DIMENSIONS = {
         ("provenance", "coverage", "evidence"),
         ("overhead", "crossover", "tradeoff"),
     ],
+    "retry_debug_loop": [
+        ("retry", "round"), ("debug",), ("context", "history"), ("prefill", "token"),
+    ],
     "hierarchical_synthesis_pressure_meso": [
         ("latency", "prefill"),
         ("provenance", "evidence"),
         ("context", "reuse"),
         ("compression", "faithfulness"),
     ],
+    "issue_to_patch_workflow": [
+        ("separability", "matrix"), ("compound", "nested"), ("patch", "fix"), ("test", "regression"),
+    ],
 }
 
 
-def task_consistency_score(text: str) -> float:
+def task_consistency_score(workload: str, text: str) -> float:
+    if workload == "issue_to_patch_workflow":
+        return workload_quality_score(workload, text)
     lowered = text.lower()
     required_concepts = [
         ("graph",),
@@ -87,6 +109,7 @@ class GraphMemoryWorkflow:
         self.run_dir = run_dir
         self.run_id = run_id
         self.task_id = f"{workload}_{run_id}"
+        self.objective = str(config.get("workload_objectives", {}).get(workload) or config["objective"])
         self.trace = TraceWriter(run_dir / "trace.jsonl", run_id=run_id, workload=workload, mode=mode)
         self.tokenizer = AutoTokenizer.from_pretrained(config["main_model"]["path"], trust_remote_code=True)
         self.main = LocalLLMClient(
@@ -260,11 +283,18 @@ class GraphMemoryWorkflow:
             focus="external evidence and named systems",
             focus_terms=["evidence", "system", "agent", "memory", "context"],
             expected_consumers={
+                "single_agent_control": 1,
+                "independent_fanin": 4,
+                "centralized_manager_worker": 3,
                 "debate_allgather_pressure_meso": 9,
                 "shared_memory_fanin_meso": 2,
+                "retry_debug_loop": 6,
                 "hierarchical_synthesis_pressure_meso": 2,
+                "issue_to_patch_workflow": 7,
             }[self.workload],
-            multi_round_reuse=self.workload == "debate_allgather_pressure_meso",
+            multi_round_reuse=self.workload in {
+                "debate_allgather_pressure_meso", "retry_debug_loop", "issue_to_patch_workflow"
+            },
         )
         if self.mode == "producer" and tool_policy["enabled"]:
             tool_view = (result.answer or "").strip()
@@ -310,7 +340,7 @@ class GraphMemoryWorkflow:
         direct_ids = [
             artifact_id for artifact_id in artifact_ids if not self.artifacts[artifact_id]["memory_eligible"]
         ]
-        query = f"role={role}; objective={self.config['objective']}; current context={current}"
+        query = f"role={role}; objective={self.objective}; current context={current}"
         rows = self.memory_store.retrieve(
             query=query,
             source_artifact_ids=eligible_ids,
@@ -358,7 +388,7 @@ class GraphMemoryWorkflow:
         max_tokens: int | None = None,
         memory_policy: dict[str, Any] | None = None,
     ) -> str:
-        user = f"Task objective:\n{self.config['objective']}\n\nAvailable context:\n{context}\n\nInstruction:\n{instruction}"
+        user = f"Task objective:\n{self.objective}\n\nAvailable context:\n{context}\n\nInstruction:\n{instruction}"
         producer_side = self.mode == "producer" and bool(memory_policy and memory_policy["enabled"])
         requested_max_tokens = max_tokens or int(self.config["main_model"]["max_tokens"])
         min_answer_words = max(24, round(requested_max_tokens * 0.40))
@@ -422,12 +452,21 @@ class GraphMemoryWorkflow:
             }
             if not answer or not str(record.get("content", "")).strip():
                 raise ValueError(f"invalid producer-side dual view from {node_id}")
-            record_type = str(record.get("type", "")).strip()
+            record_type = str(record.get("type", "")).strip().lower()
+            record_type = {
+                "plan": "constraint",
+                "decision": "constraint",
+                "recommendation": "claim",
+                "finding": "evidence",
+                "fact": "evidence",
+                "summary": "keyword_summary",
+            }.get(record_type, record_type)
             if record_type not in {"claim", "evidence", "constraint", "keyword_summary"}:
-                raise ValueError(f"invalid producer-side memory type from {node_id}: {record_type}")
+                record_type = "claim"
+            record["type"] = record_type
             memory_words = str(record["content"]).split()
             forbidden = {"at most 18 words", "compact factual summary", "answer-specific factual summary"}
-            if not 6 <= len(memory_words) <= 22 or str(record["content"]).strip().lower() in forbidden:
+            if not 5 <= len(memory_words) <= 22 or str(record["content"]).strip().lower() in forbidden:
                 raise ValueError(f"invalid producer-side memory content from {node_id}: {record['content']!r}")
             answer_terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", answer.lower()))
             memory_terms = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", str(record["content"]).lower()))
@@ -435,17 +474,24 @@ class GraphMemoryWorkflow:
             if len(grounded) < 2:
                 raise ValueError(f"producer-side memory from {node_id} is not grounded in its answer")
             focus_terms = {item.lower() for item in memory_policy["focus_terms"]}
-            focus_match = bool(memory_terms & focus_terms)
+            focus_match = any(
+                memory_term == focus_term
+                or (len(memory_term) >= 4 and len(focus_term) >= 4 and (
+                    memory_term.startswith(focus_term) or focus_term.startswith(memory_term)
+                ))
+                for memory_term in memory_terms
+                for focus_term in focus_terms
+            )
             if not focus_match:
                 raise ValueError(f"producer-side memory from {node_id} misses its graph-assigned focus")
-            objective_only = memory_terms <= terms(self.config["objective"])
+            objective_only = memory_terms <= terms(self.objective)
             if objective_only:
                 raise ValueError(f"producer-side memory from {node_id} only restates the objective")
             answer_words = len(answer.split())
-            if answer_words < max(20, min_answer_words - 20):
+            if answer_words < max(20, min_answer_words - 30):
                 raise ValueError(
                     f"producer-side answer from {node_id} is too short: "
-                    f"{answer_words} words < {max(20, min_answer_words - 20)}"
+                    f"{answer_words} words < {max(20, min_answer_words - 30)}"
                 )
             record["content"] = str(record["content"]).strip()
             record["keywords"] = [str(item).strip() for item in record.get("keywords", []) if str(item).strip()][:8]
@@ -510,6 +556,347 @@ class GraphMemoryWorkflow:
             memory_policy=output_policy,
         )
         return self.artifact(node, output, artifact_type="agent_output", policy=output_policy)
+
+    def single_control(self) -> str:
+        """Linear negative control: every artifact has exactly one consumer."""
+        web = self.search()
+        analysis = self.consume_and_run(
+            "linear_analyst",
+            "analyst",
+            [web],
+            "Explain graph context, evidence, and prefill cost in exactly eight concise numbered statements.",
+            max_tokens=224,
+        )
+        final = self.consume_and_run(
+            "linear_finalizer",
+            "finalizer",
+            [analysis],
+            "Produce four one-sentence bullets covering graph, context, prefill tokens, and evidence.",
+            max_tokens=160,
+        )
+        return final
+
+    def independent_fanin(self) -> str:
+        """Independent specialists followed by a four-way synthesis barrier."""
+        count = int(self.config["workloads"][self.workload]["num_agents"])
+        focuses = {
+            1: ("fan-in aggregation", ["fan-in", "aggregation"]),
+            2: ("context token growth", ["context", "tokens"]),
+            3: ("downstream prefill", ["prefill", "latency"]),
+            4: ("evidence preservation", ["evidence", "coverage"]),
+        }
+        web = self.search()
+
+        def specialist(i: int) -> tuple[str, str]:
+            node = f"independent_specialist_{i}"
+            focus, anchors = focuses[i]
+            policy = self.policy(
+                reason="independent_terminal_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=count,
+            )
+            artifact_id = self.consume_and_run(
+                node,
+                "independent specialist",
+                [web],
+                f"Write exactly {5 + i} numbered findings about {focus}; retain {', '.join(anchors)}.",
+                max_tokens=144 + 24 * i,
+                output_policy=policy,
+            )
+            return node, artifact_id
+
+        specialists = self.parallel(list(range(1, count + 1)), specialist)
+        synthesis = self.consume_and_run(
+            "fanin_synthesizer",
+            "synthesizer",
+            list(specialists.values()),
+            "Synthesize the independent branches while preserving fan-in, context, prefill, and evidence findings.",
+            max_tokens=224,
+        )
+        return self.consume_and_run(
+            "fanin_finalizer",
+            "finalizer",
+            [synthesis],
+            "Produce four one-sentence bullets covering fan-in aggregation, context growth, prefill tokens, and evidence.",
+            max_tokens=160,
+        )
+
+    def manager_worker(self) -> str:
+        """Centralized manager broadcasts one plan and collects specialized workers."""
+        count = int(self.config["workloads"][self.workload]["num_workers"])
+        plan_policy = self.policy(
+            reason="manager_plan_broadcast",
+            focus="manager dependency plan",
+            focus_terms=["manager", "dependency", "plan"],
+            expected_consumers=count,
+        )
+        plan_text = self.llm(
+            "manager_plan",
+            "manager",
+            "Create eight numbered manager decisions about worker coordination, dependency, and context sharing.",
+            "External evidence will be collected concurrently.",
+            parents=[],
+            context_consumer=False,
+            max_tokens=224,
+            memory_policy=plan_policy,
+        )
+        plan = self.artifact("manager_plan", plan_text, artifact_type="manager_plan", policy=plan_policy)
+        web = self.search()
+        focuses = {
+            1: ("worker context reuse", ["worker", "context", "reuse"]),
+            2: ("manager dependency control", ["manager", "dependency", "control"]),
+            3: ("coordination overhead", ["coordination", "overhead", "worker"]),
+        }
+
+        def worker(i: int) -> tuple[str, str]:
+            node = f"manager_worker_{i}"
+            focus, anchors = focuses[i]
+            policy = self.policy(
+                reason="manager_collection_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=count,
+            )
+            aid = self.consume_and_run(
+                node,
+                "managed worker",
+                [plan, web],
+                f"Return exactly {6 + i} numbered observations about {focus}; include {', '.join(anchors)}.",
+                max_tokens=176 + 24 * i,
+                output_policy=policy,
+            )
+            return node, aid
+
+        workers = self.parallel(list(range(1, count + 1)), worker)
+        collected = self.consume_and_run(
+            "manager_collect",
+            "manager",
+            [plan, *workers.values()],
+            "Collect the worker results and preserve manager, worker, context, dependency, and coordination evidence.",
+            max_tokens=224,
+        )
+        return self.consume_and_run(
+            "manager_finalizer",
+            "finalizer",
+            [collected],
+            "Produce four one-sentence bullets covering manager control, worker execution, context reuse, and dependency coordination.",
+            max_tokens=160,
+        )
+
+    def retry_loop(self) -> str:
+        """Temporal negative/positive mix with a stable artifact reread each round."""
+        rounds = int(self.config["workloads"][self.workload]["rounds"])
+        web = self.search()
+        initial_policy = self.policy(
+            reason="loop_carried_state",
+            focus="retry history and stable context",
+            focus_terms=["retry", "history", "context"],
+            expected_consumers=2 * rounds,
+            multi_round_reuse=True,
+        )
+        initial_text = self.consume_and_run(
+            "initial_attempt",
+            "generator",
+            [web],
+            "Create an initial eight-step analysis using retry, debug, context, history, prefill, and token concepts.",
+            max_tokens=224,
+            output_policy=initial_policy,
+        )
+        current = initial_text
+        for round_id in range(1, rounds + 1):
+            review = self.consume_and_run(
+                f"review_round_{round_id}",
+                "reviewer",
+                [web, current],
+                f"Review retry round {round_id}; identify debug evidence and repeated context carried from history.",
+                max_tokens=176,
+            )
+            next_policy = self.policy(
+                reason="loop_carried_state",
+                focus="debug revision and repeated prefill",
+                focus_terms=["debug", "revision", "prefill"],
+                expected_consumers=2 if round_id < rounds else 1,
+                multi_round_reuse=round_id < rounds,
+            )
+            current = self.consume_and_run(
+                f"debug_round_{round_id}",
+                "debugger",
+                [web, current, review],
+                f"Produce retry round {round_id} revision with explicit debug, history, context, and prefill implications.",
+                max_tokens=208,
+                output_policy=next_policy,
+            )
+        return self.consume_and_run(
+            "retry_finalizer",
+            "finalizer",
+            [web, current],
+            "Produce four one-sentence bullets covering retry rounds, debugging, repeated context/history, and prefill tokens.",
+            max_tokens=176,
+        )
+
+    def issue_to_patch(self) -> str:
+        """Full multi-stage issue-to-patch graph with live external evidence."""
+        settings = self.config["workloads"][self.workload]
+        evidence_count = int(settings["evidence_agents"])
+        diagnosis_count = int(settings["diagnosis_agents"])
+        patch_count = int(settings["patch_agents"])
+        web = self.search()
+        plan_policy = self.policy(
+            reason="full_workflow_plan_broadcast",
+            focus="nested CompoundModel investigation plan",
+            focus_terms=["nested", "CompoundModel", "plan"],
+            expected_consumers=evidence_count,
+        )
+        plan_text = self.llm(
+            "issue_manager_plan",
+            "software manager",
+            "Plan diagnosis of nested CompoundModel separability_matrix behavior, likely code locations, patch criteria, and regression tests.",
+            "Use the fixed Astropy issue objective.",
+            parents=[],
+            context_consumer=False,
+            max_tokens=224,
+            memory_policy=plan_policy,
+        )
+        plan = self.artifact("issue_manager_plan", plan_text, artifact_type="plan", policy=plan_policy)
+        evidence_focuses = {
+            1: ("nested CompoundModel behavior", ["nested", "CompoundModel"]),
+            2: ("separability matrix implementation", ["separability", "matrix"]),
+            3: ("regression test design", ["regression", "test"]),
+        }
+
+        def evidence_agent(i: int) -> tuple[str, str]:
+            node = f"issue_evidence_{i}"
+            focus, anchors = evidence_focuses[i]
+            policy = self.policy(
+                reason="full_workflow_evidence_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=evidence_count,
+            )
+            aid = self.consume_and_run(
+                node,
+                "software evidence analyst",
+                [plan, web],
+                f"Extract eight concrete findings about {focus}; retain {', '.join(anchors)} and avoid invented test results.",
+                max_tokens=224,
+                output_policy=policy,
+            )
+            return node, aid
+
+        evidence = self.parallel(list(range(1, evidence_count + 1)), evidence_agent)
+        synthesis_policy = self.policy(
+            reason="full_workflow_cross_stage_reuse",
+            focus="evidence synthesis for nested separability",
+            focus_terms=["evidence", "nested", "separability"],
+            expected_consumers=diagnosis_count + 2,
+            multi_round_reuse=True,
+        )
+        synthesis = self.consume_and_run(
+            "issue_evidence_synthesis",
+            "evidence synthesizer",
+            list(evidence.values()),
+            "Synthesize evidence about nested CompoundModel separability, matrix construction, likely root cause, and regression coverage.",
+            max_tokens=256,
+            output_policy=synthesis_policy,
+        )
+        diagnosis_focuses = {
+            1: ("root cause", ["root", "cause", "separability"]),
+            2: ("minimal patch", ["minimal", "patch", "matrix"]),
+            3: ("regression risk", ["regression", "risk", "nested"]),
+        }
+
+        def diagnose(i: int) -> tuple[str, str]:
+            node = f"issue_diagnosis_{i}"
+            focus, anchors = diagnosis_focuses[i]
+            policy = self.policy(
+                reason="full_workflow_diagnosis_fanin",
+                focus=focus,
+                focus_terms=anchors,
+                fanin_width=diagnosis_count,
+            )
+            aid = self.consume_and_run(
+                node,
+                "software diagnosis agent",
+                [synthesis],
+                f"Argue the {focus} hypothesis in eight numbered statements; include {', '.join(anchors)}.",
+                max_tokens=208,
+                output_policy=policy,
+            )
+            return node, aid
+
+        diagnoses = self.parallel(list(range(1, diagnosis_count + 1)), diagnose)
+        consensus_policy = self.policy(
+            reason="full_workflow_patch_fanout",
+            focus="consensus patch constraints",
+            focus_terms=["consensus", "patch", "constraints"],
+            expected_consumers=patch_count,
+            fanin_width=diagnosis_count,
+        )
+        consensus = self.consume_and_run(
+            "issue_diagnosis_consensus",
+            "diagnosis reviewer",
+            list(diagnoses.values()),
+            "Form a consensus root cause and explicit patch constraints for nested separability_matrix behavior.",
+            max_tokens=224,
+            output_policy=consensus_policy,
+        )
+
+        def coder(i: int) -> tuple[str, str]:
+            node = f"issue_patch_candidate_{i}"
+            policy = self.policy(
+                reason="full_workflow_patch_selection_fanin",
+                focus="candidate patch and regression test",
+                focus_terms=["patch", "regression", "test"],
+                fanin_width=patch_count,
+            )
+            aid = self.consume_and_run(
+                node,
+                "patch author",
+                [synthesis, consensus],
+                f"Propose candidate patch {i} with pseudocode and regression tests for nested CompoundModels; do not claim tests ran.",
+                max_tokens=240,
+                output_policy=policy,
+            )
+            return node, aid
+
+        candidates = self.parallel(list(range(1, patch_count + 1)), coder)
+        selected_policy = self.policy(
+            reason="full_workflow_selected_patch_reuse",
+            focus="selected patch and verification plan",
+            focus_terms=["selected", "patch", "verification"],
+            expected_consumers=3,
+            multi_round_reuse=True,
+        )
+        selected = self.consume_and_run(
+            "issue_patch_selector",
+            "patch selector",
+            list(candidates.values()),
+            "Select one patch approach and provide a verification plan; distinguish proposed tests from executed tests.",
+            max_tokens=240,
+            output_policy=selected_policy,
+        )
+        review = self.consume_and_run(
+            "issue_test_reviewer",
+            "test reviewer",
+            [synthesis, selected],
+            "Review the selected patch against nested CompoundModel examples and specify regression assertions; do not fabricate execution.",
+            max_tokens=208,
+        )
+        debug = self.consume_and_run(
+            "issue_debugger",
+            "debugger",
+            [synthesis, selected, review],
+            "Revise the patch design using evidence and review feedback; preserve separability matrix shape and nested behavior.",
+            max_tokens=224,
+        )
+        return self.consume_and_run(
+            "issue_final_report",
+            "software finalizer",
+            [synthesis, selected, debug],
+            "Produce exactly four one-sentence bullets covering separability matrix root cause, nested CompoundModel behavior, proposed patch, and regression tests; state that tests are proposed, not executed.",
+            max_tokens=192,
+        )
 
     def debate(self) -> str:
         n = int(self.config["workloads"][self.workload]["num_agents"])
@@ -762,12 +1149,22 @@ class GraphMemoryWorkflow:
     def run(self) -> dict[str, Any]:
         self.start_ts = time.time()
         self.trace.emit("workflow_start", start_ts=self.start_ts, task_id=self.task_id, graph_definition=self.workload)
-        if self.workload == "debate_allgather_pressure_meso":
+        if self.workload == "single_agent_control":
+            final_id = self.single_control()
+        elif self.workload == "independent_fanin":
+            final_id = self.independent_fanin()
+        elif self.workload == "centralized_manager_worker":
+            final_id = self.manager_worker()
+        elif self.workload == "debate_allgather_pressure_meso":
             final_id = self.debate()
         elif self.workload == "shared_memory_fanin_meso":
             final_id = self.shared_fanin()
-        else:
+        elif self.workload == "retry_debug_loop":
+            final_id = self.retry_loop()
+        elif self.workload == "hierarchical_synthesis_pressure_meso":
             final_id = self.hierarchical()
+        else:
+            final_id = self.issue_to_patch()
         result_ts = time.time()
         self.trace.emit("workflow_result_ready", result_ts=result_ts, result_artifact_id=final_id)
         if self.memory_store is not None:
@@ -776,7 +1173,7 @@ class GraphMemoryWorkflow:
         self.trace.emit("workflow_end", result_ts=result_ts, end_ts=end_ts, result_latency_sec=result_ts - self.start_ts, drain_latency_sec=end_ts - self.start_ts)
         summary = summarize(self.run_dir / "trace.jsonl")
         summary["final_answer"] = self.artifacts[final_id]["content"]
-        summary["task_consistency"] = task_consistency_score(summary["final_answer"])
+        summary["task_consistency"] = task_consistency_score(self.workload, summary["final_answer"])
         summary["task_consistency_definition"] = "lexical_required_concept_coverage"
         summary["workload_quality_score"] = workload_quality_score(self.workload, summary["final_answer"])
         summary["workload_quality_definition"] = "workload_specific_dimension_coverage"

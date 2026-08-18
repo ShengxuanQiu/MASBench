@@ -1,0 +1,68 @@
+{
+  "seed": 42,
+  "objective": "Explain how graph-aware context management can reduce redundant prefill in multi-agent workflows while preserving evidence coverage.",
+  "workload_objectives": {
+    "issue_to_patch_workflow": "Diagnose and propose a fix for Astropy separability_matrix producing incorrect results for nested CompoundModels, together with regression tests that are proposed but not executed."
+  },
+  "main_model": {
+    "path": "/data/home/shegnxuanqiu/deepthink-with-confidence-openai/Qwen3-8B",
+    "served_name": "qwen3-8b-case-study2",
+    "base_url": "http://127.0.0.1:8201/v1",
+    "max_tokens": 192
+  },
+  "retrieval": {
+    "method": "role_aware_lexical",
+    "top_k": 8
+  },
+  "producer_memory": {
+    "max_extra_tokens": 192,
+    "graph_degree_threshold": 3
+  },
+  "tavily": {
+    "max_results": 5,
+    "search_depth": "advanced",
+    "include_raw_content": false
+  },
+  "workloads": {
+    "single_agent_control": {},
+    "independent_fanin": {
+      "num_agents": 4
+    },
+    "centralized_manager_worker": {
+      "num_workers": 3
+    },
+    "debate_allgather_pressure_meso": {
+      "num_agents": 4,
+      "rounds": 2
+    },
+    "shared_memory_fanin_meso": {
+      "writers": 2,
+      "readers": 4
+    },
+    "retry_debug_loop": {
+      "rounds": 2
+    },
+    "hierarchical_synthesis_pressure_meso": {
+      "groups": 2,
+      "agents_per_group": 2
+    },
+    "issue_to_patch_workflow": {
+      "evidence_agents": 3,
+      "diagnosis_agents": 3,
+      "patch_agents": 2
+    }
+  },
+  "search_queries": {
+    "single_agent_control": "multi-agent graph context propagation redundant prefill",
+    "independent_fanin": "multi-agent independent fan-in synthesis context aggregation",
+    "centralized_manager_worker": "manager worker multi-agent context sharing communication",
+    "debate_allgather_pressure_meso": "multi-agent debate all-gather context redundancy LLM inference",
+    "shared_memory_fanin_meso": "multi-agent shared memory evidence fan-in context compression",
+    "retry_debug_loop": "LLM agent retry debug loop repeated context inference",
+    "hierarchical_synthesis_pressure_meso": "hierarchical multi-agent synthesis graph context propagation",
+    "issue_to_patch_workflow": "Astropy separability_matrix nested CompoundModel bug fix"
+  },
+  "selected_workload": "issue_to_patch_workflow",
+  "selected_mode": "raw",
+  "run_id": "r1_20260817_214200_29000"
+}

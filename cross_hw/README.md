@@ -27,7 +27,19 @@ cross_hw/
 - 请求指标：input/output tokens、TTFT、TPOT、request latency
 - Workflow 指标：tool-excluded E2E latency、graph amplification
 
+新增的底层行为实验不把 prefill/decode microbenchmark 当作最终研究对象，
+而是用它标定 serving stack，再把硬件采样对齐回真实 MAS graph 的节点时间线：
+
+- Prefill sweep：prompt length 128--4096，观察 TTFT 与有效 prefill rate。
+- Decode sweep：context 512/2048/4096 × concurrency 1/2/4/8，观察 TPOT 与总吞吐饱和。
+- Workflow bottleneck map：在相同秒级时间轴上叠加 graph node 的 prefill/decode Gantt、
+  AI Core/HBM 利用率、活动请求压力和功耗。
+
 ![Hardware workflow overview](figures/fig1_hardware_workflow_overview.png)
+
+![Prefill decode characterization](figures/fig5_prefill_decode_characterization.png)
+
+![Workflow bottleneck map](figures/fig6_workflow_bottleneck_map.png)
 
 ## Ascend 服务启动
 
@@ -57,6 +69,29 @@ REPEATS=2 ./cross_hw/scripts/run_ascend_hardware_profile.sh
 - `fig3_tpot_request_progression`
 - `fig4_graph_amplification`
 
+底层行为实验入口：
+
+```bash
+python cross_hw/scripts/run_prefill_decode_sweep.py \
+  --output cross_hw/raw_runs/ascend_prefill_decode --repeats 2
+
+REPEATS=1 PROFILE_ID=ascend_workflow_timeline \
+  ./cross_hw/scripts/run_workflow_bottleneck_profile.sh
+```
+
+绘图脚本 `scripts/plot_bottleneck_profile.py` 生成：
+
+- `fig5_prefill_decode_characterization`
+- `fig6_workflow_bottleneck_map`
+- `workflow_phase_hardware_summary.csv`
+
+详细实验定义、首轮数值和采样限制见
+[`results/bottleneck_experiment_notes.md`](results/bottleneck_experiment_notes.md)。
+
 ## 结果解释边界
 
 当前结果适合用于确认图形设计和形成初步观察，但仍属于硬件与 serving stack 的组合比较。论文定稿前建议增加到至少 5 次重复，记录并统一 vLLM/插件版本及服务参数，并增加并发 workflow sweep。
+
+当前 `npu-smi` 单次采样接近 1 秒，短 prefill 区间可能没有落入硬件采样点。
+图中的 graph/SSE phase boundary 仍为精确时间戳，但 prefill 瓶颈定论需在后续加入
+CANN/msprof kernel counter，并在 A6000 侧使用匹配的 Nsight/DCGM collector。

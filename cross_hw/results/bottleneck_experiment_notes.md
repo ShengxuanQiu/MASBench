@@ -53,3 +53,18 @@ but instantaneous NPU samples can miss short prefill intervals. The figure uses
 markers to expose the real sample cadence. Do not interpret the sparse prefill
 samples as a stable prefill utilization estimate. A later publication run
 should add CANN/msprof kernel counters and a matched Nsight/DCGM CUDA collector.
+
+## NPU-only workflow utilization figure
+
+After the initial timeline run, two additional telemetry runs were collected
+for every workflow. The NPU-only main figure therefore has three candidates per
+workflow and displays the median-duration run. It removes the request Gantt and
+uses eight workflow small multiples with a shared 0--100% utilization scale.
+The plotted signals are AI Core, AI Cube, and HBM bandwidth utilization. Full
+per-run mean and P95 values are exported separately rather than added to the
+figure.
+
+The attempted A6000 collection was excluded: the nominally free GPU exposed an
+unattributed CUDA context, only about 21 GB of actual free memory, and `N/A`
+utilization counters. No CUDA result from that session is included in a figure
+or result archive.

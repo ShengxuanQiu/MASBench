@@ -37,6 +37,15 @@ cross_hw/
 
 ![Hardware workflow overview](figures/fig1_hardware_workflow_overview.png)
 
+当前底层行为主图采用 NPU-only small multiples：每个 MAS workflow 一个子图，
+在真实 elapsed-time 横轴上对齐 AI Core、AI Cube 与 HBM bandwidth utilization。
+每个 workflow 已完成 3 次 telemetry run，图中选择中位耗时 run 保持可读性，
+全部 run 的统计保存在 CSV 中。
+
+![Ascend workflow utilization](figures/fig7_ascend_workflow_utilization.png)
+
+Prefill/decode sweep 作为 serving-stack 标定图保留，建议在论文中放入附录：
+
 ![Prefill decode characterization](figures/fig5_prefill_decode_characterization.png)
 
 ![Workflow bottleneck map](figures/fig6_workflow_bottleneck_map.png)
@@ -83,7 +92,12 @@ REPEATS=1 PROFILE_ID=ascend_workflow_timeline \
 
 - `fig5_prefill_decode_characterization`
 - `fig6_workflow_bottleneck_map`
+- `fig7_ascend_workflow_utilization`
 - `workflow_phase_hardware_summary.csv`
+
+NPU-only workflow utilization 图由
+`scripts/plot_ascend_workflow_utilization.py` 生成；脚本可同时接受多个
+`--profile-root`，并自动选择每种 workflow 的中位耗时代表 run。
 
 详细实验定义、首轮数值和采样限制见
 [`results/bottleneck_experiment_notes.md`](results/bottleneck_experiment_notes.md)。

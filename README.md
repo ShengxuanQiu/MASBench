@@ -1,3 +1,9 @@
+# 昇腾平台适配说明
+
+本分支为 MASBench-Arch 的 Ascend 适配与跨硬件实验分支。当前已在单张 Ascend 910 上使用 Qwen3-8B、vLLM Ascend 和 OpenAI-compatible SSE 接口跑通 8 类 MAS workflow，并与仓库中单张 RTX A6000 的既有 trace 完成首轮对齐比较。昇腾启动脚本、采集配置、可复现实验入口、逐请求指标、原始 trace 归档以及 A6000/Ascend 对比图统一位于 [`cross_hw/`](cross_hw/README.md)。
+
+当前结果属于“硬件 + serving stack”对比：正式引用前应进一步统一两侧 vLLM 版本、编译策略、服务参数，并增加重复次数与并发 sweep。
+
 # MASBench-Arch 基础拓扑与架构 Trace 原型
 
 本仓库是 MASBench-Arch 的早期原型，核心是构建可控的基础 MAS 拓扑库、可组合 composite motif，以及面向系统/体系结构研究的 trace。正式 workload 位于 `mas_workflow/`，旧 demo workflow 仍保留在源码中作为 prompts、dispatcher、tool wrapper、analysis 等实现参考。

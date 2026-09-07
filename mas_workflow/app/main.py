@@ -1,4 +1,4 @@
-"""MASBench-Arch week-1 topology CLI."""
+"""MASBench composable workload CLI."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ from typing import Any
 
 from .full_workflows import FULL_WORKFLOW_NAMES
 from .full_workflows import build_workflow as build_full_workflow
-from .motifs import MOTIF_NAMES
+from .motifs import WORKLOAD_NAMES
 from .motifs import build_workflow as build_motif_workflow
 from .swebench_adapter import load_swebench_instances
-from .topologies import TopologyConfig
-from .topologies import build_workflow as build_topology_workflow
+from .runtime import WorkloadConfig as TopologyConfig
+from .legacy_topologies import build_workflow as build_topology_workflow
 from .tracing import now_ts
 
 
@@ -41,10 +41,11 @@ def str_bool(value: str | bool) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MASBench-Arch topology and composite motif runner")
-    parser.add_argument("--mode", choices=["topology", "motif", "full"], default="topology")
+    parser = argparse.ArgumentParser(description="MASBench composable motif family runner")
+    parser.add_argument("--mode", choices=["topology", "motif", "legacy_motif", "full"], default=None)
     parser.add_argument("--topology", choices=["single", "independent", "centralized", "decentralized", "hybrid"], default="single")
-    parser.add_argument("--motif", choices=MOTIF_NAMES, default="planner_executor")
+    parser.add_argument("--motif", choices=WORKLOAD_NAMES, default="dispatch_execute")
+    parser.add_argument("--workload-config", default="", help="JSON family/task binding or sequential composition specification.")
     parser.add_argument("--full-workflow", choices=FULL_WORKFLOW_NAMES, default="issue_to_verified_patch")
     parser.add_argument("--workload", default="", help="Alias for a motif or full workflow without changing the rest of the CLI.")
     parser.add_argument("--task-source", choices=["manual", "swebench_lite", "swebench_local"], default="manual")
@@ -119,7 +120,10 @@ def parse_args() -> argparse.Namespace:
         default="default_vllm",
     )
     parser.add_argument("--max-defer-sec", type=float, default=30.0)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.mode is None:
+        args.mode = "topology" if any(a == "--topology" or a.startswith("--topology=") for a in sys.argv[1:]) else "motif"
+    return args
 
 
 def manual_instance_id(query: str) -> str:
@@ -228,8 +232,8 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         provider = "recorded"
     workload_arg = (args.workload or "").strip()
     if workload_arg:
-        if workload_arg in MOTIF_NAMES:
-            args.mode = "motif"
+        if workload_arg in WORKLOAD_NAMES:
+            args.mode = "legacy_motif" if args.mode == "legacy_motif" else "motif"
             args.motif = workload_arg
         elif workload_arg in FULL_WORKFLOW_NAMES:
             args.mode = "full"
@@ -239,13 +243,13 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
     if args.mode == "full":
         workload_name = args.full_workflow
     else:
-        workload_name = args.motif if args.mode == "motif" else args.topology
+        workload_name = args.motif if args.mode in {"motif", "legacy_motif"} else args.topology
     replay_snapshot_dir = Path(args.replay_snapshot_dir).expanduser().resolve() if args.replay_snapshot_dir else None
     tool_trace_replay_path = Path(args.tool_trace_replay_path).expanduser().resolve() if args.tool_trace_replay_path else None
     if replay_snapshot_dir is None and tool_trace_replay_path is not None:
         replay_snapshot_dir = tool_trace_replay_path
 
-    return TopologyConfig(
+    config = TopologyConfig(
         topology_name=workload_name,
         run_id=run_id,
         task_id=instance_id,
@@ -308,14 +312,19 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         admission_policy=args.admission_policy,
         max_defer_sec=args.max_defer_sec,
         mode=args.mode,
-        motif_name=args.motif if args.mode == "motif" else "",
+        motif_name=args.motif if args.mode in {"motif", "legacy_motif"} else "",
     )
+    if args.workload_config:
+        if args.mode != "motif":
+            raise ValueError("--workload-config requires --mode motif")
+        config.extra["workload_spec"] = json.loads(Path(args.workload_config).read_text(encoding="utf-8"))
+    return config
 
 
 def run_one(config: TopologyConfig) -> dict[str, Any]:
     if config.mode == "full":
         workflow = build_full_workflow(config)
-    elif config.mode == "motif":
+    elif config.mode in {"motif", "legacy_motif"}:
         workflow = build_motif_workflow(config)
     else:
         workflow = build_topology_workflow(config)
@@ -384,7 +393,7 @@ def main() -> int:
     for summary in summaries:
         label = summary.get("motif_name") or summary["topology"]
         print(f"{summary.get('mode', args.mode)} {label} {summary['instance_id']} trace={summary['trace_path']}")
-    return 0
+    return 1 if any(s.get("status") in {"failed", "max_revisions"} for s in summaries) else 0
 
 
 if __name__ == "__main__":

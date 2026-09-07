@@ -1,4 +1,4 @@
-"""Unified topology interface and shared runtime helpers."""
+"""Shared workload configuration, LLM/tool execution and trace helpers."""
 
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from ..llm_backends import MockLLM, OpenAICompatibleLLM
-from ..search_providers import BaseSearchProvider, record_search_event
-from ..trace_export import export_trace_views
-from ..tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
-from ..backend_adapters import BackendTraceAdapter, build_backend_trace_adapter
-from ..backend_metrics import BackendMetricsSampler, metrics_url_from_base_url, summarize_backend_metrics
-from ..admission import AdmissionController
+from .llm_backends import MockLLM, OpenAICompatibleLLM
+from .search_providers import BaseSearchProvider, record_search_event
+from .trace_export import export_trace_views
+from .tracing import TraceContext, estimate_tokens, stable_hash, token_count_source
+from .backend_adapters import BackendTraceAdapter, build_backend_trace_adapter
+from .backend_metrics import BackendMetricsSampler, metrics_url_from_base_url, summarize_backend_metrics
+from .admission import AdmissionController
 
 
 @dataclass
-class TopologyConfig:
+class WorkloadConfig:
     topology_name: str
     run_id: str
     task_id: str
@@ -89,8 +89,8 @@ class TopologyConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-class RunnableTopology(Protocol):
-    config: TopologyConfig
+class RunnableWorkload(Protocol):
+    config: WorkloadConfig
     motif_tags: list[str]
 
     def run(self) -> dict[str, Any]:
@@ -100,12 +100,12 @@ class RunnableTopology(Protocol):
         ...
 
 
-class BaseTopology:
+class WorkloadRuntime:
     motif_tags: list[str] = []
 
     def __init__(
         self,
-        config: TopologyConfig,
+        config: WorkloadConfig,
         *,
         llm: MockLLM | OpenAICompatibleLLM,
         search_provider: BaseSearchProvider,
@@ -146,7 +146,7 @@ class BaseTopology:
             extra={"query_hash": stable_hash(self.config.query), "config": self._config_dict()},
         )
 
-    def workflow_end(self, final_answer: str) -> dict[str, Any]:
+    def workflow_end(self, final_answer: str, *, status: str = "success") -> dict[str, Any]:
         self._annotate_request_overlap_metrics()
         self.trace.emit(
             event_type="workflow_end",
@@ -155,7 +155,7 @@ class BaseTopology:
             node_name="END",
             node_type="workflow",
             motif_tags=self.motif_tags,
-            status="success",
+            status=status,
             output_hash=stable_hash(final_answer),
             output_chars=len(final_answer),
             output_tokens_est=estimate_tokens(final_answer),
@@ -163,6 +163,7 @@ class BaseTopology:
         )
         self._stop_backend_metrics_sampler()
         summary = self.build_summary(final_answer)
+        summary["status"] = status
         self.trace.summary_path.parent.mkdir(parents=True, exist_ok=True)
         self.trace.save()
         export_paths = export_trace_views(self.trace.events, self.trace.trace_path, enabled=self.config.export_trace_views)
@@ -322,9 +323,14 @@ class BaseTopology:
         parallel_group: str | None = None,
         criticality: str = "unknown",
         extra_metadata: dict[str, Any] | None = None,
+        llm_override: Any = None,
     ) -> str:
+        backend = llm_override if llm_override is not None else self.llm
+        identity = (extra_metadata or {}).get("agent_instance_id", node_id)
+        backend_model = getattr(backend, "model", self.config.model)
+        backend_url = getattr(backend, "base_url", self.config.backend_base_url)
         metadata = {
-            "agent_id": node_id,
+            "agent_id": identity,
             "agent_role": agent_role,
             "round_id": round_id,
             "manager_round_id": manager_round_id,
@@ -391,7 +397,7 @@ class BaseTopology:
             node_type="llm",
             parents=parents or [],
             parent_node_ids=parents or [],
-            agent_id=node_id,
+            agent_id=identity,
             agent_role=agent_role,
             criticality=criticality,
             critical_path_candidate=critical_path_candidate,
@@ -403,6 +409,9 @@ class BaseTopology:
             status="ready",
             duration_source="online_runtime_observed",
             replay_policy="live",
+            **{key: value for key, value in trace_metadata.items() if key in {
+                "role_slot", "role_index", "agent_instance_id", "motif_instance_id", "motif_family", "motif_name", "parent_motif_id"
+            }},
         )
         decision = self.admission_controller.admit(
             request_id=request_id,
@@ -443,12 +452,12 @@ class BaseTopology:
             parallel_group=parallel_group,
             criticality=criticality,
             status="start",
-            agent_id=node_id,
+            agent_id=identity,
             agent_role=agent_role,
             prompt_template=prompt_template,
             llm_mode=self.config.llm_mode,
-            backend_base_url=self.config.backend_base_url,
-            model=self.config.model,
+            backend_base_url=backend_url,
+            model=backend_model,
             max_output_tokens=request_max_output_tokens,
             llm_request_id=request_id,
             request_id_for_backend=request_id,
@@ -479,13 +488,24 @@ class BaseTopology:
             defer_duration_sec=decision.defer_duration_sec,
             start_ts=submit_ts,
             input_tokens=estimate_tokens(prompt),
-            model_name=self.config.model,
+            model_name=backend_model,
             extra={"prompt_preview": prompt[:1000]} if self.config.trace_level == "detailed" else {},
             **common_graph,
             **trace_metadata,
         )
         try:
-            result = self.llm.invoke(system_prompt, user_prompt, metadata)
+            result = backend.invoke(system_prompt, user_prompt, metadata)
+        except Exception as exc:
+            self.trace.emit(
+                event_type="llm_request_error", node_id=node_id, node_name=node_name, node_type="llm",
+                agent_id=identity, agent_role=agent_role, parents=parents or [],
+                llm_request_id=request_id, request_id_for_backend=request_id,
+                status="failed", extra={"error_type": type(exc).__name__},
+                **{key: value for key, value in trace_metadata.items() if key in {
+                    "role_slot", "role_index", "agent_instance_id", "motif_instance_id", "motif_family", "motif_name", "parent_motif_id"
+                }},
+            )
+            raise
         finally:
             self.admission_controller.on_complete(
                 request_id=request_id,
@@ -511,12 +531,12 @@ class BaseTopology:
             duration_sec=round(result.duration_sec, 6),
             duration_source="mock_measured" if self.config.llm_mode == "mock" else "llm_backend_measured",
             replay_policy="live",
-            agent_id=node_id,
+            agent_id=identity,
             agent_role=agent_role,
             prompt_template=prompt_template,
             llm_mode=self.config.llm_mode,
-            backend_base_url=self.config.backend_base_url,
-            model=self.config.model,
+            backend_base_url=backend_url,
+            model=backend_model,
             max_output_tokens=request_max_output_tokens,
             llm_request_id=result.request_id_for_backend,
             request_id_for_backend=result.request_id_for_backend,
@@ -579,7 +599,7 @@ class BaseTopology:
             input_tokens=estimate_tokens(prompt),
             output_tokens=estimate_tokens(output),
             total_tokens=estimate_tokens(prompt) + estimate_tokens(output),
-            model_name=self.config.model,
+            model_name=backend_model,
             nearby_background_request_count_1s=0,
             nearby_background_request_count_3s=0,
             overlapping_background_request_count=0,
@@ -741,7 +761,7 @@ class BaseTopology:
             raise ValueError("--agent-execution react currently requires --llm-mode openai_compatible")
         if self.config.tool_mode == "synthetic" and not self.config.allow_synthetic_tools:
             raise ValueError("--agent-execution react requires real/replay tools unless --allow-synthetic-tools true")
-        from ..langgraph_agents.react_agent import run_react_agent
+        from .langgraph_agents.react_agent import run_react_agent
 
         return run_react_agent(
             config=self.config,
@@ -842,8 +862,10 @@ class BaseTopology:
         recipient_count: int = 1,
         duplicated_from_artifact_id: str | None = None,
         retry_count: int = 0,
+        source_artifact_id: str | None = None,
+        trace_fields: dict[str, Any] | None = None,
     ) -> str:
-        artifact_id = f"artifact_{stable_hash(src_node + dst_node + content)[:12]}"
+        artifact_id = source_artifact_id or f"artifact_{stable_hash(src_node + dst_node + content)[:12]}"
         self.trace.emit(
             event_type="edge_dataflow",
             node_id=f"{src_node}->{dst_node}",
@@ -868,10 +890,11 @@ class BaseTopology:
             transfer_type=transfer_type,
             fanout_count=fanout_count,
             recipient_count=recipient_count,
+            **(trace_fields or {}),
         )
         return artifact_id
 
-    def barrier(self, *, barrier_id: str, waiting_for_nodes: list[str], round_id: int | None = None, manager_round_id: int | None = None, peer_round_id: int | None = None) -> None:
+    def barrier(self, *, barrier_id: str, waiting_for_nodes: list[str], round_id: int | None = None, manager_round_id: int | None = None, peer_round_id: int | None = None, trace_fields: dict[str, Any] | None = None) -> None:
         start = time.time()
         end = time.time()
         arrivals: dict[str, float] = {}
@@ -905,6 +928,7 @@ class BaseTopology:
             barrier_wait_sec=round(straggler_gap, 6),
             straggler_node=latest_node,
             straggler_gap_sec=round(straggler_gap, 6),
+            **(trace_fields or {}),
         )
 
 

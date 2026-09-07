@@ -88,7 +88,7 @@ for motif in "${MOTIFS[@]}"; do
   echo "Running motif: $motif"
   set +e
   "$PYTHON_BIN" -m mas_workflow.app.main \
-    --mode motif \
+    --mode legacy_motif \
     --motif "$motif" \
     --task-source manual \
     --query "$query" \

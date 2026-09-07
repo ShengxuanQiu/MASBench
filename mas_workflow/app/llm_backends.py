@@ -37,7 +37,13 @@ class MockLLM:
         role = str(metadata.get("agent_role") or metadata.get("node_type") or "agent")
         agent_id = str(metadata.get("agent_id") or "agent")
         payload: dict[str, Any]
-        if role == "manager":
+        if metadata.get("motif_family") and role == "evaluator":
+            payload = {"decision": "accept", "feedback": "Synthetic acceptance for runtime smoke tests only."}
+        elif metadata.get("motif_family") and role == "dispatcher" and '"worker_index"' in system_prompt:
+            payload = {"worker_index": 0, "instruction": "Address the task."}
+        elif metadata.get("motif_family") and role == "collector" and '"selected_index"' in system_prompt:
+            payload = {"selected_index": 0, "reason": "Synthetic selection for runtime smoke tests only."}
+        elif role == "manager":
             round_id = int(metadata.get("manager_round_id") or metadata.get("round_id") or 0)
             max_rounds = int(metadata.get("max_rounds") or 2)
             force_rounds = int(metadata.get("force_continue_rounds") or 0)

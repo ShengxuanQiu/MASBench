@@ -1,0 +1,21 @@
+{
+  "stages": [
+    {
+      "id": "propose",
+      "family": "parallel_aggregate",
+      "width": 3,
+      "aggregation": "judge",
+      "roles": {
+        "worker": {"instructions": "Propose a solution to the task. Use your role index to explore a different approach."},
+        "collector": {"instructions": "Select the candidate that best satisfies the task constraints."}
+      }
+    },
+    {
+      "id": "check",
+      "family": "evaluate_refine",
+      "inputs": {"candidate": "propose.result"},
+      "max_revisions": 2,
+      "criteria": "The candidate must address all task constraints and clearly state assumptions."
+    }
+  ]
+}

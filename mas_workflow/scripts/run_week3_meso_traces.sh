@@ -24,7 +24,7 @@ else
 fi
 
 base_args=(
-  --mode motif
+  --mode legacy_motif
   --task-source manual
   --llm-mode "$LLM_MODE"
   --backend-base-url "$BACKEND_BASE_URL"

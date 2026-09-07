@@ -58,7 +58,7 @@ run_motif() {
   shift 2
   echo "[week3-sim] motif=$motif"
   "$PYTHON_BIN" -m mas_workflow.app.main \
-    --mode motif \
+    --mode legacy_motif \
     --motif "$motif" \
     --workload "$motif" \
     --query "$query" \

@@ -1,0 +1,14 @@
+{
+  "family": "parallel_aggregate",
+  "width": 3,
+  "aggregation": "concat_summary",
+  "roles": {
+    "worker": {
+      "instructions": "Research the task from a distinct perspective based on your role index. Cite evidence supplied by the search tool and identify uncertainty.",
+      "tools": ["search"]
+    },
+    "collector": {
+      "instructions": "Synthesize the supplied research results. Distinguish supported conclusions from open questions."
+    }
+  }
+}

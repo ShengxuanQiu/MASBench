@@ -38,7 +38,9 @@
         "stage_start",
         "stage_finish",
         "run_start",
-        "run_finish"
+        "run_finish",
+        "artifact_delivery",
+        "stage_skip"
       ]
     },
     "attributes": {

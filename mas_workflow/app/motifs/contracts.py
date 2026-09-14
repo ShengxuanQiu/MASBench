@@ -68,6 +68,8 @@ class Artifact:
     producer_node: str
     kind: str = "result"
     artifact_id: str = field(default_factory=lambda: "artifact_" + uuid4().hex)
+    delivery_mode: str = "full"
+    source_artifact_ids: tuple[str, ...] = ()
 
 
 @dataclass

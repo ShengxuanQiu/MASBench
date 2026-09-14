@@ -56,12 +56,9 @@ def fetch_prometheus_metrics(url: str, *, timeout: float = 2.0) -> dict[str, flo
         return parse_prometheus_metrics(response.read().decode("utf-8", errors="replace"))
 
 
-def _sum_matching(metrics: dict[str, float], needles: tuple[str, ...]) -> float:
-    total = 0.0
-    for name, value in metrics.items():
-        if any(needle in name for needle in needles):
-            total += float(value)
-    return total
+def _sum_matching(metrics: dict[str, float], needles: tuple[str, ...]) -> float | None:
+    values = [float(value) for name, value in metrics.items() if any(needle in name for needle in needles)]
+    return sum(values) if values else None
 
 
 def _latest_matching(metrics: dict[str, float], needles: tuple[str, ...]) -> float | None:
@@ -98,8 +95,8 @@ def summarize_backend_metrics(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "backend_metrics_interval_sec": round(max(0.0, interval_sec), 6),
     }
     for key, needles in counters.items():
-        delta = _sum_matching(last, needles) - _sum_matching(first, needles)
-        summary[key] = round(delta, 6)
+        a, b = _sum_matching(first, needles), _sum_matching(last, needles)
+        summary[key] = round(b-a, 6) if a is not None and b is not None and b >= a else None
 
     running = [_latest_matching(s["metrics"], ("num_requests_running", "num_running_requests")) for s in valid]
     waiting = [_latest_matching(s["metrics"], ("num_requests_waiting", "num_waiting_requests")) for s in valid]
@@ -112,15 +109,15 @@ def summarize_backend_metrics(samples: list[dict[str, Any]]) -> dict[str, Any]:
         vals = [v for v in series if v is not None]
         summary[key] = round(max(vals), 6) if vals else None
 
-    gen_tokens = float(summary.get("generation_tokens_total_delta") or 0.0)
-    prompt_tokens = float(summary.get("prompt_tokens_total_delta") or 0.0)
-    ttft_sum = float(summary.get("time_to_first_token_seconds_sum_delta") or 0.0)
-    tpot_sum = float(summary.get("time_per_output_token_seconds_sum_delta") or 0.0)
-    reqs = float(summary.get("request_success_total_delta") or 0.0)
-    summary["backend_generation_tokens_per_sec_window"] = round(gen_tokens / interval_sec, 6) if interval_sec > 0 else 0.0
-    summary["backend_prompt_tokens_per_sec_window"] = round(prompt_tokens / interval_sec, 6) if interval_sec > 0 else 0.0
-    summary["backend_avg_ttft_sec_from_metrics"] = round(ttft_sum / reqs, 6) if reqs > 0 else None
-    summary["backend_avg_tpot_sec_from_metrics"] = round(tpot_sum / gen_tokens, 6) if gen_tokens > 0 else None
+    gen_tokens = summary.get("generation_tokens_total_delta")
+    prompt_tokens = summary.get("prompt_tokens_total_delta")
+    ttft_sum = summary.get("time_to_first_token_seconds_sum_delta")
+    tpot_sum = summary.get("time_per_output_token_seconds_sum_delta")
+    reqs = summary.get("request_success_total_delta")
+    summary["backend_generation_tokens_per_sec_window"] = round(gen_tokens / interval_sec, 6) if interval_sec > 0 and gen_tokens is not None else None
+    summary["backend_prompt_tokens_per_sec_window"] = round(prompt_tokens / interval_sec, 6) if interval_sec > 0 and prompt_tokens is not None else None
+    summary["backend_avg_ttft_sec_from_metrics"] = round(ttft_sum / reqs, 6) if reqs and ttft_sum is not None else None
+    summary["backend_avg_tpot_sec_from_metrics"] = round(tpot_sum / gen_tokens, 6) if gen_tokens and tpot_sum is not None else None
     return summary
 
 
@@ -155,13 +152,18 @@ class BackendMetricsSampler:
         try:
             metrics = fetch_prometheus_metrics(self.url, timeout=self.timeout_sec)
             sample: dict[str, Any] = {"timestamp_unix": ts, "relative_time_sec": rel, "status": "success", "metrics": metrics}
-            if self.adapter is not None:
-                sample["serving_metrics"] = self.adapter.serving_sample(metrics)
-                sample["cache_memory_metrics"] = self.adapter.cache_memory_sample(metrics)
-                sample["device_metrics"] = self.adapter.collect_device_metrics()
-            self.samples.append(sample)
         except Exception as exc:
-            self.samples.append({"timestamp_unix": ts, "relative_time_sec": rel, "status": "error", "error": str(exc)})
+            metrics = {}
+            sample = {"timestamp_unix": ts, "relative_time_sec": rel, "status": "error", "error": str(exc)}
+        if self.adapter is not None:
+            for key, collect in (("serving_metrics", lambda: self.adapter.serving_sample(metrics)),
+                                 ("cache_memory_metrics", lambda: self.adapter.cache_memory_sample(metrics)),
+                                 ("device_metrics", self.adapter.collect_device_metrics)):
+                try:
+                    sample[key] = collect()
+                except Exception as exc:
+                    sample[key] = {"status": "unavailable", "error": str(exc)}
+        self.samples.append(sample)
 
     def _run(self) -> None:
         self.sample_once()

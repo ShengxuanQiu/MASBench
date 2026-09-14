@@ -1,0 +1,8 @@
+{
+  "study": "replay-study.template.json",
+  "capacity": {
+    "dense_points": 5,
+    "min_slo_success": 0.95,
+    "max_failure_fraction": 0.01
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "tasks": {
+    "water": "task.json"
+  },
+  "deployments": {
+    "mock": "deployment-mock.json"
+  },
+  "workloads": [
+    {
+      "preset": "parallel_refine",
+      "parameters": [
+        {
+          "width": 2
+        }
+      ]
+    },
+    {
+      "preset": "dispatch_parallel_refine",
+      "parameters": [
+        {
+          "width": 2
+        }
+      ]
+    },
+    {
+      "preset": "fanout_fanin",
+      "parameters": [
+        {
+          "width": 2
+        }
+      ]
+    },
+    {
+      "preset": "matched_chain",
+      "parameters": [
+        {
+          "requests": 4
+        }
+      ]
+    },
+    {
+      "preset": "matched_parallel",
+      "parameters": [
+        {
+          "requests": 4
+        }
+      ]
+    }
+  ],
+  "study": {
+    "rates": [
+      50,
+      100
+    ],
+    "count": 4,
+    "repetitions": 2,
+    "seed": 42,
+    "arrival": "poisson",
+    "max_inflight_workflows": 256,
+    "slo_sec": 10,
+    "cache_protocol": "uncontrolled",
+    "warmup_count": 0,
+    "collect_backend_metrics": false,
+    "backend_metrics_interval_sec": 0.5,
+    "output_length_tolerance": 0,
+    "require_identity_match": false
+  },
+  "capacity": {
+    "dense_points": 2,
+    "min_slo_success": 0.95,
+    "max_failure_fraction": 0.01
+  }
+}

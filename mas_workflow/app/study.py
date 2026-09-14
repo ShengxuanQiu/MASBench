@@ -136,7 +136,7 @@ def run_study(config_path, output, *, resume=False):
     config = read_config(config_path)
     allowed = {"mode","experiments","traces","trace_corpus","deployments","rates","count","repetitions","seed",
                "arrival","max_inflight_workflows","slo_sec","warmup_count","cache_protocol",
-               "max_replay_operations","strict_replay","collect_backend_metrics","backend_metrics_interval_sec"}
+               "max_replay_operations","strict_replay","output_length_tolerance","require_identity_match","collect_backend_metrics","backend_metrics_interval_sec"}
     if set(config)-allowed:
         raise ValueError(f"Unknown study fields: {sorted(set(config)-allowed)}")
     mode = config.get("mode","run")
@@ -144,11 +144,13 @@ def run_study(config_path, output, *, resume=False):
         raise ValueError("mode must be run or replay")
     if config.get("strict_replay",False):
         raise ValueError("Current adapters only support best-effort replay")
+    if not 0 <= config.get('output_length_tolerance',0) <= 1:
+        raise ValueError('output_length_tolerance must be in [0,1]')
     protocol = config.get("cache_protocol","uncontrolled")
-    if protocol not in {"uncontrolled","warm_sequence"}:
+    if protocol not in {"uncontrolled","warm_sequence","cache_disabled","warm_cache_enabled"}:
         raise ValueError("Cold/isolated cache requires backend reset integration; do not claim it from a label")
     warmup = config.get("warmup_count",0)
-    if type(warmup) is not int or warmup < 0 or (protocol == "warm_sequence" and not warmup):
+    if type(warmup) is not int or warmup < 0 or (protocol in {"warm_sequence","warm_cache_enabled"} and not warmup):
         raise ValueError("warm_sequence requires warmup_count > 0")
     for field, default in (("max_inflight_workflows",64),("max_replay_operations",4096)):
         if type(config.get(field,default)) is not int or config.get(field,default)<1:
@@ -197,6 +199,21 @@ def run_study(config_path, output, *, resume=False):
     else:
         atomic_json(manifest_path,{"schema":"masbench_study_v1","fingerprint":fingerprint,
                                   "resolved":resolved,"environment":metadata})
+    # Self-contained inputs and exact Python implementation, including dirty edits.
+    # Resume still verifies the original inputs and code fingerprint above.
+    import shutil
+    snapshot = output/'source_snapshot'
+    if not snapshot.exists():
+        shutil.copytree(Path(__file__).parent,snapshot,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    corpus_entries=[]
+    for path in trace_paths:
+        target=output/'source_corpus'/(trace_hashes[str(path)]+'.jsonl')
+        target.parent.mkdir(exist_ok=True)
+        if not target.exists(): shutil.copyfile(path,target)
+        if hashlib.sha256(target.read_bytes()).hexdigest()!=trace_hashes[str(path)]:
+            raise ValueError('Archived source trace hash mismatch')
+        corpus_entries.append({'original':str(path),'trace':str(target.relative_to(output)), 'sha256':trace_hashes[str(path)]})
+    atomic_json(output/'source_corpus.json',{'runs':corpus_entries})
     cases = [(name,dep,rate,rep) for name,dep in deployments for rate in rates for rep in range(reps)]
     random.Random(config.get("seed",42)).shuffle(cases)
     summaries=[]
@@ -210,6 +227,8 @@ def run_study(config_path, output, *, resume=False):
         # Incomplete attempts get a new directory, preserving all prior partial traces.
         attempt = case_dir/("attempt_"+uuid4().hex[:12])
         attempt.mkdir()
+        from .replay_protocol import verify_cache_protocol
+        cache_evidence=verify_cache_protocol(deployment,protocol)
         semaphore = threading.BoundedSemaphore(deployment.concurrency)
         def execute(index, *, warm=False):
             root = attempt/("warmup" if warm else "traces")
@@ -243,9 +262,10 @@ def run_study(config_path, output, *, resume=False):
         sampler = None
         if config.get("collect_backend_metrics") and deployment.backend != "mock":
             from .backend_metrics import BackendMetricsSampler, metrics_url_from_base_url
-            sampler = BackendMetricsSampler(url=metrics_url_from_base_url(deployment.endpoint),
+            from .backend_adapters import build_backend_trace_adapter
+            sampler = BackendMetricsSampler(url=deployment.telemetry.get("metrics_url") or metrics_url_from_base_url(deployment.endpoint),
                 output_path=attempt/"backend_metrics.json", interval_sec=config.get("backend_metrics_interval_sec",.5),
-                adapter=None)
+                adapter=build_backend_trace_adapter(deployment.telemetry.get("adapter","generic"),deployment.telemetry))
             sampler.start()
         try:
             def append(row):
@@ -272,9 +292,13 @@ def run_study(config_path, output, *, resume=False):
                                "serving_observation":{k:{"value":v if math.isfinite(v) else None,
                                                           "source":"backend-reported" if math.isfinite(v) else "unavailable"}
                                    for k,v in sample.get("metrics",{}).items()}}}
+                        from .backend_adapters import canonical_telemetry
+                        event["attributes"]["serving_observation"].update(canonical_telemetry(sample))
+                        event["telemetry_metadata"]=deployment.telemetry
                         stream.write(json.dumps(event,allow_nan=False)+"\n")
         # Analysis is deliberately outside the measured load window.
         analyses,invalid,submit_times = [],[],[]
+        replay_checks=[]
         dynamics_delta=defaultdict(Counter)
         envelope_complete=True
         for row in records:
@@ -284,6 +308,14 @@ def run_study(config_path, output, *, resume=False):
                 events = read_events(row["trace_path"])
                 submit_times.extend(row["trace_origin_sec"]+e["relative_time_sec"] for e in events if e.get("canonical_type") == "request_submit")
                 analysis = analyze_events(events)
+                if mode=="replay":
+                    from .replay_compare import compare_replay
+                    comparison=compare_replay(prepared_traces[trace_paths[row["source_index"]]].events,events,
+                                              output_length_tolerance=config.get("output_length_tolerance",0))
+                    check={"run_id":analysis["run_id"],"invariants":comparison["fixed_workload_invariants_pass"],
+                           "length":comparison["output_length_agreement"],"identity":comparison["identity_agreement"]}
+                    check["eligible"]=check["invariants"] and check["length"]["pass"] and (not config.get("require_identity_match") or check["identity"]["status"]=="matched")
+                    replay_checks.append(check)
                 atomic_json(attempt/"analysis"/(analysis["run_id"]+".json"),analysis)
                 previous=Counter()
                 for point in analysis["runtime"]["timeline"]:
@@ -311,7 +343,11 @@ def run_study(config_path, output, *, resume=False):
                                   "complete":not invalid and all("trace_path" in r or r["status"]=="client_overflow" for r in records),
                                   "scope":"sum of analyzable workflow traces; endpoint resident KV remains unavailable",
                                   "timeline":combined})
-        summary.update(case_trace_dynamics_path=str(dynamic_path),
+        from .pressure import queue_slope
+        queue_growth=queue_slope(combined,summary["arrival_span_sec"])
+        summary.update(queue_growth_client_per_sec=queue_growth,cache_protocol_evidence=cache_evidence,
+                       replay_checks=replay_checks,replay_equivalence_failures=sum(not c["eligible"] for c in replay_checks),
+                       case_trace_dynamics_path=str(dynamic_path),
                        max_client_ready_waiting=max((r.get("ready_waiting",0) for r in combined),default=0),
                        max_llm_inflight=max((r.get("llm_inflight",0) for r in combined),default=0),
                        case_id=key,deployment=name,rate=rate,repetition=rep,mode=mode,

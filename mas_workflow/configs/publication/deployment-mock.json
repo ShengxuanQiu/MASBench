@@ -1,0 +1,10 @@
+{
+  "backend": "mock",
+  "model": "mock-mas-model",
+  "concurrency": 32,
+  "generation": {
+    "max_tokens": 128,
+    "temperature": 0,
+    "seed": 42
+  }
+}

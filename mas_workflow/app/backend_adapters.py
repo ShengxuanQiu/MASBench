@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import math
+import time
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +24,8 @@ def _latest_matching(metrics: dict[str, float], needles: tuple[str, ...]) -> flo
 
 
 def _sum_matching(metrics: dict[str, float], needles: tuple[str, ...]) -> float:
-    return sum(float(value) for name, value in metrics.items() if any(needle in name for needle in needles))
+    values=[float(value) for name,value in metrics.items() if any(needle in name for needle in needles)]
+    return sum(values) if values else None
 
 
 def _label_value(metrics: dict[str, float], label: str) -> float | None:
@@ -37,7 +41,7 @@ def _label_value(metrics: dict[str, float], label: str) -> float | None:
     return None
 
 
-def _nvidia_smi_sample() -> dict[str, Any]:
+def _nvidia_smi_sample(device_id=None) -> dict[str, Any]:
     fields = [
         "utilization.gpu",
         "utilization.memory",
@@ -48,7 +52,7 @@ def _nvidia_smi_sample() -> dict[str, Any]:
     ]
     try:
         proc = subprocess.run(
-            ["nvidia-smi", f"--query-gpu={','.join(fields)}", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", *(["-i",str(device_id)] if device_id is not None else []), f"--query-gpu={','.join(fields)}", "--format=csv,noheader,nounits"],
             check=True,
             capture_output=True,
             text=True,
@@ -158,7 +162,8 @@ class BackendTraceAdapter:
 
 
 class VLLMGPUTraceAdapter(BackendTraceAdapter):
-    def __init__(self) -> None:
+    def __init__(self, config=None) -> None:
+        self.config=config or {}
         self.launch_config = _load_launch_config()
         parallelism = {
             "tp": int(self.launch_config.get("tensor_parallel_size") or self.launch_config.get("tp") or 1),
@@ -187,7 +192,9 @@ class VLLMGPUTraceAdapter(BackendTraceAdapter):
         return out
 
     def collect_device_metrics(self) -> dict[str, Any]:
-        sample = _nvidia_smi_sample()
+        if self.config and self.config.get("device_id") is None:
+            return {"status":"unavailable","reason":"Explicit telemetry device_id is required"}
+        sample = _nvidia_smi_sample(self.config.get("device_id"))
         sample.setdefault("metric_scope", "device_level_observed")
         return sample
 
@@ -203,16 +210,67 @@ class TPUTraceAdapter(BackendTraceAdapter):
 
 
 class NPUTraceAdapter(BackendTraceAdapter):
-    def __init__(self) -> None:
-        super().__init__(device_type="npu", vendor="unknown", runtime="placeholder")
+    def __init__(self,config=None):
+        super().__init__(device_type="npu",vendor="huawei",runtime="ascend")
+        self.config=config or {}
+    def backend_device_metadata(self):
+        return {**super().backend_device_metadata(),"adapter_status":"active","collector":"npu-smi"}
+    def collect_device_metrics(self):
+        device=str(self.config.get("npu_id",self.config.get("device_id",0)))
+        chip=str(self.config.get("metadata",{}).get("chip_id",0))
+        values={"device_utilization_percent":None,"memory_usage_percent":None,
+                "memory_capacity_mb":None,"memory_bandwidth_percent":None,"power_watts":None}
+        raw,errors={},[]
+        for kind in ("usages","power"):
+            try:
+                proc=subprocess.run(["npu-smi","info","-t",kind,"-i",device,"-c",chip],
+                                    check=True,capture_output=True,text=True,timeout=1.5)
+                raw[kind]=proc.stdout
+                labels={"Aicore Usage Rate(%)":"device_utilization_percent","Memory Usage Rate(%)":"memory_usage_percent",
+                        "Memory Capacity(MB)":"memory_capacity_mb","Memory Bandwidth Usage Rate(%)":"memory_bandwidth_percent",
+                        "Power(W)":"power_watts","Power":"power_watts"}
+                for line in proc.stdout.splitlines():
+                    if ":" not in line: continue
+                    key,value=line.split(":",1)
+                    if key.strip() not in labels: continue
+                    match=re.match(r"\s*([0-9]+(?:\.[0-9]+)?)",value)
+                    if match: values[labels[key.strip()]]=float(match[1])
+            except Exception as exc: errors.append(str(exc))
+        result={**values,"status":"success" if any(v is not None for v in values.values()) else "unavailable",
+                "source":"npu-smi","device_id":device,"chip_id":chip,"raw":raw,"errors":errors}
+        path=self.config.get("profiler_counters_path")
+        if path:
+            try:
+                snapshot=json.loads(Path(path).read_text())
+                if str(snapshot["device_id"])!=device or not 0<=time.time()-snapshot["timestamp_unix"]<=5:
+                    raise ValueError("Stale or mismatched profiler snapshot")
+                result["profiler_counters"]={k:v for k,v in snapshot["metrics"].items() if type(v) in (int,float) and math.isfinite(v)}
+            except Exception as exc: result["profiler_error"]=str(exc)
+        return result
 
 
-def build_backend_trace_adapter(kind: str) -> BackendTraceAdapter:
-    normalized = (kind or "vllm_gpu").lower()
-    if normalized in {"gpu", "vllm", "vllm_gpu", "nvidia_gpu"}:
-        return VLLMGPUTraceAdapter()
-    if normalized in {"tpu", "google_tpu"}:
-        return TPUTraceAdapter()
-    if normalized in {"npu", "ascend", "ascend_npu"}:
-        return NPUTraceAdapter()
-    return BackendTraceAdapter(device_type=normalized, vendor="unknown", runtime="unknown")
+def build_backend_trace_adapter(kind: str, config=None) -> BackendTraceAdapter:
+    normalized=(kind or "generic").lower()
+    if normalized in {"gpu","vllm","vllm_gpu","nvidia_gpu"}: return VLLMGPUTraceAdapter(config)
+    if normalized in {"tpu","google_tpu"}: return TPUTraceAdapter()
+    if normalized in {"npu","ascend","ascend_npu"}: return NPUTraceAdapter(config)
+    return BackendTraceAdapter(device_type=normalized,vendor="unknown",runtime="unknown")
+
+
+def canonical_telemetry(sample):
+    """Canonical source vocabulary: device-observed maps to observed with device scope."""
+    result={}
+    for group in ("serving_metrics","cache_memory_metrics","device_metrics"):
+        values=sample.get(group,{})
+        for key,value in values.items():
+            if type(value) in (int,float) or value is None or value=="unavailable":
+                available=type(value) in (int,float) and math.isfinite(value)
+                source="observed" if group=="device_metrics" else "backend-reported"
+                if key in {"cache_used_units","cache_used_token_capacity"}: source="estimated"
+                result[group+"."+key]={"value":value if available else None,"source":source if available else "unavailable"}
+        if group=="device_metrics":
+            for key in ("device_utilization_percent","memory_used_bytes","memory_usage_percent","power_watts"):
+                result.setdefault(group+"."+key,{"value":None,"source":"unavailable"})
+            for key,value in values.get("profiler_counters",{}).items():
+                result["profiler."+key]={"value":value,"source":"observed"}
+    return result

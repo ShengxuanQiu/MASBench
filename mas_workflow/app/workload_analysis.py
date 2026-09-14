@@ -229,7 +229,9 @@ def analyze_events(events):
     if not actual_tokens:
         for row in series:
             row["inflight_token_envelope"] = None
-    return {"schema":"masbench_analysis_v1", "run_id":graph.run_id,
+    from .pressure import pressure_metrics
+    pressure=pressure_metrics(graph,events,runtime)
+    return {"pressure":pressure,"schema":"masbench_analysis_v1", "run_id":graph.run_id,
             "provenance":{"backend":run_config.get("llm_mode"), "mock":run_config.get("llm_mode")=="mock",
                           "structural_control":[e for e in events if e.get("event_type")=="structural_control_manifest"],
                           "metric_scope":"Realized operation DAG including local artifact packing tools; no transitive reduction."},

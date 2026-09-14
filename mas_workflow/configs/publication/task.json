@@ -1,0 +1,18 @@
+{
+  "task_input": "Compare two practical approaches to reducing water consumption in a small office. Consider implementation cost, maintenance and measurable savings.",
+  "roles": {
+    "Worker": {
+      "instructions": "Propose a concise practical answer using the supplied evidence."
+    },
+    "Coordinator": {
+      "instructions": "Decompose the task or select an appropriate worker, following the required output contract."
+    },
+    "Reducer": {
+      "instructions": "Synthesize the supplied answers, preserving disagreements and evidence."
+    },
+    "Reviewer": {
+      "instructions": "Check feasibility and evidence against the criteria. Follow the required acceptance contract."
+    }
+  },
+  "criteria": "Recommendations are feasible, specific and do not invent quantitative evidence."
+}

@@ -1,0 +1,80 @@
+{
+  "structure": {
+    "motifs": {
+      "parallel": {
+        "family": "ParallelAggregate",
+        "width": 4
+      }
+    },
+    "workflow": {
+      "stages": [
+        {
+          "id": "route",
+          "atomic": {
+            "kind": "router"
+          }
+        },
+        {
+          "id": "chosen",
+          "motif": "parallel",
+          "condition": {
+            "from_stage": "route",
+            "field": "branch",
+            "equals": "expand"
+          },
+          "participants": {
+            "from_stage": "route",
+            "field": "workers"
+          }
+        },
+        {
+          "id": "fallback",
+          "atomic": {
+            "kind": "llm"
+          },
+          "condition": {
+            "from_stage": "route",
+            "field": "branch",
+            "equals": "simple"
+          }
+        },
+        {
+          "id": "join",
+          "atomic": {
+            "kind": "llm"
+          },
+          "inputs": {
+            "context": [
+              "chosen.result",
+              "fallback.result"
+            ]
+          },
+          "allow_skipped": true,
+          "delivery": {
+            "context": "summarized"
+          }
+        }
+      ]
+    }
+  },
+  "task": {
+    "task_input": "Compare two plans.",
+    "stage_bindings": {
+      "route": {
+        "parameters": {
+          "constant": {
+            "branch": "expand",
+            "workers": [
+              0,
+              2
+            ]
+          }
+        }
+      },
+      "join": {
+        "delivery_instruction": "Summarize the supplied answer faithfully."
+      }
+    }
+  },
+  "deployment": "deployment-mock.json"
+}

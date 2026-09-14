@@ -25,7 +25,7 @@ from ..specs import ROLE_ALIASES, stage_dependencies
 MOTIF_NAMES = list(FAMILY_SLOTS)
 
 
-def peer_sources(index: int, count: int, connectivity: str, seed: int) -> list[int]:
+def peer_sources(index: int, count: int, connectivity: str, seed: int, k=None, sparsity=None) -> list[int]:
     """Return actual incoming peer edges. Self state is supplied separately."""
     others = [j for j in range(count) if j != index]
     if connectivity == "all_to_all":
@@ -36,7 +36,7 @@ def peer_sources(index: int, count: int, connectivity: str, seed: int) -> list[i
         partner = index ^ 1
         return [partner] if partner < count else []
     if connectivity == "random_k":
-        return random.Random(seed + index).sample(others, min(2, len(others)))
+        return random.Random(seed + index).sample(others, min(k if k is not None else (round((1-sparsity)*len(others)) if sparsity is not None else 2), len(others)))
     raise ValueError(f"Unsupported peer connectivity: {connectivity}")
 
 
@@ -78,10 +78,14 @@ class FamilyWorkload(WorkloadRuntime):
         for i, stage in enumerate(stages):
             allowed = {"id", "family", "roles", "inputs", "task", "width", "rounds", "max_revisions",
                        "connectivity", "aggregation", "dispatch", "criteria", "depends_on", "seed",
-                       "routing_semantics", "evaluation_semantics"}
+                       "routing_semantics", "evaluation_semantics", "atomic", "condition", "participants", "delivery", "allow_skipped", "parameters", "delivery_instruction", "k", "sparsity"}
             if not isinstance(stage, dict) or set(stage) - allowed:
                 raise ValueError("Invalid stage fields")
             family = stage.get("family")
+            if family == "atomic":
+                from ..specs import AtomicStage
+                AtomicStage(**stage["atomic"])
+                continue
             if family not in FAMILY_SLOTS:
                 raise ValueError(f"Unknown family: {family}")
             role_bindings(FAMILY_SLOTS[family], stage.get("roles", {}))
@@ -120,7 +124,7 @@ class FamilyWorkload(WorkloadRuntime):
         control = list(ctx["parents"]) + list(ctx["round_parents"].get(round_id, []))
         parents = list(dict.fromkeys([a.producer_node for a in inputs] + control))
         identity = {"stage_instance_id": ctx["id"], "role": ROLE_ALIASES[instance.slot.name],
-                    "motif_instance_id": instance.motif_instance_id, "agent_instance_id": instance.instance_id}
+                    "motif_instance_id": "" if ctx.get("atomic") else instance.motif_instance_id, "agent_instance_id": instance.instance_id}
         payload = {"task": task, "role_index": instance.index,
                    "inputs": [{"kind": a.kind, "content": a.content} for a in inputs]}
         # Search is an explicit bound action, never enabled merely by the role name.
@@ -157,6 +161,9 @@ class FamilyWorkload(WorkloadRuntime):
         for artifact in inputs:
             self.trace.emit(event_type="dependency", src=artifact.producer_node, dst=node, dependency_kind="data", **identity)
             self.trace.emit(event_type="artifact_consume", node_id=node, artifact_id=artifact.artifact_id, **identity)
+            self.trace.emit(event_type="artifact_delivery",node_id=node,artifact_id=artifact.artifact_id,
+                            source_artifact_ids=list(artifact.source_artifact_ids or (artifact.artifact_id,)),
+                            producer_operation_id=artifact.producer_node,delivery_mode=artifact.delivery_mode,**identity)
             self.emit_edge(src_node=artifact.producer_node, dst_node=node, artifact_type=artifact.kind,
                            content=artifact.content, transfer_type="artifact_binding", source_artifact_id=artifact.artifact_id,
                            trace_fields={"motif_instance_id": instance.motif_instance_id, "role_slot": instance.slot.name})
@@ -193,15 +200,27 @@ class FamilyWorkload(WorkloadRuntime):
     @staticmethod
     def _family_for(instance):
         # Slots are shared only where semantics match; peer and worker are distinct.
-        return next(name for name, slots in FAMILY_SLOTS.items() if instance.slot in slots)
+        return next((name for name, slots in FAMILY_SLOTS.items() if instance.slot in slots), "atomic")
 
     def execute(self, stage: dict[str, Any], task: str, inputs: dict[str, Artifact], *, control_parents=()) -> MotifResult:
         family = stage["family"]
-        mid = "motif_" + uuid4().hex
+        mid = ("atomic_" if family == "atomic" else "motif_") + uuid4().hex
         sid = "stage_" + uuid4().hex
         self._stage_context[mid] = {"id": sid, "parents": list(control_parents), "nodes": [], "round_parents": {}}
-        self.trace.emit(event_type="stage_start", stage_instance_id=sid, motif_instance_id=mid,
+        self.trace.emit(event_type="stage_start", stage_instance_id=sid, motif_instance_id=mid if family != 'atomic' else '',
+                        atomic_instance_id=mid if family == 'atomic' else '',
                         stage_id=stage.get("id", ""), parents=list(control_parents))
+        from .adaptive import atomic_stage, deliver
+        if family == "atomic":
+            try: return atomic_stage(self,stage,inputs,mid)
+            except Exception as exc:
+                self.trace.emit(event_type="stage_finish",stage_instance_id=sid,status="failed",error=str(exc))
+                return MotifResult("atomic",mid,"failed",{},error=str(exc))
+        try:
+            inputs = deliver(self,stage,inputs,mid)
+        except Exception as exc:
+            self.trace.emit(event_type='stage_finish',stage_instance_id=sid,status='failed',error=str(exc))
+            return MotifResult(family,mid,'failed',{},error=str(exc))
         bindings = role_bindings(FAMILY_SLOTS[family], stage.get("roles", {}))
         instances = {}
 
@@ -217,6 +236,7 @@ class FamilyWorkload(WorkloadRuntime):
             return instances[key]
 
         width = stage.get("width", self.config.num_agents)
+        participant_ids=stage.get("selected_participants",list(range(width)))
         context = inputs.get("context", [])
         context = context if isinstance(context, list) else [context]
         task = stage.get("task", task)
@@ -235,11 +255,11 @@ class FamilyWorkload(WorkloadRuntime):
         try:
             if family == "dispatch_execute":
                 route = stage.get("dispatch", "plan") == "route"
-                instruction = (f'Return JSON with "worker_index" (integer from 0 to {width - 1}) and "instruction" (string).'
+                instruction = (f'Return JSON with "worker_index" (one of {participant_ids}) and "instruction" (string).'
                                if route else "Return an execution plan.")
                 instruction += "\n" + stage.get("routing_semantics", "")
                 plan = self._call(agent("dispatcher"), task, context, instruction=instruction)
-                selected = list(range(width))
+                selected = list(participant_ids)
                 if route:
                     decision = json.loads(plan.content)
                     index = decision["worker_index"]
@@ -250,7 +270,7 @@ class FamilyWorkload(WorkloadRuntime):
                 values = self.run_parallel(selected, lambda i: self._call(agent("executor", i), task, context + [plan], group=mid))
                 result = values[0] if len(values) == 1 else self._pack(values, mid)
             elif family == "parallel_aggregate":
-                values = self.run_parallel(list(range(width)), lambda i: self._call(agent("worker", i), task, context, group=mid))
+                values = self.run_parallel(participant_ids, lambda i: self._call(agent("worker", i), task, context, group=mid))
                 self.barrier(barrier_id=mid + "_join", waiting_for_nodes=[v.producer_node for v in values], trace_fields={"motif_instance_id": mid})
                 policy = stage.get("aggregation", self.config.aggregation_policy)
                 if policy == "vote":
@@ -293,15 +313,15 @@ class FamilyWorkload(WorkloadRuntime):
                 # Include the acceptance/termination dependency without another LLM call.
                 result = self._pack([candidate, feedback], mid, content=candidate.content)
             else:
-                peers = [agent("peer", i) for i in range(width)]
+                peers = [agent("peer", i) for i in participant_ids]
                 values = self.run_parallel(peers, lambda p: self._call(p, task, context, group=mid + "_initial"))
                 for round_id in range(1, stage.get("rounds", self.config.peer_rounds) + 1):
                     previous = values
                     self.barrier(barrier_id=mid + f"_barrier_{round_id}", waiting_for_nodes=[v.producer_node for v in previous], peer_round_id=round_id, trace_fields={"motif_instance_id": mid})
                     self._stage_context[mid]["round_parents"][round_id] = [v.producer_node for v in previous]
                     def update(p):
-                        sources = peer_sources(p.index, width, shape, stage.get("seed", self.config.random_seed))
-                        return self._call(p, task, context + [replace(previous[p.index], kind="own_state")] + [replace(previous[j], kind="peer_message") for j in sources],
+                        sources = peer_sources(participant_ids.index(p.index), len(peers), shape, stage.get("seed", self.config.random_seed),stage.get("k"),stage.get("sparsity"))
+                        return self._call(p, task, context + [replace(previous[participant_ids.index(p.index)], kind="own_state")] + [replace(previous[j], kind="peer_message") for j in sources],
                                           instruction="The first peer result is your prior state; the remaining results are incoming peer messages.",
                                           round_id=round_id, group=mid + f"_round_{round_id}")
                     values = self.run_parallel(peers, update)
@@ -355,14 +375,37 @@ class FamilyWorkload(WorkloadRuntime):
                     for name in named:
                         if name not in pending or not self._dependencies[name] <= completed.keys():
                             continue
-                        stage = named[name]
-                        inputs = {port: (available[refs[0]] if port == "candidate" else [available[r] for r in refs]) if isinstance(refs, list) else available[refs]
-                                  for port, refs in stage.get("inputs", {}).items()}
+                        from .adaptive import decision_value, record_choice, skip_stage
+                        stage = dict(named[name])
+                        if any(completed[p].status == "skipped" for p in self._dependencies[name]) and not stage.get("allow_skipped"):
+                            completed[name]=skip_stage(self,name,"prerequisite_skipped");pending.remove(name);continue
+                        if stage.get("condition"):
+                            selector=stage["condition"]
+                            value=decision_value(self,selector,completed)
+                            activated=value in selector["in"] if "in" in selector else value==selector.get("equals",True)
+                            record_choice(self,selector,completed,{"kind":"stage_activation","stage_id":name,"active":activated})
+                            if not activated:
+                                completed[name]=skip_stage(self,name,"condition_false");pending.remove(name);continue
+                        if stage.get("participants"):
+                            ids=decision_value(self,stage["participants"],completed)
+                            width=stage.get("width",self.config.num_agents)
+                            if not isinstance(ids,list) or not ids or len(ids)!=len(set(ids)) or any(type(i) is not int or i<0 or i>=width for i in ids):
+                                raise ValueError("Invalid participant subset")
+                            if stage.get("family")=="peer_deliberation" and len(ids)<2: raise ValueError("Peers require two participants")
+                            stage["selected_participants"]=ids
+                            record_choice(self,stage["participants"],completed,{"kind":"participants","stage_id":name,"indices":ids})
+                        inputs={}
+                        for port,refs in stage.get("inputs",{}).items():
+                            refs=refs if isinstance(refs,list) else [refs]
+                            values=[available[r] for r in refs if r in available]
+                            if len(values)!=len(refs) and not stage.get("allow_skipped"): raise ValueError("Missing prerequisite artifact")
+                            if values: inputs[port]=values[0] if port=="candidate" else values
                         parents = [oid for dep in sorted(self._dependencies[name])
                                    for oid in self._stage_context[completed[dep].motif_instance_id]["nodes"]]
                         active[pool.submit(self.execute, stage, self.config.query, inputs, control_parents=parents)] = name
                         pending.remove(name)
                 if not active:
+                    if pending and status in {"completed","accepted"}: continue
                     break
                 finished, _ = wait(active, return_when=FIRST_COMPLETED)
                 for future in finished:

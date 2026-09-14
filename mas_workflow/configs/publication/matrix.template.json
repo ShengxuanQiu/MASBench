@@ -1,0 +1,270 @@
+{
+  "tasks": {
+    "water": "task.json"
+  },
+  "deployments": {
+    "gpu": "deployment-gpu.template.json"
+  },
+  "workloads": [
+    {
+      "preset": "dispatch",
+      "parameters": [
+        {
+          "width": 2,
+          "max_revisions": 0
+        },
+        {
+          "width": 4,
+          "max_revisions": 0
+        },
+        {
+          "width": 8,
+          "max_revisions": 0
+        }
+      ]
+    },
+    {
+      "preset": "parallel",
+      "parameters": [
+        {
+          "width": 2,
+          "max_revisions": 0
+        },
+        {
+          "width": 4,
+          "max_revisions": 0
+        },
+        {
+          "width": 8,
+          "max_revisions": 0
+        }
+      ]
+    },
+    {
+      "preset": "refine",
+      "parameters": [
+        {
+          "width": 1,
+          "max_revisions": 0
+        },
+        {
+          "width": 1,
+          "max_revisions": 2
+        },
+        {
+          "width": 1,
+          "max_revisions": 4
+        },
+        {
+          "width": 1,
+          "max_revisions": 8
+        }
+      ]
+    },
+    {
+      "preset": "peer",
+      "parameters": [
+        {
+          "width": 4,
+          "rounds": 1,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 4,
+          "rounds": 1,
+          "connectivity": "random_k",
+          "k": 3
+        },
+        {
+          "width": 4,
+          "rounds": 2,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 4,
+          "rounds": 2,
+          "connectivity": "random_k",
+          "k": 3
+        },
+        {
+          "width": 4,
+          "rounds": 4,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 4,
+          "rounds": 4,
+          "connectivity": "random_k",
+          "k": 3
+        },
+        {
+          "width": 8,
+          "rounds": 1,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 8,
+          "rounds": 1,
+          "connectivity": "random_k",
+          "k": 7
+        },
+        {
+          "width": 8,
+          "rounds": 2,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 8,
+          "rounds": 2,
+          "connectivity": "random_k",
+          "k": 7
+        },
+        {
+          "width": 8,
+          "rounds": 4,
+          "connectivity": "random_k",
+          "k": 1
+        },
+        {
+          "width": 8,
+          "rounds": 4,
+          "connectivity": "random_k",
+          "k": 7
+        }
+      ]
+    },
+    {
+      "preset": "parallel_refine",
+      "parameters": [
+        {
+          "width": 2,
+          "max_revisions": 0
+        },
+        {
+          "width": 2,
+          "max_revisions": 2
+        },
+        {
+          "width": 4,
+          "max_revisions": 0
+        },
+        {
+          "width": 4,
+          "max_revisions": 2
+        },
+        {
+          "width": 8,
+          "max_revisions": 0
+        },
+        {
+          "width": 8,
+          "max_revisions": 2
+        }
+      ]
+    },
+    {
+      "preset": "dispatch_parallel_refine",
+      "parameters": [
+        {
+          "width": 2,
+          "max_revisions": 0
+        },
+        {
+          "width": 2,
+          "max_revisions": 2
+        },
+        {
+          "width": 4,
+          "max_revisions": 0
+        },
+        {
+          "width": 4,
+          "max_revisions": 2
+        },
+        {
+          "width": 8,
+          "max_revisions": 0
+        },
+        {
+          "width": 8,
+          "max_revisions": 2
+        }
+      ]
+    },
+    {
+      "preset": "fanout_fanin",
+      "parameters": [
+        {
+          "width": 2
+        },
+        {
+          "width": 4
+        },
+        {
+          "width": 8
+        }
+      ]
+    },
+    {
+      "preset": "matched_chain",
+      "parameters": [
+        {
+          "requests": 4
+        },
+        {
+          "requests": 8
+        },
+        {
+          "requests": 16
+        }
+      ]
+    },
+    {
+      "preset": "matched_parallel",
+      "parameters": [
+        {
+          "requests": 4
+        },
+        {
+          "requests": 8
+        },
+        {
+          "requests": 16
+        }
+      ]
+    }
+  ],
+  "study": {
+    "rates": [
+      0.125,
+      0.25,
+      0.5,
+      1,
+      2,
+      4,
+      8
+    ],
+    "count": 300,
+    "repetitions": 5,
+    "seed": 42,
+    "arrival": "poisson",
+    "max_inflight_workflows": 256,
+    "slo_sec": 60,
+    "cache_protocol": "cache_disabled",
+    "warmup_count": 0,
+    "collect_backend_metrics": true,
+    "backend_metrics_interval_sec": 0.5,
+    "output_length_tolerance": 0,
+    "require_identity_match": true
+  },
+  "capacity": {
+    "dense_points": 5,
+    "min_slo_success": 0.95,
+    "max_failure_fraction": 0.01
+  }
+}

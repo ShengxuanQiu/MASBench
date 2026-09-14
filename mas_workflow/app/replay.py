@@ -86,6 +86,7 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                deployment=asdict(deployment), source_trace=str(path), source_operation_ids=ids,
                generation_policy="recorded_request_generation; deployment generation ignored",
                source_control_decisions=graph.decisions,
+               source_identity=next((e.get("extra",{}).get("config",{}).get("extra",{}).get("experiment",{}).get("deployment",{}).get("identity",{}) for e in events if e.get("canonical_type")=="run_start"),{}),
                source_trace_sha256=prepared.sha256)
 
     incoming, consumed, produced, decisions = (defaultdict(list) for _ in range(4))
@@ -98,6 +99,14 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
     for event in graph.decisions:
         decisions[event.get("node_id")].append(event)
 
+    for event in events:
+        if event.get("canonical_type")=="stage_skip":
+            trace.emit(event_type="stage_skip",stage_id=event.get("stage_id"),
+                       stage_instance_id=run_id+":"+event["stage_instance_id"],reason=event.get("reason"),
+                       replay_content_source="recorded_skip",source_event_id=event["event_id"])
+    delivered=defaultdict(list)
+    for event in graph.deliveries: delivered[event["operation_id"]].append(event)
+
     def execute(oid):
         op = graph.operations[oid]
         identity = identities(op)
@@ -106,6 +115,10 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
             trace.emit(event_type="dependency", src=ids[src], dst=ids[oid], dependency_kind=kind, **identity)
         for aid in consumed[oid]:
             trace.emit(event_type="artifact_consume", node_id=ids[oid], artifact_id=artifact_ids[aid], **identity)
+        for event in delivered[oid]:
+            trace.emit(event_type="artifact_delivery",node_id=ids[oid],artifact_id=artifact_ids[event["artifact_id"]],
+                       source_artifact_ids=[artifact_ids[a] for a in event.get("source_artifact_ids",[])],
+                       producer_operation_id=ids[event["producer_operation_id"]],delivery_mode=event["delivery_mode"],**identity)
         if op.kind == "llm":
             payload = deepcopy(op.payload)
             payload["model"] = deployment.model

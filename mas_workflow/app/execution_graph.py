@@ -8,7 +8,7 @@ SCHEMA = "masbench_execution_v1"
 EVENT_TYPES = {"operation_start", "operation_finish", "operation_fail", "dependency",
                "artifact_produce", "artifact_consume", "control_decision", "barrier_sync",
                "request_ready", "request_submit", "request_finish", "request_fail",
-               "backend_measurement", "stage_start", "stage_finish", "run_start", "run_finish"}
+               "backend_measurement", "artifact_delivery", "stage_skip", "stage_start", "stage_finish", "run_start", "run_finish"}
 ALIASES = {"llm_request_ready": "request_ready", "llm_request_start": "request_submit",
            "llm_request_end": "request_finish", "llm_request_error": "request_fail",
            "artifact_created": "artifact_produce", "barrier": "barrier_sync",
@@ -35,7 +35,7 @@ def normalize_event(event):
     operation_keys = {"operation_id", "request_id", "stage_instance_id", "motif_instance_id", "agent_instance_id",
                       "role", "operation_kind", "operation_phase", "request_payload", "request_metadata", "status", "error"}
     flow_keys = {"parents", "artifact_id", "source_artifact_id", "content", "producer_operation_id",
-                 "src", "dst", "dependency_kind", "decision", "waiting_for_nodes", "tool_snapshot"}
+                 "src", "dst", "dependency_kind", "decision", "waiting_for_nodes", "tool_snapshot", "delivery_mode", "source_artifact_ids"}
     measurements = {}
     for key in ("duration_sec", "request_ready_ts", "request_submit_ts", "response_end_ts", "ttft_sec", "tpot_sec",
                 "backend_prompt_tokens", "backend_completion_tokens", "queue_wait_sec", "input_tokens_est", "output_tokens_est"):
@@ -90,6 +90,7 @@ class ExecutionGraph:
     artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     consumptions: list[tuple[str, str]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
+    deliveries: list[dict[str, Any]] = field(default_factory=list)
 
     def ingest(self, event):
         if event.get("canonical_schema") != SCHEMA:
@@ -131,6 +132,8 @@ class ExecutionGraph:
             self.artifacts[aid] = {"producer": oid, "content": event.get("content"), "hash": event.get("output_hash")}
         if kind == "artifact_consume":
             self.consumptions.append((event["artifact_id"], oid))
+        if kind == "artifact_delivery":
+            self.deliveries.append(event)
         if kind == "control_decision":
             self.decisions.append(event)
 
@@ -163,6 +166,13 @@ class ExecutionGraph:
             producer = self.artifacts[aid]["producer"]
             if (producer, oid, "data") not in self.edges:
                 raise ValueError("Artifact consumption missing data dependency")
+        for delivery in self.deliveries:
+            if delivery["artifact_id"] not in self.artifacts or delivery["operation_id"] not in parents:
+                raise ValueError("Dangling delivery provenance")
+            if delivery.get("delivery_mode") not in {"full","selected","summarized","referenced","retrieved"}:
+                raise ValueError("Invalid delivery mode")
+            if any(a not in self.artifacts for a in delivery.get("source_artifact_ids",[])):
+                raise ValueError("Unknown source artifact")
         done = set()
         while len(done) < len(parents):
             ready = {oid for oid in parents if oid not in done and parents[oid] <= done}
@@ -196,4 +206,5 @@ class ExecutionGraph:
     def to_dict(self):
         from dataclasses import asdict
         return {"run_id": self.run_id, "operations": {oid: {**asdict(op), "parents": sorted(op.parents)} for oid, op in self.operations.items()},
-                "edges": sorted(self.edges), "artifacts": self.artifacts, "consumptions": self.consumptions}
+                "edges": sorted(self.edges), "artifacts": self.artifacts, "consumptions": self.consumptions,
+                "deliveries": self.deliveries}

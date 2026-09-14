@@ -1,0 +1,29 @@
+{
+  "mode": "replay",
+  "trace_corpus": "REPLACE_WITH_RECORDED_SOURCE_CORPUS.json",
+  "deployments": {
+    "gpu": "deployment-gpu.template.json",
+    "ascend": "deployment-ascend.template.json"
+  },
+  "rates": [
+    0.125,
+    0.25,
+    0.5,
+    1,
+    2,
+    4,
+    8
+  ],
+  "count": 300,
+  "repetitions": 5,
+  "seed": 42,
+  "arrival": "poisson",
+  "max_inflight_workflows": 256,
+  "slo_sec": 60,
+  "cache_protocol": "cache_disabled",
+  "warmup_count": 0,
+  "collect_backend_metrics": true,
+  "backend_metrics_interval_sec": 0.5,
+  "output_length_tolerance": 0,
+  "require_identity_match": true
+}

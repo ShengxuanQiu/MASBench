@@ -2,7 +2,7 @@
 
 MASBench 用可组合的多 agent 工作负载和执行 trace，研究协作结构、运行参数与 serving 系统行为之间的关系。工作负载定义与某次运行的硬件性能测量分开：前者规定角色、信息传递和控制规则，后者记录实际调用、依赖、token、工具等待与后端指标。
 
-当前主入口是 **WorkflowSpec DAG → MotifSpec → TaskBinding + DeploymentSpec → realized ExecutionGraph**。motif 不限定为代码任务；角色指令、输入内容、工具和判定标准通过任务绑定配置。更换绑定提供跨任务运行能力，跨任务的代表性与输出质量仍需实验验证。
+当前主入口是 **WorkflowSpec DAG → (MotifSpec | AtomicStage) → TaskBinding + DeploymentSpec → realized ExecutionGraph**。motif 不限定为代码任务；角色指令、输入内容、工具和判定标准通过任务绑定配置。更换绑定提供跨任务运行能力，跨任务的代表性与输出质量仍需实验验证。
 
 
 ## 按论文三条 requirement 运行
@@ -193,3 +193,22 @@ python -m app.replay_compare --source /path/to/source.jsonl \
 prefix-cache 等价性尚未强制保证。客户端 trace 不冒充实际 KV 使用量或设备 profiler。
 详细定义、cache 协议、可观测边界、错误处理及正式实验验收要求见
 [实验流水线说明](docs/experiment-pipeline.md)。
+
+## Adaptive workload 与正式主实验矩阵
+
+新增 conditional stage activation/skip、动态 worker 子集、AtomicStage、显式 artifact delivery，以及 composed/matched-work presets。它们复用现有 canonical runner、trace 和 replay；replay 不重新决策。
+
+```bash
+cd mas_workflow
+python -m app.benchmark run --experiment configs/publication/adaptive.json --trace-dir ../results/adaptive
+# 可运行的功能矩阵；mock 不用于 GPU/NPU 性能结论
+python -m app.publication --manifest configs/publication/matrix-functional.json --output ../results/publication-functional --execute
+# 正式模板：先填入部署信息；不带 --execute 时只生成配置
+python -m app.publication --manifest configs/publication/matrix.template.json --output ../results/main-matrix
+# 对录制 corpus 做跨硬件容量搜索；先填写 replay 模板
+python -m app.capacity --config configs/publication/replay-capacity.template.json --output ../results/hardware-replay
+```
+
+矩阵支持 coarse/dense QPS 搜索、多次重复与置信区间；结果保存配置、代码快照、trace corpus 和 resume 指纹。`lambda_knee` 是有限样本下的 SLO 边界，不自动等同于硬件资源饱和。
+
+新 cache 协议会验证 endpoint 报告的 prefix-cache 开关；output-length agreement 和 model/tokenizer/template identity 单独检查，即使长度一致也仍是 best-effort replay。Ascend adapter 已接入 npu-smi 和可选 profiler 快照，目前仅有 fixture 验证。具体指标定义、使用方法、修改文件、限制及正式实验前的验收清单见 [主实验准备说明](docs/publication-readiness.md)。

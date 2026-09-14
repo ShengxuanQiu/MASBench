@@ -8,7 +8,7 @@ from typing import Any
 
 ROLES = {"Coordinator", "Worker", "Reducer", "Reviewer"}
 ROLE_ALIASES = {"dispatcher": "Coordinator", "executor": "Worker", "worker": "Worker",
-                "collector": "Reducer", "producer": "Worker", "evaluator": "Reviewer", "peer": "Worker"}
+                "Coordinator":"Coordinator", "Worker":"Worker", "Reducer":"Reducer", "Reviewer":"Reviewer", "collector": "Reducer", "producer": "Worker", "evaluator": "Reviewer", "peer": "Worker"}
 FAMILIES = {"DispatchExecute": "dispatch_execute", "ParallelAggregate": "parallel_aggregate",
             "EvaluateRefine": "evaluate_refine", "PeerDeliberation": "peer_deliberation"}
 
@@ -29,12 +29,23 @@ class MotifSpec:
     dispatch: str = "plan"
     aggregation: str = "concat_summary"
     seed: int = 42
+    k: int | None = None
+    sparsity: float | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "family", FAMILIES.get(self.family, self.family))
         if self.family not in FAMILIES.values():
             raise ValueError("Unknown motif family")
         positive(self.width, "width")
+        if self.k is not None:
+            positive(self.k, "k", 0)
+            if self.k >= self.width: raise ValueError("k must be smaller than width")
+        if self.sparsity is not None and not 0 <= self.sparsity <= 1:
+            raise ValueError("sparsity must lie in [0,1]")
+        if self.k is not None and self.sparsity is not None:
+            raise ValueError("Use k or sparsity")
+        if (self.k is not None or self.sparsity is not None) and (self.family != 'peer_deliberation' or self.connectivity != 'random_k'):
+            raise ValueError('k/sparsity require PeerDeliberation random_k connectivity')
         positive(self.rounds, "rounds", 0)
         positive(self.max_revisions, "max_revisions", 0)
         if type(self.seed) is not int:
@@ -54,11 +65,39 @@ class MotifSpec:
 
 
 @dataclass(frozen=True)
+class AtomicStage:
+    kind: str = "llm"
+    role: str = "Worker"
+    def __post_init__(self):
+        if self.kind not in {"llm", "transform", "router", "tool"} or self.role not in ROLES:
+            raise ValueError("Invalid AtomicStage kind/role")
+
+
+@dataclass(frozen=True)
 class StageSpec:
     id: str
-    motif: str
+    motif: str | None = None
     depends_on: tuple[str, ...] = ()
     inputs: dict[str, str | list[str]] = field(default_factory=dict)
+    atomic: AtomicStage | None = None
+    condition: dict[str, Any] | None = None
+    participants: dict[str, Any] | None = None
+    delivery: dict[str, str] = field(default_factory=dict)
+    allow_skipped: bool = False
+
+    def __post_init__(self):
+        if (self.motif is None) == (self.atomic is None):
+            raise ValueError("Stage references exactly one motif or AtomicStage")
+        if isinstance(self.atomic, dict): object.__setattr__(self, "atomic", AtomicStage(**self.atomic))
+        if set(self.delivery) - {"context","candidate"} or set(self.delivery.values()) - {"full","selected","summarized","referenced","retrieved"}:
+            raise ValueError("Invalid delivery mode/port")
+        for control in (self.condition, self.participants):
+            if control is not None and (not isinstance(control,dict) or not control.get("from_stage") or set(control)-{"from_stage","field","equals","in"}):
+                raise ValueError("Invalid stage decision selector")
+        if self.condition and ('in' in self.condition and (not isinstance(self.condition['in'],list) or 'equals' in self.condition)):
+            raise ValueError('Use equals or a list-valued in condition')
+        if self.participants and set(self.participants)-{'from_stage','field'}:
+            raise ValueError('Participant selector only accepts from_stage/field')
 
 
 def stage_dependencies(stages, *, legacy_sequential=False):
@@ -71,6 +110,8 @@ def stage_dependencies(stages, *, legacy_sequential=False):
         if not isinstance(declared, (list, tuple)) or any(not isinstance(d, str) for d in declared):
             raise ValueError("depends_on must be a list of stage IDs")
         parents = set(declared)
+        for key in ("condition","participants"):
+            if stage.get(key): parents.add(stage[key]["from_stage"])
         if legacy_sequential and i:
             parents.add(names[i - 1])
         for port, refs in stage.get("inputs", {}).items():
@@ -112,8 +153,10 @@ class StructureSpec:
 
     def __post_init__(self):
         for stage in self.workflow.stages:
-            if stage.motif not in self.motifs:
+            if stage.atomic is None and stage.motif not in self.motifs:
                 raise ValueError(f"Unknown motif reference: {stage.motif}")
+            if stage.participants and (stage.atomic or self.motifs[stage.motif].family == 'evaluate_refine'):
+                raise ValueError('Participant selection requires a worker/peer motif')
 
 
 @dataclass(frozen=True)
@@ -140,8 +183,16 @@ class TaskBinding:
     evaluation_semantics: str = "Assess the supplied candidate against the criteria."
     tool_provider: str = "synthetic"
     tool_mode: str = "synthetic"
+    stage_bindings: dict[str, dict[str, Any]] = field(default_factory=dict)
+    delivery_instruction: str = 'Summarize the supplied information accurately and concisely.'
 
     def __post_init__(self):
+        for binding in self.stage_bindings.values():
+            if set(binding)-{"task_input","roles","criteria","routing_semantics","evaluation_semantics","parameters","delivery_instruction"}:
+                raise ValueError("Task stage binding cannot define topology/deployment")
+            for role, value in binding.get("roles",{}).items():
+                if role not in ROLES: raise ValueError("Unknown role")
+                RoleTask(**value)
         if set(self.roles) - ROLES:
             raise ValueError("Task roles must use Coordinator/Worker/Reducer/Reviewer")
         if not isinstance(self.task_input, str):
@@ -156,9 +207,13 @@ class DeploymentSpec:
     generation: dict[str, Any] = field(default_factory=lambda: {"max_tokens": 256, "temperature": 0.2})
     hardware: dict[str, Any] = field(default_factory=dict)
     concurrency: int = 32
+    telemetry: dict[str, Any] = field(default_factory=dict)
+    identity: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         positive(self.concurrency, "concurrency")
+        if set(self.telemetry)-{"adapter","device_id","metrics_url","metadata","npu_id","profiler_counters_path"}:
+            raise ValueError("Unknown telemetry configuration")
         if self.backend not in {"mock", "openai_compatible"}:
             raise ValueError("Unsupported backend")
         if set(self.generation) - {"max_tokens", "temperature", "top_p", "seed", "stop", "frequency_penalty", "presence_penalty"}:
@@ -176,6 +231,8 @@ class ExperimentConfig:
 
     def __post_init__(self):
         positive(self.load, "load")
+        if set(self.task.stage_bindings) - {s.id for s in self.structure.workflow.stages}:
+            raise ValueError('Task binding references an unknown stage')
         if self.arrival_interval_sec < 0:
             raise ValueError("arrival_interval_sec must be nonnegative")
 
@@ -183,15 +240,22 @@ class ExperimentConfig:
         from .motifs.task_defaults import FAMILY_SLOTS
         stages = []
         for stage in self.structure.workflow.stages:
-            motif = self.structure.motifs[stage.motif]
-            values = {k: v for k, v in asdict(motif).items() if v is not None and k != "coordination"}
+            binding = self.task.stage_bindings.get(stage.id,{})
+            roles = {k:asdict(v) for k,v in self.task.roles.items()}
+            roles.update(binding.get("roles",{}))
+            if stage.atomic:
+                values={"family":"atomic", "atomic":asdict(stage.atomic), "roles":{stage.atomic.role:roles.get(stage.atomic.role,asdict(RoleTask()))}}
+            else:
+                motif = self.structure.motifs[stage.motif]
+                values = {k: v for k, v in asdict(motif).items() if v is not None and k != "coordination"}
+                values["roles"] = {slot.name:roles[ROLE_ALIASES[slot.name]] for slot in FAMILY_SLOTS[motif.family] if ROLE_ALIASES[slot.name] in roles}
             values.update(id=stage.id, depends_on=list(stage.depends_on), inputs=stage.inputs,
-                          task=self.task.task_input, criteria=self.task.criteria,
-                          routing_semantics=self.task.routing_semantics,
-                          evaluation_semantics=self.task.evaluation_semantics)
-            values["roles"] = {slot.name: asdict(self.task.roles[ROLE_ALIASES[slot.name]])
-                               for slot in FAMILY_SLOTS[motif.family]
-                               if ROLE_ALIASES[slot.name] in self.task.roles}
+                          task=binding.get("task_input",self.task.task_input), criteria=binding.get("criteria",self.task.criteria),
+                          routing_semantics=binding.get("routing_semantics",self.task.routing_semantics),
+                          evaluation_semantics=binding.get("evaluation_semantics",self.task.evaluation_semantics),
+                          condition=stage.condition,participants=stage.participants,delivery=stage.delivery,
+                          allow_skipped=stage.allow_skipped,parameters=binding.get("parameters",{}),
+                          delivery_instruction=binding.get("delivery_instruction",self.task.delivery_instruction))
             stages.append(values)
         return {"stages": stages}
 

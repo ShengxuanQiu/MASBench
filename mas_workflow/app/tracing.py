@@ -8,6 +8,7 @@ import random
 import threading
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -142,8 +143,20 @@ class TraceContext:
     hooks: TraceHookManager = field(default_factory=TraceHookManager)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
+    canonical_enabled: bool = False
+    execution_graph: Any = None
+    journal_enabled: bool = False
+    _journal: Any = field(default=None, repr=False)
+
+    def close_journal(self):
+        if self._journal is not None:
+            self._journal.close()
+            self._journal = None
+
     def emit(self, **fields: Any) -> dict[str, Any]:
         with self.lock:
+            # A trace event is a snapshot, never an alias of a runner's mutable lists.
+            fields = deepcopy(fields)
             event = {
                 "schema_version": SCHEMA_VERSION,
                 "event_id": fields.pop("event_id", str(uuid.uuid4())),
@@ -194,7 +207,17 @@ class TraceContext:
             event.update(fields)
             if self.trace_level == "basic":
                 self._redact_basic(event)
+            if self.canonical_enabled:
+                from .execution_graph import normalize_event
+                normalize_event(event)
+                if self.execution_graph is not None:
+                    self.execution_graph.ingest(event)
             self.events.append(event)
+            if self.journal_enabled:
+                if self._journal is None:
+                    self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+                    self._journal = self.trace_path.with_suffix(".partial").open("a", encoding="utf-8", buffering=1)
+                self._journal.write(json.dumps(event, ensure_ascii=False) + "\n")
             self.hooks.emit(event)
         return event
 
@@ -286,10 +309,19 @@ class TraceContext:
 
     def save(self) -> Path:
         self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.canonical_enabled:
+            from .execution_graph import normalize_event
+            for event in self.events:
+                normalize_event(event)
         self._ensure_simulator_ready_records()
-        with self.trace_path.open("w", encoding="utf-8") as f:
+        temporary = self.trace_path.with_suffix(".jsonl.tmp")
+        with temporary.open("w", encoding="utf-8") as f:
             for event in self.events:
                 f.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        temporary.replace(self.trace_path)
+        self.close_journal()
+        if self.journal_enabled:
+            self.trace_path.with_suffix(".partial").unlink(missing_ok=True)
         if self.record_model_outputs and self.model_outputs:
             path = self.model_outputs_path or self.trace_path.with_name(f"{self.trace_path.stem}_model_outputs.json")
             path.parent.mkdir(parents=True, exist_ok=True)

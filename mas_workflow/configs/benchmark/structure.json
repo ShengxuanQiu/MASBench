@@ -1,0 +1,6 @@
+{
+  "motifs": {
+    "analyze": "motif.json"
+  },
+  "workflow": "workflow.json"
+}

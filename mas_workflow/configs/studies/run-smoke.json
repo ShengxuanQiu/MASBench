@@ -1,0 +1,22 @@
+{
+  "deployments": {
+    "mock": "../benchmark/deployment.json"
+  },
+  "rates": [
+    5,
+    20
+  ],
+  "count": 8,
+  "repetitions": 2,
+  "seed": 42,
+  "arrival": "constant",
+  "max_inflight_workflows": 16,
+  "slo_sec": 10,
+  "cache_protocol": "uncontrolled",
+  "warmup_count": 0,
+  "collect_backend_metrics": false,
+  "mode": "run",
+  "experiments": [
+    "../benchmark/experiment.json"
+  ]
+}

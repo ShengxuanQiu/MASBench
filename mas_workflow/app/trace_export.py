@@ -71,6 +71,22 @@ def events_to_arch_spans(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     These spans preserve simulation fields: dependencies, token sizes, round IDs,
     duration source, replay policy, and communication/artifact metadata.
     """
+    if any(e.get("canonical_type") in {"request_ready", "operation_start"} for e in events):
+        # Derive views from canonical operations/dependencies, including local tools.
+        # Historical tool_search/edge_dataflow events remain diagnostics, not a second graph.
+        from .execution_graph import ExecutionGraph
+        graph = ExecutionGraph.from_events(events)
+        projected = []
+        for event in events:
+            kind = event.get("canonical_type")
+            if kind in {"run_start", "run_finish", "barrier_sync"}:
+                projected.append(event)
+            elif kind in {"request_finish", "request_fail", "operation_finish", "operation_fail"}:
+                op = graph.operations[event["operation_id"]]
+                projected.append({**event, "event_type": "llm_request_end" if op.kind == "llm" else "tool_search",
+                                  "node_type": op.kind, "parents": sorted(op.parents),
+                                  "status": op.status})
+        events = projected
     spans: list[dict[str, Any]] = []
     node_to_span: dict[str, str] = {}
     for index, event in enumerate(events):
@@ -111,6 +127,9 @@ def events_to_arch_spans(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "motif_instance_id": event.get("motif_instance_id"),
             "motif_family": event.get("motif_family"),
             "role_slot": event.get("role_slot"),
+            "role": event.get("role"),
+            "stage_instance_id": event.get("stage_instance_id"),
+            "canonical_attributes": event.get("attributes", {}),
             "role_index": event.get("role_index"),
             "agent_instance_id": event.get("agent_instance_id"),
             "parent_motif_id": event.get("parent_motif_id"),
@@ -168,6 +187,9 @@ def spans_to_otel(spans: list[dict[str, Any]], *, trace_id: str) -> list[dict[st
             "mas.motif_instance_id": span.get("motif_instance_id"),
             "mas.motif_family": span.get("motif_family"),
             "mas.role_slot": span.get("role_slot"),
+            "mas.role": span.get("role"),
+            "mas.stage_instance_id": span.get("stage_instance_id"),
+            "mas.canonical_attributes": json.dumps(span.get("canonical_attributes", {}), ensure_ascii=False),
             "mas.role_index": span.get("role_index"),
             "mas.agent_instance_id": span.get("agent_instance_id"),
             "mas.parent_motif_id": span.get("parent_motif_id"),

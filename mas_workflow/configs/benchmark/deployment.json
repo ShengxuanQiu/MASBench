@@ -1,0 +1,15 @@
+{
+  "model": "mock-mas-model",
+  "backend": "mock",
+  "endpoint": "http://127.0.0.1:8000/v1",
+  "generation": {
+    "max_tokens": 256,
+    "temperature": 0.2,
+    "seed": 42
+  },
+  "hardware": {
+    "device": "cpu",
+    "note": "mock smoke test"
+  },
+  "concurrency": 4
+}

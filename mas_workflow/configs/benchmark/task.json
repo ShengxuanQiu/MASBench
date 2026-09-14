@@ -1,0 +1,11 @@
+{
+  "task_input": "Compare practical ways to reduce water use in a small city.",
+  "roles": {
+    "Worker": {
+      "instructions": "Develop an evidence-based proposal and state assumptions."
+    },
+    "Reducer": {
+      "instructions": "Synthesize the proposals and explain their tradeoffs."
+    }
+  }
+}

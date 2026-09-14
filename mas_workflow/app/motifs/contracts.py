@@ -10,7 +10,7 @@ from uuid import uuid4
 @dataclass(frozen=True)
 class RoleSlot:
     name: str
-    instructions: str
+    instructions: str = ""  # Legacy default only; new StructureSpec carries no prompts.
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,9 @@ class RoleBinding:
     tools: tuple[str, ...] = ()
     output_format: str = "text"
     model: str = ""
-    backend_base_url: str = ""
+    backend_base_url: str = ""  # Legacy-only deployment compatibility.
+    io_schema: dict[str, Any] = field(default_factory=dict)
+    input_schema: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.output_format not in {"text", "json"}:
@@ -27,11 +29,26 @@ class RoleBinding:
         if set(self.tools) - {"search"}:
             raise ValueError("Only the explicit search tool is currently supported by family bindings")
 
+        if self.io_schema:
+            import jsonschema
+            jsonschema.Draft202012Validator.check_schema(self.io_schema)
+        if self.input_schema:
+            import jsonschema
+            jsonschema.Draft202012Validator.check_schema(self.input_schema)
+
+    def validate_input(self, value: dict[str, Any]) -> None:
+        if self.input_schema:
+            import jsonschema
+            jsonschema.validate(value, self.input_schema)
+
     def validate(self, value: str) -> None:
         if not value.strip():
             raise ValueError("Role returned an empty result")
         if self.output_format == "json":
             json.loads(value)
+        if self.io_schema:
+            import jsonschema
+            jsonschema.validate(json.loads(value), self.io_schema)
 
 
 @dataclass

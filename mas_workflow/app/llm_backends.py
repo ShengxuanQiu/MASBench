@@ -116,7 +116,9 @@ class OpenAICompatibleLLM:
         headers_metadata = dict(metadata)
         headers_metadata["X-Request-Id"] = request_id
         request_max_tokens = int(metadata.get("request_max_output_tokens") or self.max_tokens)
-        content, response_metadata = self.client.invoke_with_metadata(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=request_max_tokens)
+        # Canonical runs cannot silently fall back to clients that drop recorded parameters.
+        invoke = self.client.invoke_streaming_with_metadata if metadata.get("_fixed_payload") else self.client.invoke_with_metadata
+        content, response_metadata = invoke(system_prompt, user_prompt, metadata=headers_metadata, max_tokens=request_max_tokens)
         end = float(response_metadata.get("completion_ts") or time.time())
         generation_start = float(response_metadata.get("first_token_ts") or end)
         usage = response_metadata.get("usage") or {}

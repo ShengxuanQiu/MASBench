@@ -375,6 +375,8 @@ class WorkloadRuntime:
                 "response_end_ts",
             }
         }
+        stage_identity = {key: trace_metadata[key] for key in ("stage_instance_id", "role") if key in trace_metadata}
+        generation = dict(self.config.extra.get("generation", {}))
         prompt = system_prompt + "\n" + user_prompt
         request_max_output_tokens = int(
             (extra_metadata or {}).get("request_max_output_tokens")
@@ -392,6 +394,7 @@ class WorkloadRuntime:
         )
         self.trace.emit(
             event_type="llm_request_ready",
+            **stage_identity,
             node_id=node_id,
             node_name=node_name,
             node_type="llm",
@@ -413,15 +416,25 @@ class WorkloadRuntime:
                 "role_slot", "role_index", "agent_instance_id", "motif_instance_id", "motif_family", "motif_name", "parent_motif_id"
             }},
         )
-        decision = self.admission_controller.admit(
-            request_id=request_id,
-            node_id=node_id,
-            agent_role=agent_role,
-            critical_path_candidate=critical_path_candidate,
-            tool_resumed=tool_resumed,
-            ready_ts=ready_ts,
-            prompt_tokens=estimate_tokens(prompt),
-        )
+        slots = getattr(self, "_llm_slots", None)
+        if slots is not None:
+            slots.acquire()
+        try:
+            decision = self.admission_controller.admit(
+                request_id=request_id,
+                node_id=node_id,
+                agent_role=agent_role,
+                critical_path_candidate=critical_path_candidate,
+                tool_resumed=tool_resumed,
+                ready_ts=ready_ts,
+                prompt_tokens=estimate_tokens(prompt),
+            )
+        except Exception:
+            if slots is not None:
+                slots.release()
+            self.trace.emit(event_type="llm_request_error", node_id=node_id, node_type="llm",
+                            llm_request_id=request_id, status="failed", **stage_identity)
+            raise
         submit_ts = decision.submit_ts
         metadata["request_id_for_backend"] = request_id
         metadata["_on_first_token"] = lambda timestamp: self.admission_controller.on_first_token(
@@ -430,6 +443,17 @@ class WorkloadRuntime:
             critical_path_candidate=critical_path_candidate,
             timestamp=timestamp,
         )
+        metadata["request_max_output_tokens"] = request_max_output_tokens
+        request_payload = {"model": backend_model, "temperature": 0.2,
+                           **generation, "max_tokens": request_max_output_tokens,
+                           "stream": True, "stream_options": {"include_usage": True},
+                           "messages": [{"role": "system", "content": system_prompt},
+                                        {"role": "user", "content": user_prompt}]}
+        if (extra_metadata or {}).get("recorded_request_payload") is not None:
+            request_payload = dict(extra_metadata["recorded_request_payload"])
+        if self.trace.canonical_enabled:
+            metadata["_request_payload"] = request_payload
+            metadata["_fixed_payload"] = True
         public_request_metadata = {key: value for key, value in metadata.items() if not key.startswith("_")}
         common_graph = {
             "workflow_name": self.config.workload_name or self.config.motif_name or self.config.topology_name,
@@ -440,6 +464,7 @@ class WorkloadRuntime:
         }
         self.trace.emit(
             event_type="llm_request_start",
+            request_payload=request_payload if self.trace.canonical_enabled else None,
             node_id=node_id,
             node_name=node_name,
             node_type="llm",
@@ -507,6 +532,8 @@ class WorkloadRuntime:
             )
             raise
         finally:
+            if slots is not None:
+                slots.release()
             self.admission_controller.on_complete(
                 request_id=request_id,
                 node_id=node_id,
@@ -608,6 +635,15 @@ class WorkloadRuntime:
             **common_graph,
             **trace_metadata,
         )
+        if self.trace.canonical_enabled:
+            self.trace.emit(event_type="backend_measurement", node_id=node_id, node_type="backend",
+                            operation_id=node_id, llm_request_id=result.request_id_for_backend,
+                            duration_sec=result.duration_sec, duration_source="online_runtime_observed",
+                            backend_prompt_tokens=result.request_metadata.get("backend_prompt_tokens"),
+                            backend_completion_tokens=result.request_metadata.get("backend_completion_tokens"),
+                            ttft_sec=result.request_metadata.get("ttft_sec"),
+                            tpot_sec=result.request_metadata.get("tpot_sec"), queue_wait_sec=None,
+                            **stage_identity)
         self.trace.record_model_output(
             event=event,
             output_text=output,

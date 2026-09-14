@@ -1,0 +1,7 @@
+{
+  "family": "ParallelAggregate",
+  "width": 2,
+  "aggregation": "concat_summary",
+  "connectivity": "fan_out_fan_in",
+  "coordination": "independent"
+}

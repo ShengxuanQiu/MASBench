@@ -1,0 +1,42 @@
+{
+  "stages": [
+    {
+      "id": "root",
+      "motif": "analyze"
+    },
+    {
+      "id": "left",
+      "motif": "analyze",
+      "depends_on": [
+        "root"
+      ],
+      "inputs": {
+        "context": "root.result"
+      }
+    },
+    {
+      "id": "right",
+      "motif": "analyze",
+      "depends_on": [
+        "root"
+      ],
+      "inputs": {
+        "context": "root.result"
+      }
+    },
+    {
+      "id": "join",
+      "motif": "analyze",
+      "depends_on": [
+        "left",
+        "right"
+      ],
+      "inputs": {
+        "context": [
+          "left.result",
+          "right.result"
+        ]
+      }
+    }
+  ]
+}

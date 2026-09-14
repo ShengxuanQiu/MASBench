@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MASBench canonical execution event v1",
+  "type": "object",
+  "required": [
+    "canonical_schema",
+    "canonical_type",
+    "event_id",
+    "run_id",
+    "timestamp",
+    "operation_id",
+    "request_id",
+    "stage_instance_id",
+    "motif_instance_id",
+    "agent_instance_id",
+    "artifact_id",
+    "attributes"
+  ],
+  "properties": {
+    "canonical_schema": {
+      "const": "masbench_execution_v1"
+    },
+    "canonical_type": {
+      "enum": [
+        "operation_start",
+        "operation_finish",
+        "operation_fail",
+        "dependency",
+        "artifact_produce",
+        "artifact_consume",
+        "control_decision",
+        "barrier_sync",
+        "request_ready",
+        "request_submit",
+        "request_finish",
+        "request_fail",
+        "backend_measurement",
+        "stage_start",
+        "stage_finish",
+        "run_start",
+        "run_finish"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "required": [
+        "operation",
+        "information_flow",
+        "serving_observation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "type": "object"
+        },
+        "information_flow": {
+          "type": "object"
+        },
+        "serving_observation": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/measurement"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "measurement": {
+      "type": "object",
+      "required": [
+        "value",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {},
+        "source": {
+          "enum": [
+            "observed",
+            "backend-reported",
+            "estimated",
+            "unavailable"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "canonical_type": {
+            "const": "request_submit"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "request_payload"
+        ],
+        "properties": {
+          "request_payload": {
+            "type": "object",
+            "required": [
+              "model",
+              "messages",
+              "max_tokens"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "canonical_type": {
+            "const": "dependency"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "src",
+          "dst",
+          "dependency_kind"
+        ],
+        "properties": {
+          "dependency_kind": {
+            "enum": [
+              "data",
+              "control"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "canonical_type": {
+            "const": "artifact_produce"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "content",
+          "output_hash"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "canonical_type": {
+            "const": "operation_finish"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "tool_snapshot"
+        ]
+      }
+    }
+  ]
+}

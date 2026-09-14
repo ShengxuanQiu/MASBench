@@ -1,0 +1,21 @@
+{
+  "deployments": {
+    "mock": "../benchmark/deployment.json"
+  },
+  "rates": [
+    2,
+    5
+  ],
+  "count": 45,
+  "repetitions": 2,
+  "seed": 42,
+  "arrival": "constant",
+  "max_inflight_workflows": 16,
+  "slo_sec": 10,
+  "cache_protocol": "uncontrolled",
+  "warmup_count": 0,
+  "collect_backend_metrics": false,
+  "mode": "replay",
+  "trace_corpus": "../../../results/structural-space/corpus_manifest.json",
+  "max_replay_operations": 4096
+}

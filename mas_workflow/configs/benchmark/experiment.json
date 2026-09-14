@@ -1,0 +1,7 @@
+{
+  "structure": "structure.json",
+  "task": "task.json",
+  "deployment": "deployment.json",
+  "load": 1,
+  "arrival_interval_sec": 0
+}

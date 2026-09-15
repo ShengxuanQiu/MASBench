@@ -1,0 +1,45 @@
+{
+  "structure": {
+    "motifs": {},
+    "workflow": {
+      "stages": [
+        {
+          "id": "evidence",
+          "atomic": {
+            "kind": "tool",
+            "role": "Worker"
+          }
+        },
+        {
+          "id": "synthesis",
+          "atomic": {
+            "kind": "llm",
+            "role": "Reducer"
+          },
+          "inputs": {
+            "context": [
+              {
+                "source": "evidence.result",
+                "delivery": {
+                  "mode": "full"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "task": {
+    "task_input": "Find recent, credible evidence about prefix caching in LLM serving and summarize which experimental controls are required for a fair multi-agent serving comparison.",
+    "roles": {
+      "Reducer": {
+        "instructions": "Summarize only the supplied search evidence. Separate observed facts from recommendations and retain source URLs."
+      }
+    },
+    "criteria": "The response cites the supplied evidence and distinguishes cache state, request payload, output length, and backend timing.",
+    "tool_provider": "tavily",
+    "tool_mode": "live"
+  },
+  "deployment": "deployment-ascend-qwen3-8b.json"
+}

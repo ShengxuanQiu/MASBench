@@ -1,0 +1,32 @@
+{
+  "model": "local-mas-model",
+  "backend": "openai_compatible",
+  "endpoint": "http://127.0.0.1:8000/v1",
+  "generation": {
+    "max_tokens": 128,
+    "temperature": 0,
+    "seed": 42,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "concurrency": 16,
+  "hardware": {
+    "device": "Huawei Ascend 910, chip version V1",
+    "precision": "bfloat16",
+    "parallelism": {
+      "tp": 1,
+      "pp": 1,
+      "dp": 1
+    }
+  },
+  "telemetry": {
+    "adapter": "ascend",
+    "npu_id": 0,
+    "metrics_url": "http://127.0.0.1:8000/metrics",
+    "metadata": {
+      "chip_id": 0
+    }
+  },
+  "identity": {}
+}

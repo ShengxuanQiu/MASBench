@@ -1,0 +1,39 @@
+{
+  "tasks": {
+    "core": "task-core.json"
+  },
+  "deployments": {
+    "ascend": "deployment-ascend-qwen3-8b.json"
+  },
+  "workloads": [
+    {"preset": "matched_chain", "parameters": [{"requests": 4}]},
+    {"preset": "matched_parallel", "parameters": [{"requests": 4}]},
+    {"preset": "parallel", "parameters": [{"width": 2}, {"width": 4}]},
+    {"preset": "peer", "parameters": [{"width": 4, "rounds": 2, "connectivity": "ring"}, {"width": 4, "rounds": 2, "connectivity": "all_to_all"}]},
+    {
+      "name": "pa-er-delivery",
+      "base": "base-pa-er.json",
+      "factors": {
+        "structure.workflow.stages.1.inputs.candidate.0.delivery.mode": ["full", "summarized"]
+      }
+    }
+  ],
+  "study": {
+    "rates": [0.1, 0.25],
+    "count": 4,
+    "repetitions": 1,
+    "seed": 42,
+    "arrival": "poisson",
+    "max_inflight_workflows": 16,
+    "slo_sec": 180,
+    "cache_protocol": "warm_cache_enabled",
+    "warmup_count": 1,
+    "collect_backend_metrics": true,
+    "backend_metrics_interval_sec": 0.25
+  },
+  "capacity": {
+    "dense_points": 1,
+    "min_slo_success": 0.95,
+    "max_failure_fraction": 0.01
+  }
+}

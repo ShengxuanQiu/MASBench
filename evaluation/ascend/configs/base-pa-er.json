@@ -1,0 +1,44 @@
+{
+  "structure": {
+    "motifs": {
+      "parallel": {
+        "family": "ParallelAggregate",
+        "width": 4,
+        "delivery": {
+          "worker_to_reducer": {
+            "mode": "full"
+          }
+        }
+      },
+      "review": {
+        "family": "EvaluateRefine",
+        "width": 1,
+        "max_revisions": 1
+      }
+    },
+    "workflow": {
+      "stages": [
+        {
+          "id": "parallel",
+          "motif": "parallel"
+        },
+        {
+          "id": "review",
+          "motif": "review",
+          "inputs": {
+            "candidate": [
+              {
+                "source": "parallel.result",
+                "delivery": {
+                  "mode": "full"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "task": "task-core.json",
+  "deployment": "deployment-ascend-qwen3-8b.json"
+}

@@ -289,8 +289,10 @@ class DeploymentSpec:
             raise ValueError("Unknown telemetry configuration")
         if self.backend not in {"mock", "openai_compatible"}:
             raise ValueError("Unsupported backend")
-        if set(self.generation) - {"max_tokens", "temperature", "top_p", "seed", "stop", "frequency_penalty", "presence_penalty"}:
+        if set(self.generation) - {"max_tokens", "temperature", "top_p", "seed", "stop", "frequency_penalty", "presence_penalty", "chat_template_kwargs"}:
             raise ValueError("Unsupported generation field (payload/topology overrides forbidden)")
+        if "chat_template_kwargs" in self.generation and not isinstance(self.generation["chat_template_kwargs"], dict):
+            raise ValueError("chat_template_kwargs must be an object")
         positive(self.generation.get("max_tokens", 256), "max_tokens")
 
 

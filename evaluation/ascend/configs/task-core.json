@@ -1,0 +1,18 @@
+{
+  "task_input": "Compare two practical approaches to reducing water consumption in a small office. Address implementation cost, maintenance, measurable outcomes, uncertainty, and trade-offs. Keep each response concise.",
+  "roles": {
+    "Worker": {
+      "instructions": "Produce a concise, concrete proposal. State assumptions and avoid invented quantitative claims."
+    },
+    "Coordinator": {
+      "instructions": "Decompose or route the task using the required output contract. Keep instructions short and specific."
+    },
+    "Reducer": {
+      "instructions": "Synthesize the supplied artifacts, preserve material disagreement, and do not invent evidence."
+    },
+    "Reviewer": {
+      "instructions": "Evaluate feasibility, specificity, and unsupported claims using the required decision contract."
+    }
+  },
+  "criteria": "The answer is feasible and specific, states assumptions, compares trade-offs, and contains no invented measurements."
+}

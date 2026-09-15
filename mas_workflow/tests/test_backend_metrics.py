@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from app.backend_adapters import VLLMGPUTraceAdapter, build_backend_trace_adapter
+from app.backend_adapters import NPUTraceAdapter, VLLMGPUTraceAdapter, build_backend_trace_adapter
 from app.backend_metrics import metrics_url_from_base_url, parse_prometheus_metrics, summarize_backend_metrics
+from app.specs import DeploymentSpec
 
 
 def test_metrics_url_from_openai_base_url() -> None:
@@ -88,7 +89,42 @@ def test_placeholder_adapters_define_xpu_metadata() -> None:
     assert tpu.backend_device_metadata()["device_type"] == "tpu"
     assert tpu.backend_device_metadata()["adapter_status"] == "placeholder"
     assert npu.backend_device_metadata()["device_type"] == "npu"
-    assert npu.collect_device_metrics()["status"] == "unavailable"
+    assert npu.backend_device_metadata()["adapter_status"] == "active"
+
+
+def test_ascend_adapter_parses_current_hbm_and_power_fields() -> None:
+    values = NPUTraceAdapter._parse_npu_smi(
+        """
+        HBM Capacity(MB)               : 65536
+        HBM Usage Rate(%)              : 86
+        Aicore Usage Rate(%)           : 57
+        NPU Utilization(%)             : 54
+        HBM Bandwidth Usage Rate(%)    : 31
+        NPU Real-time Power(W)         : 161.2
+        """
+    )
+
+    assert values["device_utilization_percent"] == 54
+    assert values["ai_core_utilization_percent"] == 57
+    assert values["memory_usage_percent"] == 86
+    assert values["memory_bandwidth_percent"] == 31
+    assert values["power_watts"] == 161.2
+    assert values["memory_total_bytes"] == 65536 * 1024 * 1024
+    assert values["memory_used_bytes"] == int(65536 * 0.86 * 1024 * 1024)
+
+
+def test_deployment_accepts_vllm_chat_template_kwargs() -> None:
+    deployment = DeploymentSpec(
+        model="local-mas-model",
+        backend="openai_compatible",
+        generation={
+            "max_tokens": 128,
+            "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+    )
+
+    assert deployment.generation["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_vllm_gpu_adapter_reads_launch_config(monkeypatch) -> None:

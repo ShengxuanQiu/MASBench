@@ -208,7 +208,7 @@ def test_ascend_telemetry_fixture_missing_and_profiler(tmp_path, monkeypatch):
     assert sample['device_utilization_percent'] == 43 and sample['power_watts'] == 51.5
     assert sample['profiler_counters'] == {'cycles': 123}
     normalized = adapters.canonical_telemetry({'device_metrics': sample})
-    assert normalized['device_metrics.memory_used_bytes']['source'] == 'unavailable'
+    assert normalized['device_metrics.memory_used_bytes']['source'] == 'estimated'
     assert normalized['device_metrics.power_watts']['source'] == 'observed'
     def missing(*args, **kwargs): raise FileNotFoundError('no npu-smi')
     monkeypatch.setattr(adapters.subprocess, 'run', missing)

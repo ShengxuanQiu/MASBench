@@ -215,26 +215,67 @@ class NPUTraceAdapter(BackendTraceAdapter):
         self.config=config or {}
     def backend_device_metadata(self):
         return {**super().backend_device_metadata(),"adapter_status":"active","collector":"npu-smi"}
+
+    @staticmethod
+    def _parse_npu_smi(text):
+        """Normalize the field names emitted by current and older Ascend firmware."""
+        labels = {
+            "Aicore Usage Rate(%)": "ai_core_utilization_percent",
+            "Aivector Usage Rate(%)": "ai_vector_utilization_percent",
+            "Aicpu Usage Rate(%)": "ai_cpu_utilization_percent",
+            "NPU Utilization(%)": "npu_utilization_percent",
+            "Memory Usage Rate(%)": "memory_usage_percent",
+            "HBM Usage Rate(%)": "memory_usage_percent",
+            "Memory Capacity(MB)": "memory_capacity_mb",
+            "HBM Capacity(MB)": "memory_capacity_mb",
+            "Memory Bandwidth Usage Rate(%)": "memory_bandwidth_percent",
+            "HBM Bandwidth Usage Rate(%)": "memory_bandwidth_percent",
+            "Power(W)": "power_watts",
+            "Power": "power_watts",
+            "NPU Real-time Power(W)": "power_watts",
+        }
+        values = {}
+        for line in text.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            field = labels.get(key.strip())
+            if field is None:
+                continue
+            match = re.match(r"\s*([-+]?[0-9]+(?:\.[0-9]+)?)", value)
+            if match:
+                values[field] = float(match[1])
+        # Keep AI Core and whole-NPU utilization separate.  The canonical device
+        # utilization uses the NPU counter when firmware provides it.
+        device_utilization = values.get("npu_utilization_percent")
+        if device_utilization is None:
+            device_utilization = values.get("ai_core_utilization_percent")
+        if device_utilization is not None:
+            values["device_utilization_percent"] = device_utilization
+        capacity = values.get("memory_capacity_mb")
+        used_percent = values.get("memory_usage_percent")
+        if capacity is not None:
+            values["memory_total_bytes"] = int(capacity * 1024 * 1024)
+        if capacity is not None and used_percent is not None:
+            values["memory_used_bytes"] = int(capacity * used_percent / 100 * 1024 * 1024)
+            values["measurement_sources"] = {"memory_used_bytes": "estimated"}
+        return values
+
     def collect_device_metrics(self):
         device=str(self.config.get("npu_id",self.config.get("device_id",0)))
         chip=str(self.config.get("metadata",{}).get("chip_id",0))
-        values={"device_utilization_percent":None,"memory_usage_percent":None,
-                "memory_capacity_mb":None,"memory_bandwidth_percent":None,"power_watts":None}
+        values={"device_utilization_percent":None,"ai_core_utilization_percent":None,
+                "ai_vector_utilization_percent":None,"ai_cpu_utilization_percent":None,
+                "npu_utilization_percent":None,"memory_usage_percent":None,
+                "memory_capacity_mb":None,"memory_total_bytes":None,"memory_used_bytes":None,
+                "memory_bandwidth_percent":None,"power_watts":None}
         raw,errors={},[]
         for kind in ("usages","power"):
             try:
                 proc=subprocess.run(["npu-smi","info","-t",kind,"-i",device,"-c",chip],
                                     check=True,capture_output=True,text=True,timeout=1.5)
                 raw[kind]=proc.stdout
-                labels={"Aicore Usage Rate(%)":"device_utilization_percent","Memory Usage Rate(%)":"memory_usage_percent",
-                        "Memory Capacity(MB)":"memory_capacity_mb","Memory Bandwidth Usage Rate(%)":"memory_bandwidth_percent",
-                        "Power(W)":"power_watts","Power":"power_watts"}
-                for line in proc.stdout.splitlines():
-                    if ":" not in line: continue
-                    key,value=line.split(":",1)
-                    if key.strip() not in labels: continue
-                    match=re.match(r"\s*([0-9]+(?:\.[0-9]+)?)",value)
-                    if match: values[labels[key.strip()]]=float(match[1])
+                values.update(self._parse_npu_smi(proc.stdout))
             except Exception as exc: errors.append(str(exc))
         result={**values,"status":"success" if any(v is not None for v in values.values()) else "unavailable",
                 "source":"npu-smi","device_id":device,"chip_id":chip,"raw":raw,"errors":errors}
@@ -265,7 +306,9 @@ def canonical_telemetry(sample):
         for key,value in values.items():
             if type(value) in (int,float) or value is None or value=="unavailable":
                 available=type(value) in (int,float) and math.isfinite(value)
-                source="observed" if group=="device_metrics" else "backend-reported"
+                source=values.get("measurement_sources",{}).get(
+                    key, "observed" if group=="device_metrics" else "backend-reported"
+                )
                 if key in {"cache_used_units","cache_used_token_capacity"}: source="estimated"
                 result[group+"."+key]={"value":value if available else None,"source":source if available else "unavailable"}
         if group=="device_metrics":

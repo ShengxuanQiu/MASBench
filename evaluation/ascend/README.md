@@ -15,15 +15,22 @@ chmod +x evaluation/ascend/*.sh
 ./evaluation/ascend/run_initial_validation.sh preflight
 ```
 
-再运行推荐的小规模验收。它先跑四类 motif、fan-out/fan-in 和 PA→ER delivery
-的单次真实 trace，再做小型 Poisson load pilot：
+完整流程先为每个 workflow 做一次 live Tavily source run，再使用各自保存的
+ExecutionGraph、tool snapshot 和 downstream request payload 做 Poisson replay pilot：
 
 ```bash
 cd /root/mas-serving
 ./evaluation/ascend/run_initial_validation.sh quick
 ```
 
-也可以分开运行 `functional` 或 `pilot`。设置 `RUN_ID=my_run` 可固定结果目录名；
+`quick` 需要先配置下述 Tavily key。也可以分开运行：
+
+```bash
+./evaluation/ascend/run_initial_validation.sh source
+./evaluation/ascend/run_initial_validation.sh pilot
+```
+
+`functional` 和 `tavily` 都是 `source` 的兼容别名。设置 `RUN_ID=my_run` 可固定结果目录名；
 默认结果保存在 `results/ascend-initial/<timestamp>/`。中断后建议换一个新的
 `RUN_ID`，保留不完整 attempt 作为故障证据。
 
@@ -36,22 +43,33 @@ cd /root/mas-serving
 cp evaluation/ascend/.env.example evaluation/ascend/.env
 # 编辑下一行对应的文件，填成 TAVILY_API_KEY=tvly-...
 vi evaluation/ascend/.env
-./evaluation/ascend/run_initial_validation.sh tavily
+./evaluation/ascend/run_initial_validation.sh source
 ```
 
-`tavily` 模式只执行一次 live search，记录 tool snapshot 和 canonical source
-trace，然后立即做一次 fixed-workload replay。replay 不再次访问 Tavily。该结果
-用于验证工具快照、artifact provenance 和 replay fidelity，不与纯 serving
-capacity cell 混合。
+source matrix 的每个 workflow 实例都有一个显式 `live_evidence` tool stage，因此
+11 个 workflow cell 会分别真实访问 Tavily 并保存自己的 snapshot。每个 workflow
+固定一次搜索，避免 PeerExchange/ParallelAggregate 仅因 participant 数不同而产生
+不同数量的外部网络调用。若未来研究“per-agent tool use”本身，应另建 task binding，
+把 search 绑定到各角色，并将 tool fan-out 作为实验因素。
+
+source 完成后，在同一个 `RUN_ID` 下启动 replay：
+
+```bash
+RUN_ID=my_run ./evaluation/ascend/run_initial_validation.sh source
+RUN_ID=my_run ./evaluation/ascend/run_initial_validation.sh pilot
+```
+
+pilot 不访问 Tavily，也不根据新输出重新生成下游输入或控制决策。已有 source corpus
+也可通过 `SOURCE_MATRIX=/path/to/source` 复用。
 
 ## 这轮应得到的内容
 
-`functional/summary/trace_metrics.csv` 应覆盖四类 motif、两种 PeerExchange
+`source/summary/trace_metrics.csv` 应覆盖四类 motif、两种 PeerExchange
 connectivity、workflow fan-out/fan-in，以及 PA→ER 的 `full/summarized` delivery。
-它用于确认 stage hierarchy、completion reason、delivery transform、artifact
-provenance 和 realized DAG 都能在真实 NPU 后端上生成。
+它用于确认每个 workload 都完成了真实 evidence materialization，并检查 stage
+hierarchy、completion reason、delivery transform、artifact provenance 和 realized DAG。
 
-`pilot/summary/` 包含三张机器可读表：
+`replay-pilot/summary/` 包含三张机器可读表：
 
 - `trace_metrics.csv`：width、depth、edge density、critical-path ratio、artifact
   reuse、delivered bytes、compression ratio、ready frontier、barrier wait 和 E2E；
@@ -59,11 +77,16 @@ provenance 和 realized DAG 都能在真实 NPU 后端上生成。
   SLO 是否通过及初步 rate bracket；
 - `backend_points.csv`：vLLM queue/token/KV 指标与 `npu-smi` 的 NPU、HBM、功耗采样。
 
-这组 pilot 重点检查四个方向：相同请求 multiset 下 chain 与 parallel 的依赖效应；
+source run 的网络延迟和搜索结果可能变化，因此不用于结构间 serving capacity 比较。
+受控 replay pilot 重点检查四个方向：相同请求 multiset 下 chain 与 parallel 的依赖效应；
 ParallelAggregate width 2→4 的 ready burst；PeerExchange ring→all-to-all 的 edge 和
 information amplification；PA→ER full→summarized 的压缩收益与额外 LLM operation
 代价。它能帮助校准正式实验的 QPS 区间、SLO、采样间隔和并发上限，并验证论文
 “structure → runtime dynamics → serving pressure”的测量链条。
+
+未来跨设备时应直接复用 `source/` 中的 trace，只替换 deployment。这样 Tavily
+snapshot、control path、request payload 和 dependency 完全固定，变化来自 backend
+timing/resource behavior。
 
 这轮结果不能证明跨硬件优劣或 bottleneck migration，也不是稳态 capacity；每个
 cell 只有一次重复、短 arrival cohort。正式主实验需要更长 cohort、至少 5 次重复、

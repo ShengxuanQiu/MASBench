@@ -6,10 +6,13 @@
     "ascend": "deployment-ascend-qwen3-8b.json"
   },
   "workloads": [
+    {"preset": "dispatch", "parameters": [{"width": 2}]},
+    {"preset": "parallel", "parameters": [{"width": 2}, {"width": 4}]},
+    {"preset": "refine", "parameters": [{"width": 1, "max_revisions": 1}]},
+    {"preset": "peer", "parameters": [{"width": 4, "rounds": 2, "connectivity": "ring"}, {"width": 4, "rounds": 2, "connectivity": "all_to_all"}]},
+    {"preset": "fanout_fanin", "parameters": [{"width": 2}]},
     {"preset": "matched_chain", "parameters": [{"requests": 4}]},
     {"preset": "matched_parallel", "parameters": [{"requests": 4}]},
-    {"preset": "parallel", "parameters": [{"width": 2}, {"width": 4}]},
-    {"preset": "peer", "parameters": [{"width": 4, "rounds": 2, "connectivity": "ring"}, {"width": 4, "rounds": 2, "connectivity": "all_to_all"}]},
     {
       "name": "pa-er-delivery",
       "base": "base-pa-er.json",
@@ -19,15 +22,15 @@
     }
   ],
   "study": {
-    "rates": [0.1, 0.25],
-    "count": 4,
+    "rates": [1.0],
+    "count": 1,
     "repetitions": 1,
     "seed": 42,
-    "arrival": "poisson",
+    "arrival": "constant",
     "max_inflight_workflows": 16,
     "slo_sec": 180,
-    "cache_protocol": "warm_cache_enabled",
-    "warmup_count": 1,
+    "cache_protocol": "uncontrolled",
+    "warmup_count": 0,
     "collect_backend_metrics": true,
     "backend_metrics_interval_sec": 0.25
   },

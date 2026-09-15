@@ -47,49 +47,46 @@ PY
   python3 -m pytest mas_workflow/tests case_study1/tests case_study2/tests \
     --import-mode=importlib -q | tee "${output}/pytest.log"
   cd "${ROOT_DIR}/mas_workflow"
-  python3 -m app.publication --manifest "${CONFIG_DIR}/functional-manifest.json" \
-    --output "${output}/functional-dry-run" | tee "${output}/functional-dry-run.log"
-  python3 -m app.publication --manifest "${CONFIG_DIR}/pilot-manifest.json" \
-    --output "${output}/pilot-dry-run" | tee "${output}/pilot-dry-run.log"
+  python3 "${ASCEND_DIR}/prepare_live_source_matrix.py" \
+    --manifest "${CONFIG_DIR}/source-manifest.json" \
+    --output "${output}/source-dry-run" | tee "${output}/source-dry-run.log"
   git -C "${ROOT_DIR}" rev-parse HEAD > "${output}/git-head.txt"
   git -C "${ROOT_DIR}" status --short > "${output}/git-status.txt"
   npu-smi info -t board -i 0 -c 0 > "${output}/npu-board.txt"
   python3 -m pip show vllm vllm-ascend torch torch-npu > "${output}/software-versions.txt"
 }
 
-run_matrix() {
-  local manifest="$1"
-  local label="$2"
-  local output="${RESULT_ROOT}/${label}"
-  python3 -m app.publication --manifest "${CONFIG_DIR}/${manifest}" \
-    --output "${output}" --execute | tee "${RESULT_ROOT}/${label}.log"
-  python3 "${ASCEND_DIR}/summarize_initial_validation.py" \
-    --matrix "${output}" --output "${output}/summary"
-}
-
-tavily_record_and_replay() {
+require_tavily() {
   if [[ -z "${TAVILY_API_KEY:-}" ]]; then
     echo "TAVILY_API_KEY is missing. Copy evaluation/ascend/.env.example to .env and fill it." >&2
     return 2
   fi
-  local source_root="${RESULT_ROOT}/tavily/source"
-  local replay_root="${RESULT_ROOT}/tavily/replay"
-  mkdir -p "${source_root}" "${replay_root}"
-  python3 -m app.benchmark run --experiment "${CONFIG_DIR}/tavily-source.json" \
-    --trace-dir "${source_root}" | tee "${RESULT_ROOT}/tavily/source.log"
-  local source_trace
-  source_trace="$(find "${source_root}" -type f -name '*.jsonl' | head -n 1)"
-  if [[ -z "${source_trace}" ]]; then
-    echo "No canonical source trace was produced" >&2
+}
+
+live_source() {
+  require_tavily
+  local output="${RESULT_ROOT}/source"
+  python3 "${ASCEND_DIR}/prepare_live_source_matrix.py" \
+    --manifest "${CONFIG_DIR}/source-manifest.json" \
+    --output "${output}" --execute | tee "${RESULT_ROOT}/source.log"
+  python3 "${ASCEND_DIR}/summarize_initial_validation.py" \
+    --matrix "${output}" --output "${output}/summary"
+}
+
+replay_pilot() {
+  local source="${SOURCE_MATRIX:-${RESULT_ROOT}/source}"
+  if [[ ! -f "${source}/matrix_manifest.json" ]]; then
+    echo "Recorded source matrix is missing at ${source}; run source first or set SOURCE_MATRIX." >&2
     return 3
   fi
-  python3 -m app.benchmark replay --trace "${source_trace}" \
+  local output="${RESULT_ROOT}/replay-pilot"
+  python3 "${ASCEND_DIR}/prepare_replay_pilot.py" \
+    --source "${source}" --output "${output}" \
     --deployment "${CONFIG_DIR}/deployment-ascend-qwen3-8b.json" \
-    --trace-dir "${replay_root}" | tee "${RESULT_ROOT}/tavily/replay.log"
-  local replay_trace
-  replay_trace="$(find "${replay_root}" -type f -name '*.jsonl' | head -n 1)"
-  python3 -m app.replay_compare --source "${source_trace}" --replays "${replay_trace}" \
-    --output "${RESULT_ROOT}/tavily/replay-comparison.json"
+    --rates "${PILOT_RATES:-0.1,0.25}" --count "${PILOT_COUNT:-4}" \
+    | tee "${RESULT_ROOT}/replay-pilot.log"
+  python3 "${ASCEND_DIR}/summarize_initial_validation.py" \
+    --matrix "${output}" --output "${output}/summary"
 }
 
 case "${MODE}" in
@@ -97,27 +94,29 @@ case "${MODE}" in
     preflight
     ;;
   functional)
-    run_matrix functional-manifest.json functional
+    live_source
+    ;;
+  source)
+    live_source
     ;;
   pilot)
-    run_matrix pilot-manifest.json pilot
+    replay_pilot
     ;;
   tavily)
-    tavily_record_and_replay
+    live_source
     ;;
   quick)
     preflight
-    run_matrix functional-manifest.json functional
-    run_matrix pilot-manifest.json pilot
+    live_source
+    replay_pilot
     ;;
   all)
     preflight
-    run_matrix functional-manifest.json functional
-    run_matrix pilot-manifest.json pilot
-    tavily_record_and_replay
+    live_source
+    replay_pilot
     ;;
   *)
-    echo "Usage: $0 {preflight|functional|pilot|tavily|quick|all}" >&2
+    echo "Usage: $0 {preflight|source|functional|pilot|tavily|quick|all}" >&2
     exit 2
     ;;
 esac

@@ -58,7 +58,7 @@ def main() -> None:
             "cache_protocol": "warm_cache_enabled",
             "warmup_count": 1,
             "collect_backend_metrics": True,
-            "backend_metrics_interval_sec": 0.25,
+            "backend_metrics_interval_sec": 2.0,
             "strict_replay": False,
             "output_length_tolerance": 0.25,
             "require_identity_match": False,

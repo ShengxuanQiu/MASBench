@@ -77,6 +77,9 @@ hierarchy、completion reason、delivery transform、artifact provenance 和 rea
   SLO 是否通过及初步 rate bracket；
 - `backend_points.csv`：vLLM queue/token/KV 指标与 `npu-smi` 的 NPU、HBM、功耗采样。
 
+当前机器一次完整 `npu-smi` usage+power 采样约需 1.3 秒，配置使用 8 秒单命令
+超时、最多 3 次重试和 2 秒采样周期，避免瞬时管理面延迟被误判为 NPU 不可用。
+
 source run 的网络延迟和搜索结果可能变化，因此不用于结构间 serving capacity 比较。
 受控 replay pilot 重点检查四个方向：相同请求 multiset 下 chain 与 parallel 的依赖效应；
 ParallelAggregate width 2→4 的 ready burst；PeerExchange ring→all-to-all 的 edge 和

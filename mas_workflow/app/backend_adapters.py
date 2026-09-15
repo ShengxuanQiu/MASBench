@@ -264,6 +264,8 @@ class NPUTraceAdapter(BackendTraceAdapter):
     def collect_device_metrics(self):
         device=str(self.config.get("npu_id",self.config.get("device_id",0)))
         chip=str(self.config.get("metadata",{}).get("chip_id",0))
+        timeout_sec=float(self.config.get("command_timeout_sec",5.0))
+        retries=int(self.config.get("command_retries",2))
         values={"device_utilization_percent":None,"ai_core_utilization_percent":None,
                 "ai_vector_utilization_percent":None,"ai_cpu_utilization_percent":None,
                 "npu_utilization_percent":None,"memory_usage_percent":None,
@@ -271,12 +273,16 @@ class NPUTraceAdapter(BackendTraceAdapter):
                 "memory_bandwidth_percent":None,"power_watts":None}
         raw,errors={},[]
         for kind in ("usages","power"):
-            try:
-                proc=subprocess.run(["npu-smi","info","-t",kind,"-i",device,"-c",chip],
-                                    check=True,capture_output=True,text=True,timeout=1.5)
-                raw[kind]=proc.stdout
-                values.update(self._parse_npu_smi(proc.stdout))
-            except Exception as exc: errors.append(str(exc))
+            for attempt in range(1,retries+1):
+                try:
+                    proc=subprocess.run(["npu-smi","info","-t",kind,"-i",device,"-c",chip],
+                                        check=True,capture_output=True,text=True,timeout=timeout_sec)
+                    raw[kind]=proc.stdout
+                    values.update(self._parse_npu_smi(proc.stdout))
+                    break
+                except Exception as exc:
+                    if attempt==retries:
+                        errors.append(f"{kind} failed after {retries} attempt(s): {exc}")
         result={**values,"status":"success" if any(v is not None for v in values.values()) else "unavailable",
                 "source":"npu-smi","device_id":device,"chip_id":chip,"raw":raw,"errors":errors}
         path=self.config.get("profiler_counters_path")

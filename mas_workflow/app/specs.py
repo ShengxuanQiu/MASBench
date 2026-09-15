@@ -285,8 +285,12 @@ class DeploymentSpec:
 
     def __post_init__(self):
         positive(self.concurrency, "concurrency")
-        if set(self.telemetry)-{"adapter","device_id","metrics_url","metadata","npu_id","profiler_counters_path"}:
+        if set(self.telemetry)-{"adapter","device_id","metrics_url","metadata","npu_id","profiler_counters_path","command_timeout_sec","command_retries"}:
             raise ValueError("Unknown telemetry configuration")
+        if float(self.telemetry.get("command_timeout_sec",5.0)) <= 0:
+            raise ValueError("command_timeout_sec must be positive")
+        if type(self.telemetry.get("command_retries",2)) is not int or self.telemetry.get("command_retries",2) < 1:
+            raise ValueError("command_retries must be a positive integer")
         if self.backend not in {"mock", "openai_compatible"}:
             raise ValueError("Unsupported backend")
         if set(self.generation) - {"max_tokens", "temperature", "top_p", "seed", "stop", "frequency_penalty", "presence_penalty", "chat_template_kwargs"}:

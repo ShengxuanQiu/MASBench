@@ -32,7 +32,7 @@
     "cache_protocol": "uncontrolled",
     "warmup_count": 0,
     "collect_backend_metrics": true,
-    "backend_metrics_interval_sec": 0.25
+    "backend_metrics_interval_sec": 2.0
   },
   "capacity": {
     "dense_points": 1,

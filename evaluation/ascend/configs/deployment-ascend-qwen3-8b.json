@@ -23,6 +23,8 @@
   "telemetry": {
     "adapter": "ascend",
     "npu_id": 0,
+    "command_timeout_sec": 8,
+    "command_retries": 3,
     "metrics_url": "http://127.0.0.1:8000/metrics",
     "metadata": {
       "chip_id": 0

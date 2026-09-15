@@ -1,0 +1,27 @@
+{
+  "platform": "Ascend 910C (Atlas 800I A3, one visible 64 GB die)",
+  "model": "local-mas-model",
+  "repeats": 2,
+  "prefill_prompt_tokens": [
+    128,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "decode_prompt_tokens": [
+    512,
+    2048,
+    4096
+  ],
+  "decode_concurrency": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "prefill_output_tokens": 16,
+  "decode_output_tokens": 128,
+  "prefix_cache_control": "unique leading nonce per request",
+  "completed_at": 1787559946.8579814
+}

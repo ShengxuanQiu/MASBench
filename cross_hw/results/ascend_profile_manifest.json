@@ -1,0 +1,13 @@
+{
+  "profile_id": "ascend_qwen3_8b_20260824_073328",
+  "platform": "Ascend 910",
+  "model": "Qwen3-8B",
+  "endpoint": "http://127.0.0.1:8000/v1",
+  "tool_mode": "recorded_tavily",
+  "repeats": 2,
+  "modes": [
+    "raw"
+  ],
+  "started_at": "2026-08-24T07:33:28Z",
+  "completed_at": "2026-08-24T07:41:15Z"
+}

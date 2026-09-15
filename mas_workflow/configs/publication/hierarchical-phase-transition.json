@@ -1,0 +1,10 @@
+{
+  "tasks":{"task":"task.json"},"deployments":{"mock":"deployment-mock.json"},
+  "workloads":[
+    {"preset":"parallel_refine","factors":{"width":[2,4,8],"max_revisions":[0,2,4]}},
+    {"preset":"dispatch_parallel_refine","factors":{"width":[2,4,8],"max_revisions":[0,2,4]}},
+    {"preset":"fanout_fanin","factors":{"width":[2,4,8]}}
+  ],
+  "study":{"rates":[0.25,0.5,1,2,4],"count":200,"repetitions":5,"seed":42,"arrival":"poisson","slo_sec":60,"cache_protocol":"cache_disabled","collect_backend_metrics":true},
+  "capacity":{"dense_points":5,"min_slo_success":0.95,"max_failure_fraction":0.01}
+}

@@ -1,0 +1,8 @@
+{
+  "structure": {
+    "motifs": {"peer": {"family":"PeerExchange","width":4,"rounds":2,"connectivity":"ring","delivery":{"peer_to_peer":{"mode":"full"}}}},
+    "workflow": {"stages":[{"id":"exchange","motif":"peer"}]}
+  },
+  "task": "task.json",
+  "deployment": "deployment-mock.json"
+}

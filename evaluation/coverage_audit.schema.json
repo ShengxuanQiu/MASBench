@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MASBench Section 4.1 audit annotations",
+  "type": "object",
+  "required": ["schema", "source_kind", "papers"],
+  "properties": {
+    "schema": {"const": "masbench_coverage_audit_v1"},
+    "source_kind": {"enum": ["example", "author_audit"]},
+    "papers": {"type": "array", "items": {"$ref": "#/$defs/paper"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "family": {"type": ["string", "null"], "enum": ["DispatchExecute", "ParallelAggregate", "EvaluateRefine", "PeerExchange", null]},
+    "stage": {
+      "type": "object", "required": ["stage_id", "stage", "canonical_family", "benchmark_family", "extension_type"],
+      "properties": {"stage_id":{"type":"string","minLength":1},"stage":{"type":"string"},
+        "canonical_family":{"$ref":"#/$defs/family"},"benchmark_family":{"$ref":"#/$defs/family"},
+        "extension_type":{"enum":["none","general_graph","shared_environment","higher_order","other"]}},
+      "additionalProperties": false
+    },
+    "dependency": {"type":"object","required":["producer","consumer"],"properties":{"producer":{"type":"string"},"consumer":{"type":"string"}},"additionalProperties":false},
+    "information": {"type":"object","required":["producer","consumer","artifact_semantics","delivery_mode"],
+      "properties":{"producer":{"type":"string"},"consumer":{"type":"string"},"artifact_semantics":{"type":"string"},
+        "delivery_mode":{"enum":["full","selected","summarized","referenced","retrieved"]}},"additionalProperties":false},
+    "paper": {"type":"object","required":["paper_id","system","stages","workflow_dependencies","benchmark_dependencies","information_relations","benchmark_information_relations"],
+      "properties":{"paper_id":{"type":"string","minLength":1},"system":{"type":"string","minLength":1},"stages":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/stage"}},
+        "workflow_dependencies":{"type":"array","items":{"$ref":"#/$defs/dependency"}},"benchmark_dependencies":{"type":"array","items":{"$ref":"#/$defs/dependency"}},
+        "information_relations":{"type":"array","items":{"$ref":"#/$defs/information"}},"benchmark_information_relations":{"type":"array","items":{"$ref":"#/$defs/information"}}},
+      "additionalProperties":false}
+  }
+}

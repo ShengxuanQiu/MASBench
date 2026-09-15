@@ -1,0 +1,6 @@
+{
+  "tasks":{"task":"task.json"},"deployments":{"gpu":"deployment-gpu.template.json"},
+  "workloads":[{"preset":"parallel_refine","factors":{"width":[2,4,8],"max_revisions":[0,2,4]}}],
+  "study":{"rates":[0.125,0.25,0.5,1,2,4,8],"count":300,"repetitions":5,"seed":42,"arrival":"poisson","slo_sec":60,"cache_protocol":"cache_disabled","collect_backend_metrics":true,"output_length_tolerance":0.05},
+  "capacity":{"dense_points":5,"min_slo_success":0.95,"max_failure_fraction":0.01}
+}

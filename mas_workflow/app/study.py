@@ -136,7 +136,8 @@ def run_study(config_path, output, *, resume=False):
     config = read_config(config_path)
     allowed = {"mode","experiments","traces","trace_corpus","deployments","rates","count","repetitions","seed",
                "arrival","max_inflight_workflows","slo_sec","warmup_count","cache_protocol",
-               "max_replay_operations","strict_replay","output_length_tolerance","require_identity_match","collect_backend_metrics","backend_metrics_interval_sec"}
+               "max_replay_operations","strict_replay","output_length_tolerance","require_identity_match","collect_backend_metrics","backend_metrics_interval_sec",
+               "quality_evaluator"}
     if set(config)-allowed:
         raise ValueError(f"Unknown study fields: {sorted(set(config)-allowed)}")
     mode = config.get("mode","run")
@@ -268,11 +269,14 @@ def run_study(config_path, output, *, resume=False):
                 adapter=build_backend_trace_adapter(deployment.telemetry.get("adapter","generic"),deployment.telemetry))
             sampler.start()
         try:
+            schedule_seed=config.get("seed",42)+rep
+            atomic_json(attempt/'arrival_schedule.json',{"policy":config.get("arrival","constant"),"rate":rate,
+                "seed":schedule_seed,"offsets_sec":arrival_offsets(config.get("count",20),rate,config.get("arrival","constant"),schedule_seed)})
             def append(row):
                 journal.write(json.dumps(row)+"\n")
                 journal.flush()
             summary,records = run_open_loop(execute,count=config.get("count",20),rate=rate,
-                arrival=config.get("arrival","constant"),seed=config.get("seed",42)+rep,
+                arrival=config.get("arrival","constant"),seed=schedule_seed,
                 max_inflight=config.get("max_inflight_workflows",64),slo_sec=config.get("slo_sec",60),on_record=append)
         finally:
             journal.close()
@@ -298,6 +302,7 @@ def run_study(config_path, output, *, resume=False):
                         stream.write(json.dumps(event,allow_nan=False)+"\n")
         # Analysis is deliberately outside the measured load window.
         analyses,invalid,submit_times = [],[],[]
+        quality_evaluations=[]
         replay_checks=[]
         dynamics_delta=defaultdict(Counter)
         envelope_complete=True
@@ -308,6 +313,11 @@ def run_study(config_path, output, *, resume=False):
                 events = read_events(row["trace_path"])
                 submit_times.extend(row["trace_origin_sec"]+e["relative_time_sec"] for e in events if e.get("canonical_type") == "request_submit")
                 analysis = analyze_events(events)
+                if config.get('quality_evaluator'):
+                    from .quality import evaluate,final_output
+                    graph=ExecutionGraph.from_events(events,replay=True)
+                    quality={"run_id":analysis["run_id"],**evaluate(final_output(graph),config['quality_evaluator'])}
+                    quality_evaluations.append(quality)
                 if mode=="replay":
                     from .replay_compare import compare_replay
                     comparison=compare_replay(prepared_traces[trace_paths[row["source_index"]]].events,events,
@@ -345,7 +355,11 @@ def run_study(config_path, output, *, resume=False):
                                   "timeline":combined})
         from .pressure import queue_slope
         queue_growth=queue_slope(combined,summary["arrival_span_sec"])
+        atomic_json(attempt/'quality.json',{'scope':'out_of_band','evaluations':quality_evaluations})
         summary.update(queue_growth_client_per_sec=queue_growth,cache_protocol_evidence=cache_evidence,
+                       quality_evaluations=quality_evaluations,
+                       quality_pass_fraction=(sum(q['pass'] for q in quality_evaluations)/len(quality_evaluations) if quality_evaluations else None),
+                       quality_score_mean=(sum(q['score'] for q in quality_evaluations)/len(quality_evaluations) if quality_evaluations else None),
                        replay_checks=replay_checks,replay_equivalence_failures=sum(not c["eligible"] for c in replay_checks),
                        case_trace_dynamics_path=str(dynamic_path),
                        max_client_ready_waiting=max((r.get("ready_waiting",0) for r in combined),default=0),

@@ -1,0 +1,11 @@
+{
+  "tasks":{"task":"task.json"},"deployments":{"mock":"deployment-mock.json"},
+  "workloads":[
+    {"preset":"dispatch","factors":{"width":[2,4,8]}},
+    {"preset":"parallel","factors":{"width":[2,4,8]}},
+    {"preset":"refine","factors":{"max_revisions":[0,2,4]}},
+    {"preset":"peer","factors":{"width":[4,8],"rounds":[1,2],"connectivity":["ring","all_to_all"]}}
+  ],
+  "study":{"rates":[1],"count":8,"repetitions":1,"seed":42,"arrival":"constant","slo_sec":60,"cache_protocol":"uncontrolled","collect_backend_metrics":false},
+  "capacity":{"dense_points":2}
+}

@@ -26,16 +26,17 @@ def normalize_event(event):
     event["canonical_type"] = kind
     event["operation_id"] = event.get("operation_id") or (event.get("node_id", "") if kind.startswith(("request_", "operation_", "artifact_")) else "")
     event["request_id"] = event.get("request_id") or event.get("llm_request_id", "")
-    for key in ("stage_instance_id", "agent_instance_id", "artifact_id"):
+    for key in ("stage_instance_id", "motif_instance_id", "atomic_instance_id", "agent_instance_id", "artifact_id"):
         event.setdefault(key, "")
     event["operation_phase"] = {"request_ready": "ready", "request_submit": "started",
                                  "request_finish": "finished", "request_fail": "failed",
                                  "operation_start": "started", "operation_finish": "finished",
                                  "operation_fail": "failed"}.get(kind, "")
-    operation_keys = {"operation_id", "request_id", "stage_instance_id", "motif_instance_id", "agent_instance_id",
+    operation_keys = {"operation_id", "request_id", "stage_instance_id", "motif_instance_id", "atomic_instance_id", "agent_instance_id",
                       "role", "operation_kind", "operation_phase", "request_payload", "request_metadata", "status", "error"}
     flow_keys = {"parents", "artifact_id", "source_artifact_id", "content", "producer_operation_id",
-                 "src", "dst", "dependency_kind", "decision", "waiting_for_nodes", "tool_snapshot", "delivery_mode", "source_artifact_ids"}
+                 "src", "dst", "dependency_kind", "decision", "waiting_for_nodes", "tool_snapshot", "delivery_mode", "source_artifact_ids",
+                 "delivered_artifact_id","consumer_operation_id","delivery_selector","delivery_transform","materialized_bytes","materialized_tokens_est"}
     measurements = {}
     for key in ("duration_sec", "request_ready_ts", "request_submit_ts", "response_end_ts", "ttft_sec", "tpot_sec",
                 "backend_prompt_tokens", "backend_completion_tokens", "queue_wait_sec", "input_tokens_est", "output_tokens_est"):
@@ -91,6 +92,7 @@ class ExecutionGraph:
     consumptions: list[tuple[str, str]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
     deliveries: list[dict[str, Any]] = field(default_factory=list)
+    stages: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def ingest(self, event):
         if event.get("canonical_schema") != SCHEMA:
@@ -104,7 +106,31 @@ class ExecutionGraph:
             if oid in self.operations:
                 raise ValueError(f"Duplicate operation: {oid}")
             self.operations[oid] = Operation(oid, "llm" if kind == "request_ready" else event["operation_kind"],
-                                             identities={k: event.get(k, "") for k in ("stage_instance_id", "motif_instance_id", "agent_instance_id", "role")})
+                                             identities={k: event.get(k, "") for k in ("stage_instance_id", "motif_instance_id", "atomic_instance_id", "agent_instance_id", "role")})
+        if kind == "stage_start":
+            sid=event["stage_instance_id"]
+            self.stages[sid]={"logical_stage_id":event.get("stage_id",""),"stage_instance_id":sid,
+                "motif_instance_id":event.get("motif_instance_id",""),"atomic_instance_id":event.get("atomic_instance_id",""),
+                "dependencies":event.get("stage_dependencies",[]),"semantics":event.get("stage_semantics",{}),
+                "participants":event.get("realized_participants",[]),"activation":event.get("activation","active"),
+                "status":"running","completion_reason":"","decisions":[]}
+            self.stages[sid]["decisions"]=[e.get("decision",{}) for e in self.decisions
+                if e.get("decision",{}).get("stage_id")==event.get("stage_id")]
+        if kind == "stage_skip":
+            sid=event["stage_instance_id"]
+            self.stages[sid]={"logical_stage_id":event.get("stage_id",""),"stage_instance_id":sid,
+                "motif_instance_id":"","atomic_instance_id":"","dependencies":event.get("stage_dependencies",[]),
+                "semantics":event.get("stage_semantics",{}),"participants":[],"activation":"skipped",
+                "status":"skipped","completion_reason":event.get("completion_reason",event.get("reason","")),"decisions":[]}
+            self.stages[sid]["decisions"]=[e.get("decision",{}) for e in self.decisions
+                if e.get("decision",{}).get("stage_id")==event.get("stage_id")]
+        if kind == "stage_finish":
+            sid=event["stage_instance_id"]
+            if sid not in self.stages: raise ValueError("stage_finish without stage_start")
+            self.stages[sid].update(status=event.get("status","completed"),
+                                    completion_reason=event.get("completion_reason",""),
+                                    participants=event.get("realized_participants",self.stages[sid]["participants"]),
+                                    semantics=event.get("stage_semantics",self.stages[sid]["semantics"]))
         if kind in {"operation_start", "request_ready", "request_submit"}:
             op = self.operations[oid]
             if kind == "request_ready":
@@ -133,9 +159,22 @@ class ExecutionGraph:
         if kind == "artifact_consume":
             self.consumptions.append((event["artifact_id"], oid))
         if kind == "artifact_delivery":
+            if event.get("materialized_bytes") is None and event.get("artifact_id") in self.artifacts:
+                from .tracing import estimate_tokens
+                content=self.artifacts[event["artifact_id"]]["content"]
+                event["materialized_bytes"]=len(str(content).encode('utf-8'))
+                event["materialized_tokens_est"]=estimate_tokens(str(content))
+                event["delivered_artifact_id"]=event.get("delivered_artifact_id") or event["artifact_id"]
+                event["consumer_operation_id"]=event.get("consumer_operation_id") or oid
+                event.setdefault("delivery_selector",{})
+                event.setdefault("delivery_transform",{})
             self.deliveries.append(event)
         if kind == "control_decision":
             self.decisions.append(event)
+            target=event.get("decision",{}).get("stage_id")
+            for stage in self.stages.values():
+                if (target and stage["logical_stage_id"]==target) or (not target and stage["stage_instance_id"]==event.get("stage_instance_id")):
+                    stage["decisions"].append(event.get("decision",{}))
 
     def validate(self, *, replay=False):
         if not self.operations:
@@ -173,20 +212,32 @@ class ExecutionGraph:
                 raise ValueError("Invalid delivery mode")
             if any(a not in self.artifacts for a in delivery.get("source_artifact_ids",[])):
                 raise ValueError("Unknown source artifact")
+            if delivery.get("delivered_artifact_id") and delivery["delivered_artifact_id"] not in self.artifacts:
+                raise ValueError("Unknown delivered artifact")
+            if delivery.get("materialized_bytes") is None:
+                raise ValueError("Delivery lacks materialized size")
         done = set()
         while len(done) < len(parents):
             ready = {oid for oid in parents if oid not in done and parents[oid] <= done}
             if not ready:
                 raise ValueError("Execution graph contains a cycle or dangling parent")
             done.update(ready)
+        logical={stage["logical_stage_id"] for stage in self.stages.values()}
+        for stage in self.stages.values():
+            if set(stage["dependencies"])-logical:
+                raise ValueError("Stage hierarchy has a dangling dependency")
+            if stage["status"] != "running" and not stage["completion_reason"]:
+                raise ValueError("Completed stage lacks completion reason")
+        if self.stages and any(op.identities.get("stage_instance_id") not in self.stages for op in self.operations.values()):
+            raise ValueError("Operation lacks realized stage mapping")
         request_ids = [op.request_id for op in self.operations.values() if op.kind == "llm"]
         if len(request_ids) != len(set(request_ids)):
             raise ValueError("Duplicate request IDs")
         for oid, op in self.operations.items():
             op.parents = parents[oid]
-            if op.kind not in {"llm", "tool"}:
+            if op.kind not in {"llm", "tool", "transform", "router", "retrieval"}:
                 raise ValueError(f"Unsupported operation kind: {op.kind}")
-            if replay and (op.status != "completed" or (op.kind == "llm" and not op.payload) or (op.kind == "tool" and op.snapshot is None)):
+            if replay and (op.status != "completed" or (op.kind == "llm" and not op.payload) or (op.kind != "llm" and op.snapshot is None)):
                 raise ValueError(f"Incomplete operation cannot be replayed: {oid}")
             if replay and op.kind == "llm":
                 messages = op.payload.get("messages", [])
@@ -205,6 +256,8 @@ class ExecutionGraph:
 
     def to_dict(self):
         from dataclasses import asdict
+        hierarchy={oid:op.identities.get("stage_instance_id","") for oid,op in self.operations.items()}
         return {"run_id": self.run_id, "operations": {oid: {**asdict(op), "parents": sorted(op.parents)} for oid, op in self.operations.items()},
                 "edges": sorted(self.edges), "artifacts": self.artifacts, "consumptions": self.consumptions,
-                "deliveries": self.deliveries}
+                "deliveries": self.deliveries,"decisions":self.decisions,"stages":self.stages,
+                "hierarchy":{"operation_to_stage":hierarchy}}

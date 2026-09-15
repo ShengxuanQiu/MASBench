@@ -59,7 +59,7 @@ def test_atomic_stage_is_operation_not_core_motif(tmp_path, kind):
     r = record(tmp_path, [StageSpec('one', atomic=AtomicStage(kind))], task=task)
     assert len(r.trace.execution_graph.operations) == 1
     op = next(iter(r.trace.execution_graph.operations.values()))
-    assert op.kind == ('llm' if kind == 'llm' else 'tool')
+    assert op.kind == kind
     assert not op.identities.get('motif_instance_id')
     assert not any(e['event_type'] == 'motif_start' for e in r.trace.events)
 

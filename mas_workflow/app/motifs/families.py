@@ -6,6 +6,7 @@ and a task binding supplies domain semantics. Neither is a base topology object.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import random
 import threading
 import time
@@ -17,12 +18,34 @@ from uuid import uuid4
 
 from ..llm_backends import build_llm_backend
 from ..runtime import WorkloadRuntime
-from ..tracing import stable_hash
+from ..tracing import stable_hash, estimate_tokens
 from .contracts import AgentInstance, Artifact, MotifResult, role_bindings
 from .task_defaults import FAMILY_SLOTS
 from ..specs import ROLE_ALIASES, stage_dependencies
 
 MOTIF_NAMES = list(FAMILY_SLOTS)
+PUBLIC_FAMILY = {"dispatch_execute":"DispatchExecute","parallel_aggregate":"ParallelAggregate",
+                 "evaluate_refine":"EvaluateRefine","peer_exchange":"PeerExchange","atomic":"AtomicStage"}
+
+
+def stage_semantics(stage, participants):
+    family=stage['family']
+    connectivity={"dispatch_execute":"star","parallel_aggregate":"fan_out_fan_in",
+                  "evaluate_refine":"feedback_pair","peer_exchange":stage.get('connectivity','all_to_all'),
+                  "atomic":"single_operation"}[family]
+    coordination={"dispatch_execute":"centralized_dispatch","parallel_aggregate":"independent_then_reduce",
+                  "evaluate_refine":"review_feedback_control","peer_exchange":"decentralized_exchange",
+                  "atomic":"local"}[family]
+    completion={"dispatch_execute":"selected_work_returned","parallel_aggregate":"required_branches_completed",
+                "evaluate_refine":"accepted_or_revision_limit","peer_exchange":"fixed_rounds",
+                "atomic":"operation_completed"}[family]
+    if family=='dispatch_execute': realized=[{'role':'Coordinator','index':0}]+[{'role':'Worker','index':i} for i in participants]
+    elif family=='parallel_aggregate': realized=[{'role':'Worker','index':i} for i in participants]+[{'role':'Reducer','index':0}]
+    elif family=='evaluate_refine': realized=[{'role':'Worker','index':0},{'role':'Reviewer','index':0}]
+    elif family=='peer_exchange': realized=[{'role':'Worker','index':i} for i in participants]
+    else: realized=[{'role':stage['atomic']['role'],'index':0}]
+    return {'canonical_family':PUBLIC_FAMILY[family],'participants':realized,'connectivity':connectivity,
+            'coordination':coordination,'delivery':stage.get('motif_delivery',{}),'completion':completion}
 
 
 def peer_sources(index: int, count: int, connectivity: str, seed: int, k=None, sparsity=None) -> list[int]:
@@ -50,6 +73,9 @@ class FamilyWorkload(WorkloadRuntime):
 
     def __init__(self, config, *, spec: dict[str, Any], **deps):
         super().__init__(config, **deps)
+        spec=deepcopy(spec)
+        for stage in spec.get('stages',[spec]):
+            if stage.get('family')=='peer_deliberation':stage['family']='peer_exchange'
         self.spec = spec
         self.motif_tags = ["motif_families_v1"]
         self.config.mode = "motif"
@@ -78,7 +104,7 @@ class FamilyWorkload(WorkloadRuntime):
         for i, stage in enumerate(stages):
             allowed = {"id", "family", "roles", "inputs", "task", "width", "rounds", "max_revisions",
                        "connectivity", "aggregation", "dispatch", "criteria", "depends_on", "seed",
-                       "routing_semantics", "evaluation_semantics", "atomic", "condition", "participants", "delivery", "allow_skipped", "parameters", "delivery_instruction", "k", "sparsity"}
+                       "routing_semantics", "evaluation_semantics", "atomic", "condition", "participants", "delivery", "motif_delivery", "allow_skipped", "parameters", "delivery_instruction", "k", "sparsity"}
             if not isinstance(stage, dict) or set(stage) - allowed:
                 raise ValueError("Invalid stage fields")
             family = stage.get("family")
@@ -89,6 +115,12 @@ class FamilyWorkload(WorkloadRuntime):
             if family not in FAMILY_SLOTS:
                 raise ValueError(f"Unknown family: {family}")
             role_bindings(FAMILY_SLOTS[family], stage.get("roles", {}))
+            from ..specs import delivery_spec
+            relations={"dispatch_execute":{"coordinator_to_worker"},"parallel_aggregate":{"worker_to_reducer"},
+                       "evaluate_refine":{"producer_to_reviewer","reviewer_to_producer"},"peer_exchange":{"peer_to_peer"}}[family]
+            if set(stage.get('motif_delivery',{}))-relations:raise ValueError('Invalid motif delivery relation')
+            for value in stage.get('motif_delivery',{}).values():delivery_spec(value)
+            for value in stage.get('delivery',{}).values():delivery_spec(value)
             stage_id = stage.get("id", f"stage_{i}")
             if not isinstance(stage_id, str) or not stage_id or "." in stage_id:
                 raise ValueError("Stage id must be a nonempty string without dots")
@@ -104,7 +136,7 @@ class FamilyWorkload(WorkloadRuntime):
             revisions = stage.get("max_revisions", self.config.max_retries)
             if not isinstance(rounds, int) or rounds < 0 or not isinstance(revisions, int) or revisions < 0:
                 raise ValueError("rounds and max_revisions must be nonnegative integers")
-            if family == "peer_deliberation":
+            if family == "peer_exchange":
                 if width < 2:
                     raise ValueError("peer_deliberation requires at least two peers")
                 peer_sources(0, width, stage.get("connectivity", self.config.communication_topology), self.config.random_seed)
@@ -124,7 +156,9 @@ class FamilyWorkload(WorkloadRuntime):
         control = list(ctx["parents"]) + list(ctx["round_parents"].get(round_id, []))
         parents = list(dict.fromkeys([a.producer_node for a in inputs] + control))
         identity = {"stage_instance_id": ctx["id"], "role": ROLE_ALIASES[instance.slot.name],
-                    "motif_instance_id": "" if ctx.get("atomic") else instance.motif_instance_id, "agent_instance_id": instance.instance_id}
+                    "motif_instance_id": "" if ctx.get("atomic") else instance.motif_instance_id,
+                    "atomic_instance_id":instance.motif_instance_id if ctx.get('atomic') else '',
+                    "agent_instance_id": instance.instance_id}
         payload = {"task": task, "role_index": instance.index,
                    "inputs": [{"kind": a.kind, "content": a.content} for a in inputs]}
         # Search is an explicit bound action, never enabled merely by the role name.
@@ -163,7 +197,12 @@ class FamilyWorkload(WorkloadRuntime):
             self.trace.emit(event_type="artifact_consume", node_id=node, artifact_id=artifact.artifact_id, **identity)
             self.trace.emit(event_type="artifact_delivery",node_id=node,artifact_id=artifact.artifact_id,
                             source_artifact_ids=list(artifact.source_artifact_ids or (artifact.artifact_id,)),
-                            producer_operation_id=artifact.producer_node,delivery_mode=artifact.delivery_mode,**identity)
+                            delivered_artifact_id=artifact.artifact_id,
+                            producer_operation_id=artifact.producer_node,consumer_operation_id=node,
+                            delivery_mode=artifact.delivery_mode,delivery_selector=artifact.delivery_selector,
+                            delivery_transform=artifact.delivery_transform,
+                            materialized_bytes=len(artifact.content.encode('utf-8')),
+                            materialized_tokens_est=estimate_tokens(artifact.content),**identity)
             self.emit_edge(src_node=artifact.producer_node, dst_node=node, artifact_type=artifact.kind,
                            content=artifact.content, transfer_type="artifact_binding", source_artifact_id=artifact.artifact_id,
                            trace_fields={"motif_instance_id": instance.motif_instance_id, "role_slot": instance.slot.name})
@@ -207,19 +246,25 @@ class FamilyWorkload(WorkloadRuntime):
         mid = ("atomic_" if family == "atomic" else "motif_") + uuid4().hex
         sid = "stage_" + uuid4().hex
         self._stage_context[mid] = {"id": sid, "parents": list(control_parents), "nodes": [], "round_parents": {}}
+        width = stage.get("width", self.config.num_agents)
+        participant_ids=stage.get("selected_participants",list(range(width)))
+        semantics=stage_semantics(stage,participant_ids)
+        realized_participants=semantics['participants']
         self.trace.emit(event_type="stage_start", stage_instance_id=sid, motif_instance_id=mid if family != 'atomic' else '',
                         atomic_instance_id=mid if family == 'atomic' else '',
-                        stage_id=stage.get("id", ""), parents=list(control_parents))
-        from .adaptive import atomic_stage, deliver
+                        stage_id=stage.get("id", ""), parents=list(control_parents),
+                        stage_dependencies=list(stage.get('_realized_dependencies',stage.get('depends_on',[]))),stage_semantics=semantics,
+                        realized_participants=semantics['participants'],activation='active')
+        from .adaptive import atomic_stage, deliver, deliver_relation
         if family == "atomic":
             try: return atomic_stage(self,stage,inputs,mid)
             except Exception as exc:
-                self.trace.emit(event_type="stage_finish",stage_instance_id=sid,status="failed",error=str(exc))
+                self.trace.emit(event_type="stage_finish",stage_instance_id=sid,status="failed",error=str(exc),completion_reason='failed')
                 return MotifResult("atomic",mid,"failed",{},error=str(exc))
         try:
             inputs = deliver(self,stage,inputs,mid)
         except Exception as exc:
-            self.trace.emit(event_type='stage_finish',stage_instance_id=sid,status='failed',error=str(exc))
+            self.trace.emit(event_type='stage_finish',stage_instance_id=sid,status='failed',error=str(exc),completion_reason='failed')
             return MotifResult(family,mid,'failed',{},error=str(exc))
         bindings = role_bindings(FAMILY_SLOTS[family], stage.get("roles", {}))
         instances = {}
@@ -235,16 +280,14 @@ class FamilyWorkload(WorkloadRuntime):
                                 binding_hash=stable_hash(asdict(bindings[slot])))
             return instances[key]
 
-        width = stage.get("width", self.config.num_agents)
-        participant_ids=stage.get("selected_participants",list(range(width)))
         context = inputs.get("context", [])
         context = context if isinstance(context, list) else [context]
         task = stage.get("task", task)
         shapes = {"dispatch_execute": "star", "parallel_aggregate": "fan_out_fan_in",
-                  "evaluate_refine": "feedback_pair", "peer_deliberation": self.config.communication_topology}
+                  "evaluate_refine": "feedback_pair", "peer_exchange": self.config.communication_topology}
         shape = stage.get("connectivity", shapes[family])
         regimes = {"dispatch_execute": "centralized", "parallel_aggregate": "independent",
-                   "evaluate_refine": "centralized", "peer_deliberation": "decentralized"}
+                   "evaluate_refine": "centralized", "peer_exchange": "decentralized"}
         self.trace.emit(event_type="motif_start", node_id=mid, motif_instance_id=mid, motif_name=family,
                         parent_motif_id=self.trace.workflow_id, status="start",
                         connectivity=shape, coordination=regimes[family],
@@ -266,28 +309,31 @@ class FamilyWorkload(WorkloadRuntime):
                     if type(index) is not int or index not in selected or not isinstance(decision.get("instruction"), str):
                         raise ValueError("Invalid dispatcher route")
                     selected = [index]
+                    realized_participants=[{'role':'Coordinator','index':0},{'role':'Worker','index':index}]
                     self.trace.emit(event_type="control_decision", node_id=plan.producer_node, decision=decision, motif_instance_id=mid, stage_instance_id=sid)
-                values = self.run_parallel(selected, lambda i: self._call(agent("executor", i), task, context + [plan], group=mid))
+                delivered_plan=deliver_relation(self,stage,'coordinator_to_worker',[plan],mid)
+                values = self.run_parallel(selected, lambda i: self._call(agent("executor", i), task, context + delivered_plan, group=mid))
                 result = values[0] if len(values) == 1 else self._pack(values, mid)
             elif family == "parallel_aggregate":
                 values = self.run_parallel(participant_ids, lambda i: self._call(agent("worker", i), task, context, group=mid))
                 self.barrier(barrier_id=mid + "_join", waiting_for_nodes=[v.producer_node for v in values], trace_fields={"motif_instance_id": mid})
+                reduced_values=deliver_relation(self,stage,'worker_to_reducer',values,mid)
                 policy = stage.get("aggregation", self.config.aggregation_policy)
                 if policy == "vote":
-                    winner = Counter(a.content for a in values).most_common(1)[0][0]
-                    result = self._pack(values, mid, content=winner)
+                    winner = Counter(a.content for a in reduced_values).most_common(1)[0][0]
+                    result = self._pack(reduced_values, mid, content=winner)
                     self.trace.emit(event_type="control_decision", node_id=result.producer_node,
                                     decision={"policy": "vote", "winner": winner}, motif_instance_id=mid, stage_instance_id=sid)
                 else:
                     instruction = ('Return JSON with "selected_index" (zero-based integer) and "reason". Select one supplied candidate.'
                                    if policy == "judge" else "Synthesize the supplied results into one answer.")
-                    combined = self._call(agent("collector"), task, values, instruction=instruction)
+                    combined = self._call(agent("collector"), task, reduced_values, instruction=instruction)
                     if policy == "judge":
                         index = json.loads(combined.content)["selected_index"]
-                        if type(index) is not int or not 0 <= index < len(values):
+                        if type(index) is not int or not 0 <= index < len(reduced_values):
                             raise ValueError("Invalid collector selection")
                         self.trace.emit(event_type="control_decision", node_id=combined.producer_node, decision={"selected_index": index}, motif_instance_id=mid, stage_instance_id=sid)
-                        result = self._pack([combined, values[index]], mid, content=values[index].content)
+                        result = self._pack([combined, reduced_values[index]], mid, content=reduced_values[index].content)
                     else:
                         result = combined
             elif family == "evaluate_refine":
@@ -296,7 +342,8 @@ class FamilyWorkload(WorkloadRuntime):
                     candidate = self._call(agent("producer"), task, context)
                 limit = stage.get("max_revisions", self.config.max_retries)
                 for revision in range(limit + 1):
-                    feedback = self._call(agent("evaluator"), task, context + [candidate], round_id=revision,
+                    review_input=deliver_relation(self,stage,'producer_to_reviewer',[candidate],mid)
+                    feedback = self._call(agent("evaluator"), task, context + review_input, round_id=revision,
                                           instruction='Return JSON with "decision": "accept" or "revise", and "feedback": a string. Criteria: ' + stage.get("criteria", "Satisfy the task and its constraints.") + "\n" + stage.get("evaluation_semantics", ""))
                     decision = json.loads(feedback.content)
                     if decision.get("decision") not in {"accept", "revise"} or not isinstance(decision.get("feedback"), str):
@@ -308,7 +355,8 @@ class FamilyWorkload(WorkloadRuntime):
                     if revision == limit:
                         status = "max_revisions"
                         break
-                    candidate = self._call(agent("producer"), task, context + [candidate, feedback], round_id=revision + 1)
+                    delivered_feedback=deliver_relation(self,stage,'reviewer_to_producer',[feedback],mid)
+                    candidate = self._call(agent("producer"), task, context + [candidate]+delivered_feedback, round_id=revision + 1)
                     iterations += 1
                 # Include the acceptance/termination dependency without another LLM call.
                 result = self._pack([candidate, feedback], mid, content=candidate.content)
@@ -321,7 +369,8 @@ class FamilyWorkload(WorkloadRuntime):
                     self._stage_context[mid]["round_parents"][round_id] = [v.producer_node for v in previous]
                     def update(p):
                         sources = peer_sources(participant_ids.index(p.index), len(peers), shape, stage.get("seed", self.config.random_seed),stage.get("k"),stage.get("sparsity"))
-                        return self._call(p, task, context + [replace(previous[participant_ids.index(p.index)], kind="own_state")] + [replace(previous[j], kind="peer_message") for j in sources],
+                        messages=deliver_relation(self,stage,'peer_to_peer',[replace(previous[j], kind="peer_message") for j in sources],mid)
+                        return self._call(p, task, context + [replace(previous[participant_ids.index(p.index)], kind="own_state")] + messages,
                                           instruction="The first peer result is your prior state; the remaining results are incoming peer messages.",
                                           round_id=round_id, group=mid + f"_round_{round_id}")
                     values = self.run_parallel(peers, update)
@@ -338,7 +387,12 @@ class FamilyWorkload(WorkloadRuntime):
                         parent_motif_id=self.trace.workflow_id, status=status,
                         extra={"iterations": iterations, "error": error,
                                "output_artifact_ids": {k: v.artifact_id for k, v in outputs.items()}})
-        self.trace.emit(event_type="stage_finish", stage_instance_id=sid, motif_instance_id=mid, status=status)
+        reason = ('failed' if status=='failed' else 'accepted' if family=='evaluate_refine' and status=='accepted' else
+                  'revision_limit' if family=='evaluate_refine' else 'selected_work_returned' if family=='dispatch_execute' else
+                  'required_branches_completed' if family=='parallel_aggregate' else 'fixed_rounds_completed')
+        self.trace.emit(event_type="stage_finish", stage_instance_id=sid, motif_instance_id=mid, status=status,
+                        completion_reason=reason,realized_participants=realized_participants,
+                        stage_semantics={**semantics,'participants':realized_participants})
         return MotifResult(family, mid, status, outputs, iterations, error)
 
     def _pack(self, values, mid, *, content=None):
@@ -351,6 +405,13 @@ class FamilyWorkload(WorkloadRuntime):
         for value in values:
             self.trace.emit(event_type="dependency", src=value.producer_node, dst=node, dependency_kind="data", **identity)
             self.trace.emit(event_type="artifact_consume", node_id=node, artifact_id=value.artifact_id, **identity)
+            self.trace.emit(event_type="artifact_delivery",node_id=node,artifact_id=value.artifact_id,
+                            delivered_artifact_id=value.artifact_id,consumer_operation_id=node,
+                            source_artifact_ids=list(value.source_artifact_ids or (value.artifact_id,)),
+                            producer_operation_id=value.producer_node,delivery_mode=value.delivery_mode,
+                            delivery_selector=value.delivery_selector,delivery_transform=value.delivery_transform,
+                            materialized_bytes=len(value.content.encode('utf-8')),
+                            materialized_tokens_est=estimate_tokens(value.content),**identity)
             self.emit_edge(src_node=value.producer_node, dst_node=node, artifact_type=value.kind,
                            content=value.content, transfer_type="aggregation", source_artifact_id=value.artifact_id,
                            trace_fields={"motif_instance_id": mid})
@@ -377,28 +438,32 @@ class FamilyWorkload(WorkloadRuntime):
                             continue
                         from .adaptive import decision_value, record_choice, skip_stage
                         stage = dict(named[name])
+                        stage['_realized_dependencies']=sorted(self._dependencies[name])
                         if any(completed[p].status == "skipped" for p in self._dependencies[name]) and not stage.get("allow_skipped"):
-                            completed[name]=skip_stage(self,name,"prerequisite_skipped");pending.remove(name);continue
+                            completed[name]=skip_stage(self,name,"prerequisite_skipped",stage);pending.remove(name);continue
                         if stage.get("condition"):
                             selector=stage["condition"]
                             value=decision_value(self,selector,completed)
                             activated=value in selector["in"] if "in" in selector else value==selector.get("equals",True)
                             record_choice(self,selector,completed,{"kind":"stage_activation","stage_id":name,"active":activated})
                             if not activated:
-                                completed[name]=skip_stage(self,name,"condition_false");pending.remove(name);continue
+                                completed[name]=skip_stage(self,name,"condition_false",stage);pending.remove(name);continue
                         if stage.get("participants"):
                             ids=decision_value(self,stage["participants"],completed)
                             width=stage.get("width",self.config.num_agents)
                             if not isinstance(ids,list) or not ids or len(ids)!=len(set(ids)) or any(type(i) is not int or i<0 or i>=width for i in ids):
                                 raise ValueError("Invalid participant subset")
-                            if stage.get("family")=="peer_deliberation" and len(ids)<2: raise ValueError("Peers require two participants")
+                            if stage.get("family") in {"peer_exchange","peer_deliberation"} and len(ids)<2: raise ValueError("Peers require two participants")
                             stage["selected_participants"]=ids
                             record_choice(self,stage["participants"],completed,{"kind":"participants","stage_id":name,"indices":ids})
                         inputs={}
                         for port,refs in stage.get("inputs",{}).items():
                             refs=refs if isinstance(refs,list) else [refs]
-                            values=[available[r] for r in refs if r in available]
-                            if len(values)!=len(refs) and not stage.get("allow_skipped"): raise ValueError("Missing prerequisite artifact")
+                            edges=[r if isinstance(r,dict) else {'source':r,'delivery':{'mode':'full'}} for r in refs]
+                            values=[replace(available[e['source']],delivery_spec=e.get('delivery',{'mode':'full'}),
+                                            delivery_scope=e.get('delivery_scope','edge'))
+                                    for e in edges if e['source'] in available]
+                            if len(values)!=len(edges) and not stage.get("allow_skipped"): raise ValueError("Missing prerequisite artifact")
                             if values: inputs[port]=values[0] if port=="candidate" else values
                         parents = [oid for dep in sorted(self._dependencies[name])
                                    for oid in self._stage_context[completed[dep].motif_instance_id]["nodes"]]

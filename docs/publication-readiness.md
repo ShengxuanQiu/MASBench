@@ -31,7 +31,7 @@ python -m pytest -q
 
 `StageSpec.condition = {from_stage, field, equals}` (or `in`) evaluates a prior recorded control decision; if none exists, it selects a field from the prior stage's JSON result. That selector creates a prerequisite automatically. Activation and participant decisions are recorded. A false condition emits `stage_skip`; a skipped prerequisite propagates a skip unless `allow_skipped: true`. A join with this flag consumes only artifacts from executed branches. Selectors whose own decision source was skipped are not meaningful; route the join without such a selector.
 
-`participants = {from_stage, field}` selects a nonempty list of unique worker indices within the declared width. It applies to DispatchExecute, ParallelAggregate and PeerDeliberation; Peer requires at least two selected peers. Connectivity is evaluated within that realized subset. Invalid selections fail rather than silently modifying the graph. Arbitrary self-modifying graphs are outside scope.
+`participants = {from_stage, field}` selects a nonempty list of unique worker indices within the declared width. It applies to DispatchExecute, ParallelAggregate and PeerExchange; Peer requires at least two selected peers. `PeerDeliberation` remains a legacy input alias. Connectivity is evaluated within that realized subset. Invalid selections fail rather than silently modifying the graph. Arbitrary self-modifying graphs are outside scope.
 
 `atomic: {kind: llm|transform|router|tool, role: Worker}` replaces the motif reference. These stages emit formal LLM/tool operations and artifacts, with no collaboration motif identity. Deterministic task functions live in `TaskBinding.stage_bindings.<id>.parameters`: transforms support identity/constant/concat/json_field; routers support a constant object or a lookup/default map; tool-only stages call the configured search provider. An LLM stage can also supply JSON decisions to a later selector. This is not arbitrary Python execution or an autonomous tool loop.
 
@@ -39,7 +39,7 @@ python -m pytest -q
 
 ## Artifact delivery
 
-`StageSpec.delivery` declares a mode per `context`/`candidate` port:
+Typed `DeliverySpec` declares information semantics per stage edge and canonical motif relation. The older `StageSpec.delivery` shorthand applies one policy per `context`/`candidate` port:
 
 | Mode | Execution | Provenance |
 |---|---|---|
@@ -100,7 +100,7 @@ Copy the resulting `identity` object into the deployment, retain its evidence an
 
 ## Main-experiment readiness checklist
 
-Acceptance on gpu3 (2026-09-14): all 128 `mas_workflow` tests and 6 legacy case-study tests passed (134 total), using `PYTHONPATH=mas_workflow:. python -m pytest mas_workflow/tests case_study1/tests case_study2/tests --import-mode=importlib -q` from the repository root. Third-party vendored engine test suites are not included. The final mock matrix completed 20 load cases / 80 workflows across five structure cells and resumed without resubmitting completed cases. The formal template expanded into 43 cells without launching hardware experiments. Adaptive CLI run completed and exported canonical graph/trace views. Validation artifacts remain under `results/publication-functional-final`, `results/publication-main-plan` and `results/adaptive-final` on gpu3; generated results are not committed.
+Acceptance on gpu3 (updated 2026-09-15): all 141 `mas_workflow` tests and 6 legacy case-study tests passed (147 total), using `PYTHONPATH=mas_workflow:. python -m pytest mas_workflow/tests case_study1/tests case_study2/tests --import-mode=importlib -q` from the repository root. Third-party vendored engine test suites are not included. Section 4.1 example validation/data-driven rendering and publication dry-runs also passed. These checks contain no real coverage, task-quality, GPU, or NPU evidence. Earlier mock matrix artifacts remain under `results/` and are not committed.
 
 - [x] Canonical adaptive and atomic run/replay, delivery provenance and composed presets implemented.
 - [x] Exact-payload matched dependency controls, parameterized peer degree, separated pressure measures implemented.
@@ -115,7 +115,7 @@ Acceptance on gpu3 (2026-09-14): all 128 `mas_workflow` tests and 6 legacy case-
 - [ ] Freeze the source corpus, inspect output-length/identity agreement, and exclude ineligible comparisons.
 - [ ] Collect profiler evidence before assigning hardware bottleneck mechanisms; validate coverage/quality with the paper's independently curated corpus.
 
-The matrix execution machinery is ready for controlled pilots and subsequent scaling. Hardware conclusions and a fully validated cross-hardware publication protocol still require the unchecked steps above.
+The architecture-freeze additions, Section 4.1 audit path, quality guardrail, and current validation status are documented in [architecture-freeze.md](architecture-freeze.md). The matrix execution machinery is ready for controlled pilots and subsequent scaling. Hardware conclusions and a fully validated cross-hardware publication protocol still require the unchecked steps above.
 
 ## Modified files and compatibility
 

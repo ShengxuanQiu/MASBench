@@ -1,0 +1,14 @@
+{
+  "structure": {
+    "motifs": {
+      "parallel":{"family":"ParallelAggregate","width":4},
+      "review":{"family":"EvaluateRefine","width":1,"max_revisions":2}
+    },
+    "workflow":{"stages":[
+      {"id":"parallel","motif":"parallel"},
+      {"id":"review","motif":"review","inputs":{"candidate":[{"source":"parallel.result","delivery":{"mode":"full"}}]}}
+    ]}
+  },
+  "task":"task.json",
+  "deployment":"deployment-mock.json"
+}

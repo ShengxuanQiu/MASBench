@@ -35,7 +35,7 @@ python -m app.benchmark replay --trace traces/benchmark/composition/input/<run_i
 | `dispatch_execute` | dispatcher 生成指令，executor 执行；`route` 变体只激活选中的 executor | dispatcher 到 executor 的有向星形；单 executor 时退化为链；centralized | 单个执行结果或执行结果列表；一次分派完成 |
 | `parallel_aggregate` | 多个 worker 独立生成结果，之后综合、选择或投票 | fan-out/fan-in；生成阶段 independent，末端聚合规则单独配置 | 一个综合结果或被选中的候选结果 |
 | `evaluate_refine` | producer 生成候选，evaluator 判定 accept/revise，必要时反馈修订 | 角色层的反馈对；运行中展开为有依赖的调用链；centralized | 候选结果及 `accepted` / `max_revisions` 状态 |
-| `peer_deliberation` | 多个 peer 先独立生成，再按连接规则接收消息并更新自身结果 | `all_to_all`、有向 `ring`、`pairwise` 或固定种子的 `random_k`；decentralized | 固定轮数后的各 peer 结果列表，不宣称已达成共识 |
+| `PeerExchange` | 多个 peer 先独立生成，再按连接规则接收消息并更新自身结果；`PeerDeliberation` / `peer_deliberation` 是兼容别名 | `all_to_all`、有向 `ring`、`pairwise` 或固定种子的 `random_k`；decentralized | 固定轮数后的各 peer 结果列表，不宣称已达成共识 |
 
 证据综合和候选选择是 Parallel Aggregate 的聚合变体。共享证据、工具访问和上下文传递属于任务绑定或 artifact 传递，不额外计为 motif 类别。树形层次工作负载可以通过多级聚合组合表达；新 WorkflowSpec 支持 stage DAG fan-out/fan-in 和多个 prerequisite；旧列表配置保留顺序执行兼容语义。
 
@@ -212,3 +212,9 @@ python -m app.capacity --config configs/publication/replay-capacity.template.jso
 矩阵支持 coarse/dense QPS 搜索、多次重复与置信区间；结果保存配置、代码快照、trace corpus 和 resume 指纹。`lambda_knee` 是有限样本下的 SLO 边界，不自动等同于硬件资源饱和。
 
 新 cache 协议会验证 endpoint 报告的 prefix-cache 开关；output-length agreement 和 model/tokenizer/template identity 单独检查，即使长度一致也仍是 best-effort replay。Ascend adapter 已接入 npu-smi 和可选 profiler 快照，目前仅有 fixture 验证。具体指标定义、使用方法、修改文件、限制及正式实验前的验收清单见 [主实验准备说明](docs/publication-readiness.md)。
+
+## Section 3 architecture freeze
+
+当前抽象固定为 `W=(S,D,Ω)` 与局部协作 `G_s=(V_s,E_s,π_s,μ_s,τ_s)`。typed `DeliverySpec` 同时作用于跨 stage edge 和四类 motif 内部关系；per-edge delivery、realized hierarchy、completion reason、out-of-band quality evaluator 与通用 factor override 均进入 canonical path。Section 4.1 绘图只读取 machine-readable audit 的计算结果；仓库附带的输入明确标记为 schema example，不作为真实 82-paper 证据。
+
+完整定义、兼容性、指标口径、实验模板与冻结清单见 [architecture-freeze 文档](docs/architecture-freeze.md)。

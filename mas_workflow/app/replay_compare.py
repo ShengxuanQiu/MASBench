@@ -52,6 +52,12 @@ def compare_replay(source_events, replay_events, *, output_length_tolerance=0):
     def skips(events):
         return Counter((e['stage_id'],e.get('reason')) for e in events if e.get('canonical_type')=='stage_skip')
     if skips(source_events)!=skips(replay_events):errors.append('skipped_stages')
+    def hierarchy(graph):
+        return Counter((s['logical_stage_id'],tuple(sorted(s['dependencies'])),s['semantics'].get('canonical_family'),
+                        s['semantics'].get('connectivity'),s['semantics'].get('coordination'),
+                        json.dumps(s['semantics'].get('delivery',{}),sort_keys=True),s['activation'],
+                        s['completion_reason'],json.dumps(s['participants'],sort_keys=True)) for s in graph.stages.values())
+    if hierarchy(source)!=hierarchy(replay):errors.append('stage_hierarchy')
     from .replay_protocol import length_agreement,identity_agreement
     lengths=length_agreement(tokens,output_length_tolerance)
     identities=identity_agreement(manifest.get("source_identity",{}),manifest["deployment"].get("identity",{}))

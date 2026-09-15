@@ -14,7 +14,7 @@ FAMILY_SLOTS = {
         RoleSlot("producer", "Produce or revise the candidate using the supplied evaluation feedback."),
         RoleSlot("evaluator", "Evaluate the candidate against the task criteria."),
     ),
-    "peer_deliberation": (
+    "peer_exchange": (
         RoleSlot("peer", "Address the task, then update your result using the delivered peer messages."),
     ),
 }

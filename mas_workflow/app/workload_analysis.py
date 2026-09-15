@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .execution_graph import ExecutionGraph
+from .tracing import estimate_tokens
 
 
 def read_events(path):
@@ -110,7 +111,7 @@ def analyze_events(events):
     consumed_bytes = sum(lengths[a]*len(c) for a,c in consumers.items())
     llm_consumed_bytes = sum(lengths[a]*sum(graph.operations[c].kind == "llm" for c in cs) for a,cs in consumers.items())
     structure.update(llm_operations=sum(op.kind == "llm" for op in graph.operations.values()),
-                     tool_operations=sum(op.kind == "tool" for op in graph.operations.values()),
+                     tool_operations=sum(op.kind != "llm" for op in graph.operations.values()),
                      llm_artifact_consumed_bytes=llm_consumed_bytes, data_edges=len(data_edges), control_edges=len(control_edges),
                      data_control_overlap=len(data_edges & control_edges),
                      artifact_reuse_multiplicity=distribution([len(consumers[a]) for a in graph.artifacts]),
@@ -118,6 +119,28 @@ def analyze_events(events):
                      artifact_unique_consumed_bytes=unique_bytes,
                      artifact_byte_amplification=consumed_bytes/unique_bytes if unique_bytes else None,
                      artifacts=len(graph.artifacts))
+    delivery_sources=Counter()
+    delivered_bytes=delivered_tokens=source_delivery_bytes=source_delivery_tokens=0
+    unique_sources=set()
+    for event in graph.deliveries:
+        delivered_bytes+=event.get('materialized_bytes',0)
+        delivered_tokens+=event.get('materialized_tokens_est',0)
+        sources=event.get('source_artifact_ids',[]) or [event['artifact_id']]
+        for aid in sources:
+            unique_sources.add(aid);delivery_sources[aid]+=1
+            source_delivery_bytes+=lengths[aid]
+            source_delivery_tokens+=estimate_tokens(graph.artifacts[aid]['content'])
+    unique_source_bytes=sum(lengths[aid] for aid in unique_sources)
+    unique_source_tokens=sum(estimate_tokens(graph.artifacts[aid]['content']) for aid in unique_sources)
+    information_flow={"delivered_bytes":delivered_bytes,"delivered_tokens_est":delivered_tokens,
+        "unique_source_artifact_bytes":unique_source_bytes,"unique_source_artifact_tokens_est":unique_source_tokens,
+        "artifact_reuse_multiplicity":distribution(list(delivery_sources.values())),
+        "delivery_compression_ratio_bytes":delivered_bytes/source_delivery_bytes if source_delivery_bytes else None,
+        "delivery_compression_ratio_tokens":delivered_tokens/source_delivery_tokens if source_delivery_tokens else None,
+        "context_information_amplification_bytes":delivered_bytes/unique_source_bytes if unique_source_bytes else None,
+        "context_information_amplification_tokens":delivered_tokens/unique_source_tokens if unique_source_tokens else None,
+        "definition":"Delivery-event materialized payload divided by its source payload (compression), or by unique source artifacts (reuse-inclusive amplification). Tokens use the benchmark estimator. Byte/token repetition is not semantic-information duplication.",
+        "token_source":"estimated"}
     # Source stage IDs and declared dependencies are retained in the run manifest.
     declared = None
     run_config = {}
@@ -231,7 +254,7 @@ def analyze_events(events):
             row["inflight_token_envelope"] = None
     from .pressure import pressure_metrics
     pressure=pressure_metrics(graph,events,runtime)
-    return {"pressure":pressure,"schema":"masbench_analysis_v1", "run_id":graph.run_id,
+    return {"pressure":pressure,"information_flow":information_flow,"schema":"masbench_analysis_v1", "run_id":graph.run_id,
             "provenance":{"backend":run_config.get("llm_mode"), "mock":run_config.get("llm_mode")=="mock",
                           "structural_control":[e for e in events if e.get("event_type")=="structural_control_manifest"],
                           "metric_scope":"Realized operation DAG including local artifact packing tools; no transitive reduction."},

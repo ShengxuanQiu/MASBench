@@ -70,6 +70,10 @@ class Artifact:
     artifact_id: str = field(default_factory=lambda: "artifact_" + uuid4().hex)
     delivery_mode: str = "full"
     source_artifact_ids: tuple[str, ...] = ()
+    delivery_selector: dict[str, Any] = field(default_factory=dict)
+    delivery_transform: dict[str, Any] = field(default_factory=dict)
+    delivery_spec: dict[str, Any] = field(default_factory=dict)
+    delivery_scope: str = "edge"
 
 
 @dataclass

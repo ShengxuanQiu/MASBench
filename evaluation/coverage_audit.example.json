@@ -1,0 +1,22 @@
+{
+  "schema": "masbench_coverage_audit_v1",
+  "source_kind": "example",
+  "papers": [
+    {
+      "paper_id": "example-only-1", "system": "Schema demonstration, not a real paper annotation",
+      "stages": [
+        {"stage_id":"draft","stage":"parallel drafting","canonical_family":"ParallelAggregate","benchmark_family":"ParallelAggregate","extension_type":"none"},
+        {"stage_id":"review","stage":"review and revise","canonical_family":"EvaluateRefine","benchmark_family":"EvaluateRefine","extension_type":"none"}
+      ],
+      "workflow_dependencies":[{"producer":"draft","consumer":"review"}],
+      "benchmark_dependencies":[{"producer":"draft","consumer":"review"}],
+      "information_relations":[{"producer":"draft","consumer":"review","artifact_semantics":"candidate","delivery_mode":"full"}],
+      "benchmark_information_relations":[{"producer":"draft","consumer":"review","artifact_semantics":"candidate","delivery_mode":"full"}]
+    },
+    {
+      "paper_id":"example-only-2", "system":"Schema mismatch demonstration",
+      "stages":[{"stage_id":"graph","stage":"learned arbitrary graph","canonical_family":null,"benchmark_family":null,"extension_type":"general_graph"}],
+      "workflow_dependencies":[],"benchmark_dependencies":[],"information_relations":[],"benchmark_information_relations":[]
+    }
+  ]
+}

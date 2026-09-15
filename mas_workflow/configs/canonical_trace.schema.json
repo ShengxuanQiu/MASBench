@@ -165,6 +165,19 @@
           "tool_snapshot"
         ]
       }
+    },
+    {
+      "if": {"properties":{"canonical_type":{"const":"operation_start"}}},
+      "then": {"required":["operation_kind"],"properties":{"operation_kind":{"enum":["tool","transform","router","retrieval"]}}}
+    },
+    {
+      "if": {"properties":{"canonical_type":{"const":"artifact_delivery"}}},
+      "then": {"required":["artifact_id","delivered_artifact_id","producer_operation_id","consumer_operation_id","delivery_mode","source_artifact_ids","materialized_bytes"],
+        "properties":{"delivery_mode":{"enum":["full","selected","summarized","referenced","retrieved"]}}}
+    },
+    {
+      "if": {"properties":{"canonical_type":{"const":"stage_finish"}}},
+      "then": {"required":["completion_reason"]}
     }
   ]
 }

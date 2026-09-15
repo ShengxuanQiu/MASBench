@@ -79,6 +79,7 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
     runtime._llm_slots = llm_slots if llm_slots is not None else threading.BoundedSemaphore(deployment.concurrency)
     ids = {oid: run_id + ":" + oid for oid in graph.operations}
     artifact_ids = {aid: run_id + ":" + aid for aid in graph.artifacts}
+    stage_ids = {sid:run_id+":"+sid for sid in graph.stages}
     def identities(op):
         return {key: run_id + ":" + value if value and key.endswith("_id") else value for key, value in op.identities.items()}
     runtime.workflow_start()
@@ -86,6 +87,8 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                deployment=asdict(deployment), source_trace=str(path), source_operation_ids=ids,
                generation_policy="recorded_request_generation; deployment generation ignored",
                source_control_decisions=graph.decisions,
+               source_stages=graph.stages,source_deliveries=graph.deliveries,
+               source_hierarchy=graph.to_dict()['hierarchy'],
                source_identity=next((e.get("extra",{}).get("config",{}).get("extra",{}).get("experiment",{}).get("deployment",{}).get("identity",{}) for e in events if e.get("canonical_type")=="run_start"),{}),
                source_trace_sha256=prepared.sha256)
 
@@ -99,11 +102,17 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
     for event in graph.decisions:
         decisions[event.get("node_id")].append(event)
 
-    for event in events:
-        if event.get("canonical_type")=="stage_skip":
-            trace.emit(event_type="stage_skip",stage_id=event.get("stage_id"),
-                       stage_instance_id=run_id+":"+event["stage_instance_id"],reason=event.get("reason"),
-                       replay_content_source="recorded_skip",source_event_id=event["event_id"])
+    for sid,stage in graph.stages.items():
+        common={"stage_id":stage["logical_stage_id"],"stage_instance_id":stage_ids[sid],
+                "stage_dependencies":stage["dependencies"],"stage_semantics":stage["semantics"],
+                "realized_participants":stage["participants"],"replay_content_source":"recorded_hierarchy"}
+        if stage["activation"]=='skipped':
+            trace.emit(event_type="stage_skip",reason=stage["completion_reason"],
+                       completion_reason=stage["completion_reason"],activation='skipped',**common)
+        else:
+            trace.emit(event_type="stage_start",motif_instance_id=run_id+":"+stage["motif_instance_id"] if stage["motif_instance_id"] else '',
+                       atomic_instance_id=run_id+":"+stage["atomic_instance_id"] if stage["atomic_instance_id"] else '',
+                       activation='active',**common)
     delivered=defaultdict(list)
     for event in graph.deliveries: delivered[event["operation_id"]].append(event)
 
@@ -118,7 +127,11 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
         for event in delivered[oid]:
             trace.emit(event_type="artifact_delivery",node_id=ids[oid],artifact_id=artifact_ids[event["artifact_id"]],
                        source_artifact_ids=[artifact_ids[a] for a in event.get("source_artifact_ids",[])],
-                       producer_operation_id=ids[event["producer_operation_id"]],delivery_mode=event["delivery_mode"],**identity)
+                       delivered_artifact_id=artifact_ids.get(event.get("delivered_artifact_id",event["artifact_id"])),
+                       producer_operation_id=ids[event["producer_operation_id"]],consumer_operation_id=ids[oid],
+                       delivery_mode=event["delivery_mode"],delivery_selector=event.get('delivery_selector',{}),
+                       delivery_transform=event.get('delivery_transform',{}),
+                       materialized_bytes=event.get('materialized_bytes'),materialized_tokens_est=event.get('materialized_tokens_est'),**identity)
         if op.kind == "llm":
             payload = deepcopy(op.payload)
             payload["model"] = deployment.model
@@ -143,7 +156,7 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                                              "source_operation_id": oid, "source_request_id": op.request_id,
                                              "recorded_output_tokens": op.output_tokens})
         else:
-            trace.emit(event_type="operation_start", node_id=ids[oid], operation_kind="tool", parents=parents, **identity)
+            trace.emit(event_type="operation_start", node_id=ids[oid], operation_kind=op.kind, parents=parents, **identity)
             started = time.perf_counter()
             time.sleep(max(0.0, op.duration_sec))
             trace.emit(event_type="operation_finish", node_id=ids[oid], tool_snapshot=op.snapshot,
@@ -194,6 +207,11 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
     trace.execution_graph.validate(replay=True)
     if len(done) != len(graph.operations):
         raise RuntimeError("Replay did not complete all recorded operations")
+    for sid,stage in graph.stages.items():
+        if stage['activation']!='skipped':
+            trace.emit(event_type='stage_finish',stage_instance_id=stage_ids[sid],status=stage['status'],
+                       completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
+                       replay_content_source='recorded_hierarchy')
     graph_path = trace.trace_path.with_name(run_id + "_execution_graph.json")
     graph_path.write_text(json.dumps(trace.execution_graph.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     summary.update(replay_capabilities=capability, replayed_operations=len(done), source_run_id=graph.run_id,

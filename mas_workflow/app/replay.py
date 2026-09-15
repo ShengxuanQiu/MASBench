@@ -200,6 +200,14 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                         trace.emit(event_type="barrier", node_type="barrier", node_id=run_id + ":" + barrier["node_id"],
                                    waiting_for_nodes=[ids[p] for p in barrier.get("waiting_for_nodes", [])],
                                    source_event_id=barrier["event_id"], replay_content_source="recorded_sync")
+        # Stage completion is part of the canonical trace and must be emitted
+        # before workflow_end persists the JSONL file.
+        if error is None and len(done) == len(graph.operations):
+            for sid,stage in graph.stages.items():
+                if stage['activation']!='skipped':
+                    trace.emit(event_type='stage_finish',stage_instance_id=stage_ids[sid],status=stage['status'],
+                               completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
+                               replay_content_source='recorded_hierarchy')
     finally:
         summary = runtime.workflow_end("", status="failed" if error else "completed")
     if error:
@@ -207,11 +215,6 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
     trace.execution_graph.validate(replay=True)
     if len(done) != len(graph.operations):
         raise RuntimeError("Replay did not complete all recorded operations")
-    for sid,stage in graph.stages.items():
-        if stage['activation']!='skipped':
-            trace.emit(event_type='stage_finish',stage_instance_id=stage_ids[sid],status=stage['status'],
-                       completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
-                       replay_content_source='recorded_hierarchy')
     graph_path = trace.trace_path.with_name(run_id + "_execution_graph.json")
     graph_path.write_text(json.dumps(trace.execution_graph.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     summary.update(replay_capabilities=capability, replayed_operations=len(done), source_run_id=graph.run_id,

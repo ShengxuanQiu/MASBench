@@ -69,7 +69,10 @@ def test_realized_hierarchy_export_and_replay(tmp_path):
     assert set(exported['hierarchy']['operation_to_stage'].values())==set(exported['stages'])
     assert {s['logical_stage_id'] for s in exported['stages'].values()}=={'a','b'}
     _,trace=replay_trace(source.trace.trace_path,DeploymentSpec(),trace_dir=tmp_path/'replay',export_views=False)
-    report=compare_replay(source.trace.events,trace.events)
+    source_events=[json.loads(line) for line in source.trace.trace_path.read_text().splitlines()]
+    replay_events=[json.loads(line) for line in trace.trace_path.read_text().splitlines()]
+    assert sum(e.get('canonical_type')=='stage_finish' for e in replay_events)==2
+    report=compare_replay(source_events,replay_events)
     assert report['fixed_workload_invariants_pass'],report['errors']
 
 

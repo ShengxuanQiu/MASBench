@@ -1,0 +1,119 @@
+{
+  "schema_version": "masbench.semantic_trace/1.0.0",
+  "metadata": {
+    "workload_id": "golden-refinement_loop",
+    "workload_version": "1",
+    "trace_id": "golden:refinement_loop",
+    "source_framework": "masbench-synthetic",
+    "source_framework_version": "1",
+    "created_at": "2026-09-20T06:17:34+00:00",
+    "schema_version": "masbench.semantic_trace/1.0.0",
+    "workload_hash": "994b21f52958a70b11c60f2e8cc92fb27147a2801b2706eadfb5b09f49a5914a",
+    "configuration_hash": "",
+    "content_hash": "d5ec1dec92187380de9be5b8bbea40c5e18e3dce3983a0be458d0b4827fb89fd",
+    "source_observations": {}
+  },
+  "tasks": [
+    {
+      "task_id": "task:refinement_loop",
+      "trace_id": "golden:refinement_loop",
+      "root_arrival_offset": 0.0,
+      "terminal_operation_ids": [
+        "op:revision"
+      ],
+      "workload_configuration_ref": "golden-config",
+      "completion_status": "completed"
+    }
+  ],
+  "stages": [
+    {
+      "stage_instance_id": "stage:refinement_loop:0",
+      "logical_stage_id": "refinement_loop",
+      "template_type": "refinement_loop",
+      "parent_stage_instance_id": null,
+      "iteration": 0,
+      "participant_session_ids": [
+        "session:producer",
+        "session:reviewer"
+      ],
+      "stage_dependencies": [],
+      "execution_control": {
+        "template": "refinement_loop",
+        "realized": true
+      },
+      "context_construction": {
+        "artifacts": [
+          "artifact:op:draft",
+          "artifact:op:review",
+          "artifact:op:revision"
+        ]
+      },
+      "completion_reason": "revision limit"
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "session:producer",
+      "role_id": "Worker",
+      "parent_session_id": null,
+      "lifecycle_relation": "root",
+      "context_initialization": "fresh",
+      "reuse_scope_id": "scope:refine"
+    },
+    {
+      "session_id": "session:reviewer",
+      "role_id": "Reviewer",
+      "parent_session_id": "session:producer",
+      "lifecycle_relation": "handoff",
+      "context_initialization": "explicit",
+      "reuse_scope_id": "scope:review"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "artifact:op:draft",
+      "producer_operation_id": "op:draft",
+      "payload_ref": "sha256/b77e2f41d13712cc4d3f0ca08d9d5f69650ee8c7c448294397944007fd433434",
+      "content_hash": "b77e2f41d13712cc4d3f0ca08d9d5f69650ee8c7c448294397944007fd433434",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:refine",
+      "consumer_operation_ids": [
+        "op:review"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:review",
+      "producer_operation_id": "op:review",
+      "payload_ref": "sha256/38ef34da13217677947c858f137cf9e33432f4da393640987ea797d6557716a5",
+      "content_hash": "38ef34da13217677947c858f137cf9e33432f4da393640987ea797d6557716a5",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:review",
+      "consumer_operation_ids": [
+        "op:revision"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:revision",
+      "producer_operation_id": "op:revision",
+      "payload_ref": "sha256/8cde1a6e514bf28ead0ce06beb6c102e86828ef87576bb29ebd25a52d1c42a25",
+      "content_hash": "8cde1a6e514bf28ead0ce06beb6c102e86828ef87576bb29ebd25a52d1c42a25",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:refine",
+      "consumer_operation_ids": []
+    }
+  ],
+  "shared_state": [],
+  "operations_file": "operations.jsonl"
+}

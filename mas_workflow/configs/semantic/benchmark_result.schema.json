@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://masbench.org/schema/benchmark-result-1.0.0.json",
+  "title": "MASBench task-level metrics",
+  "type": "object",
+  "required": ["schema_version", "run_valid", "task_latency_sec", "task_goodput", "slo_attainment", "attempted_tasks", "slo_compliant_tasks", "resource_efficiency_tasks_per_sec_per_accelerator", "sustainable_capacity"],
+  "properties": {
+    "schema_version": {"const": "masbench.metrics/1.0.0"},
+    "run_valid": {"type": "boolean"},
+    "task_latency_sec": {"type": "object", "required": ["p50", "p90", "p99"]},
+    "task_goodput": {"type": "number", "minimum": 0},
+    "slo_attainment": {"type": "number", "minimum": 0, "maximum": 1},
+    "attempted_tasks": {"type": "integer", "minimum": 0},
+    "successful_tasks": {"type": "integer", "minimum": 0},
+    "slo_compliant_tasks": {"type": "integer", "minimum": 0},
+    "slo_sec": {"type": "number", "minimum": 0},
+    "resource_efficiency_tasks_per_sec_per_accelerator": {"type": "number", "minimum": 0},
+    "sustainable_capacity": {"type": ["number", "null"]},
+    "sustainable_capacity_note": {"type": "string"},
+    "energy_per_good_task_joules": {"type": "number", "minimum": 0},
+    "task_goodput_per_watt": {"type": "number", "minimum": 0}
+  }
+}

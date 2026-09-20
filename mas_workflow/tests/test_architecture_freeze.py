@@ -38,25 +38,29 @@ def test_typed_per_edge_delivery_and_structured_selector(tmp_path):
     assert all(d['source_artifact_ids'] and d['delivered_artifact_id'] and d['materialized_bytes']>=0 for d in graph.deliveries)
 
 
-@pytest.mark.parametrize('family,relation,kwargs,reason',[
-    ('DispatchExecute','coordinator_to_worker',{},'selected_work_returned'),
-    ('ParallelAggregate','worker_to_reducer',{},'required_branches_completed'),
-    ('EvaluateRefine','producer_to_reviewer',{'width':1,'max_revisions':0},'accepted'),
-    ('PeerExchange','peer_to_peer',{'rounds':1,'connectivity':'ring'},'fixed_rounds_completed')])
-def test_intra_motif_delivery_semantics_and_completion(tmp_path,family,relation,kwargs,reason):
+@pytest.mark.parametrize('family,canonical,relation,kwargs,reason',[
+    ('DispatchExecute','Spawn','coordinator_to_worker',{},'selected_work_returned'),
+    ('ParallelAggregate','Fork--Join','worker_to_reducer',{},'required_branches_completed'),
+    ('EvaluateRefine','Refinement Loop','producer_to_reviewer',{'width':1,'max_revisions':0},'accepted'),
+    ('PeerExchange','Debate','peer_to_peer',{'rounds':1,'connectivity':'ring'},'fixed_rounds_completed')])
+def test_intra_motif_delivery_semantics_and_completion(tmp_path,family,canonical,relation,kwargs,reason):
     motif=MotifSpec(family,delivery={relation:DeliverySpec('referenced')},**{'width':2,**kwargs})
     runner=run(tmp_path,{'m':motif},[StageSpec('one','m')]);graph=runner.trace.execution_graph
     assert any(d['delivery_mode']=='referenced' for d in graph.deliveries)
     stage=next(iter(graph.stages.values()))
     assert stage['semantics']['delivery'][relation]['mode']=='referenced'
     assert stage['completion_reason']==reason
-    assert stage['semantics']['canonical_family']==family
+    assert stage['semantics']['canonical_family']==canonical
 
 
 def test_peer_exchange_public_name_and_legacy_alias():
     assert MotifSpec('PeerExchange',width=2).family=='peer_exchange'
     assert MotifSpec('PeerDeliberation',width=2).family=='peer_exchange'
     assert MotifSpec('peer_deliberation',width=2).family=='peer_exchange'
+    assert MotifSpec('Spawn').family=='dispatch_execute'
+    assert MotifSpec('Fork--Join').family=='parallel_aggregate'
+    assert MotifSpec('Refinement Loop').family=='evaluate_refine'
+    assert MotifSpec('Debate',width=2).family=='peer_exchange'
 
 
 def test_realized_hierarchy_export_and_replay(tmp_path):

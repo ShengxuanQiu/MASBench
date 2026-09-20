@@ -1,0 +1,21 @@
+{
+  "structure": {
+    "motifs": {},
+    "workflow": {"stages": [
+      {"id": "step0", "atomic": {"kind": "llm", "role": "Worker"}},
+      {"id": "step1", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step0"]},
+      {"id": "step2", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step1"]},
+      {"id": "step3", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step2"]},
+      {"id": "step4", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step3"]},
+      {"id": "step5", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step4"]},
+      {"id": "step6", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step5"]},
+      {"id": "step7", "atomic": {"kind": "llm", "role": "Worker"}, "depends_on": ["step6"]}
+    ]}
+  },
+  "task": {
+    "task_input": "Refine a water-reduction plan through eight ordered constraint checks.",
+    "roles": {"Worker": {"instructions": "Perform the current constraint check concisely and preserve prior assumptions."}},
+    "criteria": "Each step respects the accumulated constraints."
+  },
+  "deployment": {"backend": "mock"}
+}

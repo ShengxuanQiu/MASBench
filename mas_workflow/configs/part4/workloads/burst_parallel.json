@@ -1,0 +1,16 @@
+{
+  "structure": {
+    "motifs": {"burst": {"family": "ParallelAggregate", "width": 8, "aggregation": "concat_summary",
+      "delivery": {"worker_to_reducer": {"mode": "full"}}}},
+    "workflow": {"stages": [{"id": "burst", "motif": "burst"}]}
+  },
+  "task": {
+    "task_input": "Generate independent mitigation options for a small office water-reduction plan, then synthesize them.",
+    "roles": {
+      "Worker": {"instructions": "Propose one distinct feasible option with assumptions."},
+      "Reducer": {"instructions": "Synthesize every supplied option without inventing measurements."}
+    },
+    "criteria": "The synthesis covers all supplied candidates."
+  },
+  "deployment": {"backend": "mock"}
+}

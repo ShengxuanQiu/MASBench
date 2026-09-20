@@ -13,5 +13,10 @@ jobs:
       - run: pip install -r mas_workflow/requirements-benchmark.txt
       - run: PYTHONPATH=mas_workflow:. python -m pytest mas_workflow/tests case_study1/tests case_study2/tests --import-mode=importlib -q
       - run: python -m json.tool mas_workflow/configs/canonical_trace.schema.json >/dev/null
+      - run: python -m json.tool mas_workflow/configs/semantic/semantic_trace.schema.json >/dev/null
+      - run: python -m json.tool evaluation/coverage/coverage_corpus.schema.json >/dev/null
+      - run: PYTHONPATH=mas_workflow:. python -m app.semantic.schema_validation --repo-root .
+      - run: PYTHONPATH=mas_workflow:. python -m app.semantic.cli e2e --output /tmp/masbench-semantic-e2e
+      - run: PYTHONPATH=mas_workflow:. python -m app.semantic.cli validate --trace mas_workflow/tests/golden/semantic/spawn
       - run: PYTHONPATH=mas_workflow python -m app.coverage_audit --input evaluation/coverage_audit.example.json --output /tmp/coverage-metrics.json
       - run: cd mas_workflow && python -m app.publication --manifest configs/publication/structural-sweep.json --output /tmp/masbench-matrix

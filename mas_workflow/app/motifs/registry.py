@@ -10,12 +10,17 @@ from ..runtime_factory import build_trace_context
 from .families import FamilyWorkload, MOTIF_NAMES
 from .presets import PRESETS, preset
 
+TEMPLATE_NAMES = {"Spawn":"dispatch_execute", "spawn":"dispatch_execute",
+                  "ForkJoin":"parallel_aggregate", "fork_join":"parallel_aggregate",
+                  "RefinementLoop":"evaluate_refine", "refinement_loop":"evaluate_refine",
+                  "Debate":"peer_exchange", "debate":"peer_exchange"}
+
 LEGACY_WORKLOAD_NAMES = [
     "shared_evidence_store", "tool_resume_contention_meso",
     "hierarchical_synthesis_pressure_meso", "debate_allgather_pressure_meso",
     "retry_debug_pressure_meso", "shared_memory_fanin_meso",
 ]
-WORKLOAD_NAMES = MOTIF_NAMES + list(PRESETS) + LEGACY_WORKLOAD_NAMES
+WORKLOAD_NAMES = MOTIF_NAMES + list(TEMPLATE_NAMES) + list(PRESETS) + LEGACY_WORKLOAD_NAMES
 
 
 def build_workflow(config):
@@ -33,6 +38,8 @@ def build_workflow(config):
             spec = preset(name)
         elif name in MOTIF_NAMES:
             spec = {"family": name}
+        elif name in TEMPLATE_NAMES:
+            spec = {"family": TEMPLATE_NAMES[name]}
         else:
             raise ValueError(f"Unknown motif family or preset: {name}")
     config.mode = "motif"

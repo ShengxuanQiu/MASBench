@@ -1,0 +1,30 @@
+{
+  "schema": "masbench_mixed_study_v1",
+  "mode": "run",
+  "classes": {
+    "burst_heavy": {"experiment": "workloads/burst_parallel.json", "slo_sec": 120,
+      "description": "wide ParallelAggregate request burst"},
+    "context_heavy": {"experiment": "workloads/context_peer.json", "slo_sec": 180,
+      "description": "dense PeerExchange information consumption"},
+    "dependency_heavy": {"experiment": "workloads/dependency_chain.json", "slo_sec": 180,
+      "description": "deep matched sequential chain"}
+  },
+  "mixes": {
+    "balanced": {"burst_heavy": 1, "context_heavy": 1, "dependency_heavy": 1},
+    "burst_context": {"burst_heavy": 1, "context_heavy": 1},
+    "burst_dependency": {"burst_heavy": 1, "dependency_heavy": 1},
+    "context_dependency": {"context_heavy": 1, "dependency_heavy": 1}
+  },
+  "isolated_baselines": true,
+  "deployments": {"a6000": "deployment-gpu3.json"},
+  "rates": [0.1, 0.25, 0.5],
+  "count": 36,
+  "repetitions": 3,
+  "seed": 4404,
+  "arrival": "poisson",
+  "max_inflight_workflows": 128,
+  "slo_sec": 180,
+  "cache_protocol": "cache_disabled",
+  "collect_backend_metrics": true,
+  "backend_metrics_interval_sec": 0.25
+}

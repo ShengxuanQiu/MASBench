@@ -1,0 +1,103 @@
+{
+  "schema_version": "masbench.semantic_trace/1.0.0",
+  "metadata": {
+    "workload_id": "golden-spawn",
+    "workload_version": "1",
+    "trace_id": "golden:spawn",
+    "source_framework": "masbench-synthetic",
+    "source_framework_version": "1",
+    "created_at": "2026-09-20T06:17:34+00:00",
+    "schema_version": "masbench.semantic_trace/1.0.0",
+    "workload_hash": "7f1b3ae257b4c2a8ca22d5652267fbf3acf8e397715f6cf02ec31a7e3ab18952",
+    "configuration_hash": "",
+    "content_hash": "0698b47c2f6bd79514dfdcde0cad0eea77af035c8b3bb9eeffa3f71fed3ce883",
+    "source_observations": {}
+  },
+  "tasks": [
+    {
+      "task_id": "task:spawn",
+      "trace_id": "golden:spawn",
+      "root_arrival_offset": 0.0,
+      "terminal_operation_ids": [
+        "op:worker"
+      ],
+      "workload_configuration_ref": "golden-config",
+      "completion_status": "completed"
+    }
+  ],
+  "stages": [
+    {
+      "stage_instance_id": "stage:spawn:0",
+      "logical_stage_id": "spawn",
+      "template_type": "spawn",
+      "parent_stage_instance_id": null,
+      "iteration": 0,
+      "participant_session_ids": [
+        "session:coordinator",
+        "session:worker"
+      ],
+      "stage_dependencies": [],
+      "execution_control": {
+        "template": "spawn",
+        "realized": true
+      },
+      "context_construction": {
+        "artifacts": [
+          "artifact:op:dispatch",
+          "artifact:op:worker"
+        ]
+      },
+      "completion_reason": "selected work returned"
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "session:coordinator",
+      "role_id": "Coordinator",
+      "parent_session_id": null,
+      "lifecycle_relation": "root",
+      "context_initialization": "fresh",
+      "reuse_scope_id": "scope:spawn-root"
+    },
+    {
+      "session_id": "session:worker",
+      "role_id": "Worker",
+      "parent_session_id": "session:coordinator",
+      "lifecycle_relation": "spawn",
+      "context_initialization": "explicit",
+      "reuse_scope_id": "scope:spawn-worker"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "artifact:op:dispatch",
+      "producer_operation_id": "op:dispatch",
+      "payload_ref": "sha256/8ee31d9b86d9811b998b10471fa60a4ffce6d2aa5ffbc02e5a4575a874da2235",
+      "content_hash": "8ee31d9b86d9811b998b10471fa60a4ffce6d2aa5ffbc02e5a4575a874da2235",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:spawn-root",
+      "consumer_operation_ids": [
+        "op:worker"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:worker",
+      "producer_operation_id": "op:worker",
+      "payload_ref": "sha256/3e520c261dfc58dfddb24740c66265de41e49f00f81f5a284378bfb834a60436",
+      "content_hash": "3e520c261dfc58dfddb24740c66265de41e49f00f81f5a284378bfb834a60436",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:spawn-worker",
+      "consumer_operation_ids": []
+    }
+  ],
+  "shared_state": [],
+  "operations_file": "operations.jsonl"
+}

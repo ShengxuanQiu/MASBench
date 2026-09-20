@@ -9,9 +9,16 @@ from typing import Any
 ROLES = {"Coordinator", "Worker", "Reducer", "Reviewer"}
 ROLE_ALIASES = {"dispatcher": "Coordinator", "executor": "Worker", "worker": "Worker",
                 "Coordinator":"Coordinator", "Worker":"Worker", "Reducer":"Reducer", "Reviewer":"Reviewer", "collector": "Reducer", "producer": "Worker", "evaluator": "Reviewer", "peer": "Worker"}
+REFERENCE_TEMPLATES = {
+    "Spawn": "dispatch_execute", "spawn": "dispatch_execute",
+    "ForkJoin": "parallel_aggregate", "Fork--Join": "parallel_aggregate", "fork_join": "parallel_aggregate",
+    "RefinementLoop": "evaluate_refine", "Refinement Loop": "evaluate_refine", "refinement_loop": "evaluate_refine",
+    "Debate": "peer_exchange", "debate": "peer_exchange",
+}
 FAMILIES = {"DispatchExecute": "dispatch_execute", "ParallelAggregate": "parallel_aggregate",
             "EvaluateRefine": "evaluate_refine", "PeerExchange": "peer_exchange",
-            "PeerDeliberation": "peer_exchange", "peer_deliberation": "peer_exchange"}
+            "PeerDeliberation": "peer_exchange", "peer_deliberation": "peer_exchange",
+            **REFERENCE_TEMPLATES}
 DELIVERY_MODES = {"full", "selected", "summarized", "referenced", "retrieved"}
 
 
@@ -105,7 +112,7 @@ class MotifSpec:
         if self.connectivity is not None and self.connectivity not in shapes[self.family]:
             raise ValueError("Unsupported motif connectivity")
         if self.family == "peer_exchange" and self.width < 2:
-            raise ValueError("PeerDeliberation requires width >= 2")
+            raise ValueError("Debate requires width >= 2")
         regimes = {"dispatch_execute": "centralized", "parallel_aggregate": "independent",
                    "evaluate_refine": "centralized", "peer_exchange": "decentralized"}
         if self.coordination not in {None, regimes[self.family]}:
@@ -141,8 +148,11 @@ class StageSpec:
     participants: dict[str, Any] | None = None
     delivery: dict[str, DeliverySpec] = field(default_factory=dict)
     allow_skipped: bool = False
+    reuse_scope_id: str | None = None
 
     def __post_init__(self):
+        if self.reuse_scope_id is not None and (not isinstance(self.reuse_scope_id, str) or not self.reuse_scope_id):
+            raise ValueError("reuse_scope_id must be a nonempty string")
         if (self.motif is None) == (self.atomic is None):
             raise ValueError("Stage references exactly one motif or AtomicStage")
         if isinstance(self.atomic, dict): object.__setattr__(self, "atomic", AtomicStage(**self.atomic))
@@ -341,10 +351,15 @@ class ExperimentConfig:
                           evaluation_semantics=binding.get("evaluation_semantics",self.task.evaluation_semantics),
                           condition=stage.condition,participants=stage.participants,
                           delivery={k:asdict(v) for k,v in stage.delivery.items()},
-                          allow_skipped=stage.allow_skipped,parameters=binding.get("parameters",{}),
+                          allow_skipped=stage.allow_skipped,reuse_scope_id=stage.reuse_scope_id,parameters=binding.get("parameters",{}),
                           delivery_instruction=binding.get("delivery_instruction",self.task.delivery_instruction))
             stages.append(values)
         return {"stages": stages}
+
+
+# Part 3 public terminology. The older names remain import-compatible.
+TemplateSpec = MotifSpec
+CollaborationStageSpec = StageSpec
 
 
 def read_config(path):

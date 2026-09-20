@@ -1,0 +1,28 @@
+{
+  "schema_version": "masbench.coverage_corpus/1.0.0",
+  "corpus_split_version": "example-only-v1",
+  "abstraction_version": "part3-freeze-v1",
+  "systems": [
+    {
+      "unit_id": "example-framework@0.0/default",
+      "system": "Example Framework (not real evidence)",
+      "version": "0.0",
+      "canonical_configuration": "default",
+      "split": "discovery",
+      "relevance": "causal_multi_agent",
+      "inspectability_sources": ["code"],
+      "frozen_reference": "example-commit",
+      "external_impact_snapshot": {"captured_at": "example", "github_stars": null, "citation_count": null, "publication_or_release_date": "example", "organization_or_vendor": "example", "maintenance_status": "example", "downstream_adoption_evidence": []},
+      "workflow_assessment": {
+        "stages": [{"stage_id": "example-stage", "template_type": "spawn", "standard_semantics": true, "requires_extension": false, "wrapped_as_atomic": false}],
+        "standard_composition_expressible": true,
+        "arbitrary_control_callback_required": false
+      },
+      "zero_extension_covered": true,
+      "failure_reason": null,
+      "missing_semantics": [],
+      "residual_category": null
+    }
+  ],
+  "warning": "Schema demonstration only. This file is not coverage evidence."
+}

@@ -263,9 +263,12 @@ def main():
     for name, rows in sorted(groups.items()):
         high = max(rows, key=lambda row: row["rate"])
         label = name.removeprefix("isolated__").replace("_", " ")
+        high_rate = high["rate"]
+        high_goodput = high["goodput_qps"]
+        high_p95 = high["completed_e2e_sec"]["p95"]
         capacity_lines.append(
-            f"- **{label}**：测试到 {high[ rate]:g} user QPS 仍未触发 30 s SLO failure（capacity right-censored）；"
-            f"该点 achieved goodput={high[goodput_qps]:.2f} task/s，p95={high[completed_e2e_sec][p95]:.2f} s。")
+            f"- **{label}**：测试到 {high_rate:g} user QPS 仍未触发 30 s SLO failure（capacity right-censored）；"
+            f"该点 achieved goodput={high_goodput:.2f} task/s，p95={high_p95:.2f} s。")
     report = [
         "# MASBench Part 5 昇腾初步压力画像", "",
         "> 本报告全部数据来自 Ascend 910 + Qwen3-8B 的真实后端执行/受控 replay。它用于验证实验设计与采集链路，不能替代多次重复的大规模正式结果。", "",

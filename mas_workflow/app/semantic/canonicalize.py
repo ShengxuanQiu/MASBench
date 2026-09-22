@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Protocol
@@ -59,7 +60,21 @@ class TransformersTokenizer:
 
     def encode_request(self, request: dict[str, Any]) -> list[int]:
         messages = request.get("messages", [])
-        return list(self._tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True))
+        encoded = self._tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+        # Transformers 5 may return BatchEncoding instead of a flat list.
+        # Iterating that object yields field names ("input_ids", ...), which
+        # silently corrupts the benchmark input contract.
+        if isinstance(encoded, Mapping):
+            encoded = encoded["input_ids"]
+        if hasattr(encoded, "tolist"):
+            encoded = encoded.tolist()
+        if encoded and isinstance(encoded[0], (list, tuple)):
+            if len(encoded) != 1:
+                raise ValueError("Tokenizer returned a batched input for one request")
+            encoded = encoded[0]
+        if not isinstance(encoded, (list, tuple)) or any(type(token) is not int for token in encoded):
+            raise TypeError("Tokenizer must return a flat integer input_ids sequence")
+        return list(encoded)
 
     def encode_text(self, text: str) -> list[int]:
         return list(self._tokenizer.encode(text, add_special_tokens=False))

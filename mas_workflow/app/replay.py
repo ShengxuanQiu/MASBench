@@ -58,7 +58,8 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
         raise ValueError("Replay graph exceeds configured operation limit")
     backend = backend or build_llm_backend(deployment.backend, model=deployment.model,
                                            backend_base_url=deployment.endpoint,
-                                           max_output_tokens=deployment.generation.get("max_tokens", 256))
+                                           max_output_tokens=deployment.generation.get("max_tokens", 256),
+                                           generation=deployment.generation)
     capability = replay_capabilities(backend)
     if strict:
         raise ValueError("Strict replay unavailable: " + capability["reason"])
@@ -200,14 +201,6 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                         trace.emit(event_type="barrier", node_type="barrier", node_id=run_id + ":" + barrier["node_id"],
                                    waiting_for_nodes=[ids[p] for p in barrier.get("waiting_for_nodes", [])],
                                    source_event_id=barrier["event_id"], replay_content_source="recorded_sync")
-        # Stage completion is part of the canonical trace and must be emitted
-        # before workflow_end persists the JSONL file.
-        if error is None and len(done) == len(graph.operations):
-            for sid,stage in graph.stages.items():
-                if stage['activation']!='skipped':
-                    trace.emit(event_type='stage_finish',stage_instance_id=stage_ids[sid],status=stage['status'],
-                               completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
-                               replay_content_source='recorded_hierarchy')
     finally:
         # Hierarchy lifecycle belongs inside the run.  Emitting stage_finish
         # after workflow_end left atomic replay stages permanently "running"

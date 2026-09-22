@@ -61,6 +61,9 @@ class VLLMOpenAIBackend:
         target = int(operation.llm["recorded_output_length"])
         payload = copy.deepcopy(request)
         payload.update({"stream": False, "max_tokens": target, "min_tokens": target, "ignore_eos": True})
+        # vLLM rejects stream_options on non-streaming requests. The source
+        # trace may legitimately record them, but replay controls streaming.
+        payload.pop("stream_options", None)
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.base_url + "/chat/completions", data=body, method="POST",
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.api_key})

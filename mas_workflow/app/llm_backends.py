@@ -102,17 +102,36 @@ class MockLLM:
 class OpenAICompatibleLLM:
     mode = "openai_compatible"
 
-    def __init__(self, *, model: str, base_url: str, max_tokens: int = 4096) -> None:
+    def __init__(self, *, model: str, base_url: str, max_tokens: int = 4096,
+                 generation: dict[str, Any] | None = None) -> None:
+        generation = dict(generation or {})
         self.model = model
         self.base_url = base_url
-        self.max_tokens = max_tokens
-        self.client = LocalLLMClient(model=model, base_url=base_url, max_tokens=max_tokens)
+        self.max_tokens = int(generation.get("max_tokens", max_tokens))
+        self.generation = generation
+        self.default_request_payload = {key: value for key, value in generation.items()
+                                        if key != "max_tokens"}
+        self.client = LocalLLMClient(
+            model=model,
+            base_url=base_url,
+            max_tokens=self.max_tokens,
+            temperature=float(generation.get("temperature", 0.2)),
+        )
 
     def invoke(self, system_prompt: str, user_prompt: str, metadata: dict[str, Any]) -> LLMResult:
         request_id = str(metadata.get("request_id_for_backend") or uuid.uuid4())
         dispatch_start = time.time()
         metadata = dict(metadata)
         metadata["request_id_for_backend"] = request_id
+        # Fixed replay payloads are authoritative. Native runs use the fully
+        # resolved DeploymentSpec generation contract (seed, template kwargs,
+        # sampling parameters, etc.) rather than recording parameters that the
+        # backend never received.
+        if not metadata.get("_fixed_payload"):
+            metadata["_request_payload"] = {
+                **self.default_request_payload,
+                **dict(metadata.get("_request_payload") or {}),
+            }
         headers_metadata = dict(metadata)
         headers_metadata["X-Request-Id"] = request_id
         request_max_tokens = int(metadata.get("request_max_output_tokens") or self.max_tokens)
@@ -151,9 +170,12 @@ class OpenAICompatibleLLM:
         )
 
 
-def build_llm_backend(llm_mode: str, *, model: str, backend_base_url: str, max_output_tokens: int = 4096) -> MockLLM | OpenAICompatibleLLM:
+def build_llm_backend(llm_mode: str, *, model: str, backend_base_url: str,
+                      max_output_tokens: int = 4096,
+                      generation: dict[str, Any] | None = None) -> MockLLM | OpenAICompatibleLLM:
     if llm_mode == "mock":
         return MockLLM(model=model)
     if llm_mode == "openai_compatible":
-        return OpenAICompatibleLLM(model=model, base_url=backend_base_url, max_tokens=max_output_tokens)
+        return OpenAICompatibleLLM(model=model, base_url=backend_base_url,
+                                   max_tokens=max_output_tokens, generation=generation)
     raise ValueError(f"Unsupported llm_mode: {llm_mode}")

@@ -192,7 +192,8 @@ class FamilyWorkload(WorkloadRuntime):
         if binding.model or binding.backend_base_url:
             backend = build_llm_backend(self.config.llm_mode, model=binding.model or self.config.model,
                                         backend_base_url=binding.backend_base_url or self.config.backend_base_url,
-                                        max_output_tokens=self.config.max_output_tokens)
+                                        max_output_tokens=self.config.max_output_tokens,
+                                        generation=self.config.extra.get("generation", {}))
         for parent in control:
             self.trace.emit(event_type="dependency", src=parent, dst=node, dependency_kind="control", **identity)
         for artifact in inputs:
@@ -348,7 +349,7 @@ class FamilyWorkload(WorkloadRuntime):
                 for revision in range(limit + 1):
                     review_input=deliver_relation(self,stage,'producer_to_reviewer',[candidate],mid)
                     feedback = self._call(agent("evaluator"), task, context + review_input, round_id=revision,
-                                          instruction='Return JSON with "decision": "accept" or "revise", and "feedback": a string. Criteria: ' + stage.get("criteria", "Satisfy the task and its constraints.") + "\n" + stage.get("evaluation_semantics", ""))
+                                          instruction='Return only compact JSON with "decision": "accept" or "revise", and "feedback": a string of at most 20 words. Criteria: ' + stage.get("criteria", "Satisfy the task and its constraints.") + "\n" + stage.get("evaluation_semantics", ""))
                     decision = json.loads(feedback.content)
                     if decision.get("decision") not in {"accept", "revise"} or not isinstance(decision.get("feedback"), str):
                         raise ValueError("Invalid evaluator decision")
@@ -357,7 +358,10 @@ class FamilyWorkload(WorkloadRuntime):
                         status = "accepted"
                         break
                     if revision == limit:
-                        status = "max_revisions"
+                        # Reaching the configured revision bound is a valid
+                        # completion condition. Preserve the reason in
+                        # stage_finish while keeping task execution successful.
+                        status = "completed"
                         break
                     delivered_feedback=deliver_relation(self,stage,'reviewer_to_producer',[feedback],mid)
                     candidate = self._call(agent("producer"), task, context + [candidate]+delivered_feedback, round_id=revision + 1)

@@ -108,7 +108,7 @@ def test_peer_delivery_and_identity_across_rounds(tmp_path, shape, peer_count):
     assert len(identities) == 4 and all(len(ids) == 1 for ids in identities.values())
 
 
-def test_revision_limit_and_failure_stop_composition(tmp_path):
+def test_revision_limit_is_successful_completion(tmp_path):
     workflow = runner(tmp_path, {"stages": [
         {"id": "review", "family": "evaluate_refine", "max_revisions": 2},
         {"family": "parallel_aggregate"},
@@ -116,8 +116,10 @@ def test_revision_limit_and_failure_stop_composition(tmp_path):
     backend = Scripted({"evaluator": '{"decision":"revise","feedback":"fix it"}'})
     workflow.llm = backend
     summary = workflow.run()
-    assert summary["status"] == "max_revisions"
-    assert len(summary["motif_results"]) == 1
+    assert summary["status"] == "completed"
+    finishes = [e for e in workflow.trace.events if e.get("canonical_type") == "stage_finish"]
+    assert any(e["completion_reason"] == "revision_limit" for e in finishes)
+    assert len(summary["motif_results"]) == 2
     assert summary["motif_results"][0]["iterations"] == 2
     assert sum(m["role_slot"] == "producer" for m, _ in backend.calls) == 3
     assert sum(m["role_slot"] == "evaluator" for m, _ in backend.calls) == 3

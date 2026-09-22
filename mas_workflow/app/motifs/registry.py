@@ -51,7 +51,9 @@ def build_workflow(config):
         config.workload_name = config.motif_name
     trace = build_trace_context(config)
     llm = build_llm_backend(config.llm_mode, model=config.model,
-                            backend_base_url=config.backend_base_url, max_output_tokens=config.max_output_tokens)
+                            backend_base_url=config.backend_base_url,
+                            max_output_tokens=config.max_output_tokens,
+                            generation=config.extra.get("generation", {}))
     provider = build_search_provider(
         provider_name=config.search_provider, tool_mode=config.tool_mode,
         replay_snapshot_dir=config.replay_snapshot_dir, latency_profile=config.latency_profile,

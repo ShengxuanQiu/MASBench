@@ -259,13 +259,13 @@ def main():
             f"- **{LABELS[name]}**：{len(sig['causal_waves'])} 个因果波次，"
             f"峰值每波 LLM 操作 {max(r['llm_operation_count'] for r in sig['causal_waves'])}，"
             f"峰值逻辑 KV 等价 {max(r['logical_kv_equivalent_bytes'] for r in sig['causal_waves'])/1024**2:.1f} MiB。")
-    def knee(rows):
-        rows = sorted(rows, key=lambda r:r["rate"])
-        base = rows[0]["completed_e2e_sec"]["p95"]
-        hit = next((r for r in rows if r["completed_e2e_sec"]["p95"] >= 2*base or r["slo_success_fraction"] < .9), None)
-        return hit["rate"] if hit else None
-    knee_lines = [f"- **{name.replace('_',' ')}**：初步拐点 " + (f"约 {knee(rows):g} user QPS。" if knee(rows) else "在 20 user QPS 内未观测到。")
-                  for name, rows in sorted(groups.items())]
+    capacity_lines = []
+    for name, rows in sorted(groups.items()):
+        high = max(rows, key=lambda row: row["rate"])
+        label = name.removeprefix("isolated__").replace("_", " ")
+        capacity_lines.append(
+            f"- **{label}**：测试到 {high[ rate]:g} user QPS 仍未触发 30 s SLO failure（capacity right-censored）；"
+            f"该点 achieved goodput={high[goodput_qps]:.2f} task/s，p95={high[completed_e2e_sec][p95]:.2f} s。")
     report = [
         "# MASBench Part 5 昇腾初步压力画像", "",
         "> 本报告全部数据来自 Ascend 910 + Qwen3-8B 的真实后端执行/受控 replay。它用于验证实验设计与采集链路，不能替代多次重复的大规模正式结果。", "",
@@ -279,7 +279,7 @@ def main():
         "灰色 stage 区间与逻辑 KV 等价状态位于同一时间轴。不同 workflow 的 stage 数量、并行分支和 stage 间上下文传递会形成不同的状态峰值与持续时间；正式实验应按 stage 分解等待、计算、HBM 带宽和物理 KV。", "",
         "## 5.4 多 workflow 复用下的压力放大", "",
         "![multiplexing](figures/fig_5_4_dense_multiplexing_pressure.png)", "",
-        *knee_lines, "",
+        *capacity_lines, "",
         "每条曲线包含 15 个 load 点（0.25–20 user QPS）。前三个面板是 task/request 层结果，后三个面板是后端物理观察。若某个设备指标缺失，图上保留为空值，不做插值或伪造。", "",
         "## 5.5 workload mix 改变 serving capacity", "",
         "![workload mix](figures/fig_5_5_workload_mix_capacity.png)", "",

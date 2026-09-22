@@ -1,0 +1,134 @@
+{
+  "schema_version": "masbench.semantic_trace/1.0.0",
+  "metadata": {
+    "workload_id": "golden-debate",
+    "workload_version": "1",
+    "trace_id": "golden:debate",
+    "source_framework": "masbench-synthetic",
+    "source_framework_version": "1",
+    "created_at": "2026-09-20T06:17:34+00:00",
+    "schema_version": "masbench.semantic_trace/1.0.0",
+    "workload_hash": "2c493abaecf84a0138b6ba298b940577add88d225c5e53c3a3abf6dd4d90f286",
+    "configuration_hash": "",
+    "content_hash": "f94afce92bbb8b5d4ebd342edb19ba12d676bd96b0b34ce3c53f0406f89d5b6a",
+    "source_observations": {}
+  },
+  "tasks": [
+    {
+      "task_id": "task:debate",
+      "trace_id": "golden:debate",
+      "root_arrival_offset": 0.0,
+      "terminal_operation_ids": [
+        "op:p1:r1",
+        "op:p2:r1"
+      ],
+      "workload_configuration_ref": "golden-config",
+      "completion_status": "completed"
+    }
+  ],
+  "stages": [
+    {
+      "stage_instance_id": "stage:debate:0",
+      "logical_stage_id": "debate",
+      "template_type": "debate",
+      "parent_stage_instance_id": null,
+      "iteration": 0,
+      "participant_session_ids": [
+        "session:p1",
+        "session:p2"
+      ],
+      "stage_dependencies": [],
+      "execution_control": {
+        "template": "debate",
+        "realized": true
+      },
+      "context_construction": {
+        "artifacts": [
+          "artifact:op:p1:r0",
+          "artifact:op:p2:r0",
+          "artifact:op:p1:r1",
+          "artifact:op:p2:r1"
+        ]
+      },
+      "completion_reason": "fixed rounds"
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "session:p1",
+      "role_id": "Worker",
+      "parent_session_id": null,
+      "lifecycle_relation": "root",
+      "context_initialization": "fresh",
+      "reuse_scope_id": "scope:debate-p1"
+    },
+    {
+      "session_id": "session:p2",
+      "role_id": "Worker",
+      "parent_session_id": null,
+      "lifecycle_relation": "root",
+      "context_initialization": "fresh",
+      "reuse_scope_id": "scope:debate-p2"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "artifact:op:p1:r0",
+      "producer_operation_id": "op:p1:r0",
+      "payload_ref": "sha256/e9a55f48bac54a2475554f4f4af8c9925f2566805ef1a9e5b387c985f740bfb8",
+      "content_hash": "e9a55f48bac54a2475554f4f4af8c9925f2566805ef1a9e5b387c985f740bfb8",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:debate-p1",
+      "consumer_operation_ids": [
+        "op:p2:r1"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:p2:r0",
+      "producer_operation_id": "op:p2:r0",
+      "payload_ref": "sha256/866e7f7794f951bcad67a2063663e32e83183902c4dc3098c13e83c96f19e627",
+      "content_hash": "866e7f7794f951bcad67a2063663e32e83183902c4dc3098c13e83c96f19e627",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:debate-p2",
+      "consumer_operation_ids": [
+        "op:p1:r1"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:p1:r1",
+      "producer_operation_id": "op:p1:r1",
+      "payload_ref": "sha256/33cbe908b92a974ab28be24d9bb2d5b961784f9efa64c71b4c4b06988d47ff3f",
+      "content_hash": "33cbe908b92a974ab28be24d9bb2d5b961784f9efa64c71b4c4b06988d47ff3f",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:debate-p1",
+      "consumer_operation_ids": []
+    },
+    {
+      "artifact_id": "artifact:op:p2:r1",
+      "producer_operation_id": "op:p2:r1",
+      "payload_ref": "sha256/b8a97ed06600d68bf28a5bf20dc1274977bcfbb0ac0fa9b8f3733f62d50cb9d5",
+      "content_hash": "b8a97ed06600d68bf28a5bf20dc1274977bcfbb0ac0fa9b8f3733f62d50cb9d5",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:debate-p2",
+      "consumer_operation_ids": []
+    }
+  ],
+  "shared_state": [],
+  "operations_file": "operations.jsonl"
+}

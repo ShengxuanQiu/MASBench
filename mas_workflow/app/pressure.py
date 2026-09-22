@@ -2,6 +2,16 @@
 from collections import Counter,defaultdict
 
 
+def _distribution(values):
+    values=sorted(values)
+    if not values:return {'count':0,'min':None,'mean':None,'p50':None,'p95':None,'max':None}
+    def percentile(p):
+        x=(len(values)-1)*p;lo=int(x)
+        return values[lo]+(values[min(lo+1,len(values)-1)]-values[lo])*(x-lo)
+    return {'count':len(values),'min':values[0],'mean':sum(values)/len(values),
+            'p50':percentile(.5),'p95':percentile(.95),'max':values[-1]}
+
+
 def queue_slope(points,arrival_span):
     if arrival_span<=0:return None
     samples=[];index=0;value=0
@@ -34,11 +44,11 @@ def pressure_metrics(graph,events,runtime):
     consumers=defaultdict(set)
     for a,c in graph.consumptions:consumers[a].add(c)
     run_end=max(e['relative_time_sec'] for e in events if e.get('canonical_type')=='run_finish')
-    changes=Counter();byte_seconds=0
+    changes=Counter();byte_seconds=0;lifetimes=[]
     for aid,artifact in graph.artifacts.items():
         content=artifact['content'];size=len(str(content).encode('utf-8'))
         begin=produced[aid];end=max([finishes[c] for c in consumers[aid]],default=run_end)
-        end=max(begin,end);changes[begin]+=size;changes[end]-=size;byte_seconds+=size*(end-begin)
+        end=max(begin,end);changes[begin]+=size;changes[end]-=size;byte_seconds+=size*(end-begin);lifetimes.append(end-begin)
     current=peak=0;residency=[]
     for at,change in sorted(changes.items()):
         current+=change;peak=max(peak,current);residency.append({'time_sec':at,'logical_artifact_bytes':current})
@@ -51,5 +61,6 @@ def pressure_metrics(graph,events,runtime):
             'temporal_pressure':{'ready_wait_seconds':ready_area,'peak_ready_waiting':max((p['ready_waiting'] for p in runtime['timeline']),default=0),
                                  'peak_llm_inflight':max((p['llm_inflight'] for p in runtime['timeline']),default=0)},
             'synchronization_exposure_sec':sum(b['aggregate_branch_wait_sec'] for b in runtime['barriers']),
-            'logical_state_residency':{'source':'estimated','peak_artifact_bytes':peak,'byte_seconds':byte_seconds,'timeline':residency,
+            'logical_state_residency':{'source':'estimated','peak_artifact_bytes':peak,'byte_seconds':byte_seconds,
+                'artifact_lifetime_sec':_distribution(lifetimes),'timeline':residency,
                 'definition':'Unique artifact payload retained from produce until last consumer finish; unconsumed outputs until run end. Excludes object overhead, allocator, KV and Mamba state.'}}

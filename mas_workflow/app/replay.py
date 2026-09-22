@@ -209,6 +209,15 @@ def replay_trace(path, deployment, *, trace_dir="traces/replay", strict=False, b
                                completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
                                replay_content_source='recorded_hierarchy')
     finally:
+        # Hierarchy lifecycle belongs inside the run.  Emitting stage_finish
+        # after workflow_end left atomic replay stages permanently "running"
+        # in the persisted canonical trace and broke fixed-workload checks.
+        if error is None:
+            for sid,stage in graph.stages.items():
+                if stage['activation']!='skipped':
+                    trace.emit(event_type='stage_finish',stage_instance_id=stage_ids[sid],status=stage['status'],
+                               completion_reason=stage['completion_reason'],realized_participants=stage['participants'],
+                               replay_content_source='recorded_hierarchy')
         summary = runtime.workflow_end("", status="failed" if error else "completed")
     if error:
         raise RuntimeError(f"Replay failed; partial trace saved to {trace.trace_path}") from error

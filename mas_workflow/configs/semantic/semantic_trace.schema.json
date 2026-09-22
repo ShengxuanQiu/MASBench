@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://masbench.org/schema/semantic-trace-1.0.0.json",
+  "title": "MASBench Semantic Trace Manifest",
+  "type": "object",
+  "required": ["schema_version", "metadata", "tasks", "stages", "sessions", "artifacts", "operations_file"],
+  "properties": {
+    "schema_version": {"const": "masbench.semantic_trace/1.0.0"},
+    "metadata": {
+      "type": "object",
+      "required": ["schema_version", "workload_id", "workload_version", "trace_id", "source_framework", "source_framework_version", "created_at", "workload_hash", "configuration_hash", "content_hash"],
+      "properties": {
+        "schema_version": {"const": "masbench.semantic_trace/1.0.0"},
+        "workload_id": {"type": "string", "minLength": 1},
+        "workload_version": {"type": "string", "minLength": 1},
+        "trace_id": {"type": "string", "minLength": 1},
+        "source_framework": {"type": "string", "minLength": 1},
+        "source_framework_version": {"type": "string", "minLength": 1},
+        "created_at": {"type": "string"},
+        "workload_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "configuration_hash": {"type": "string"},
+        "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_observations": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "tasks": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["task_id", "trace_id", "root_arrival_offset", "terminal_operation_ids", "workload_configuration_ref", "completion_status"]}},
+    "stages": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["stage_instance_id", "logical_stage_id", "template_type", "participant_session_ids", "stage_dependencies", "execution_control", "context_construction", "completion_reason"], "properties": {"template_type": {"enum": ["spawn", "fork_join", "refinement_loop", "debate", "atomic", "extension"]}}}},
+    "sessions": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["session_id", "role_id", "lifecycle_relation", "context_initialization"], "properties": {"lifecycle_relation": {"enum": ["root", "spawn", "fork", "handoff", "continuation"]}, "context_initialization": {"enum": ["fresh", "inherited", "explicit"]}}}},
+    "artifacts": {"type": "array", "items": {"type": "object", "required": ["artifact_id", "producer_operation_id", "payload_ref", "content_hash", "version", "consumer_operation_ids"]}},
+    "shared_state": {"type": "array"},
+    "operations_file": {"const": "operations.jsonl"}
+  },
+  "additionalProperties": false
+}

@@ -167,6 +167,8 @@ python -m pytest tests -q
 
 ## 论文 4.2–4.6 实验入口
 
+论文当前采用五层实验组织：单 workflow pressure signature、multiplexing 下的 graph pressure、异构多 workflow 干扰、workload mix 容量以及跨硬件 bottleneck map。每一层的独立脚本、采集字段、对照关系和输出位置见 [Part 4 experiment protocol](evaluation/part4/README.md)。
+
 新增结构空间生成、canonical trace 分析、open-loop 负载扫描和多 trace replay：
 
 ```bash
@@ -218,3 +220,90 @@ python -m app.capacity --config configs/publication/replay-capacity.template.jso
 当前抽象固定为 `W=(S,D,Ω)` 与局部协作 `G_s=(V_s,E_s,π_s,μ_s,τ_s)`。typed `DeliverySpec` 同时作用于跨 stage edge 和四类 motif 内部关系；per-edge delivery、realized hierarchy、completion reason、out-of-band quality evaluator 与通用 factor override 均进入 canonical path。Section 4.1 绘图只读取 machine-readable audit 的计算结果；仓库附带的输入明确标记为 schema example，不作为真实 82-paper 证据。
 
 完整定义、兼容性、指标口径、实验模板与冻结清单见 [architecture-freeze 文档](docs/architecture-freeze.md)。
+
+## Canonical Semantic Trace benchmark pipeline
+
+The official benchmark path is now:
+
+```text
+logical hierarchical workload
+  -> native execution / source trace
+  -> MASBench Semantic Trace 1.0
+  -> validated dependency-aware replay
+  -> task-level metrics
+  -> optional Chakra lowering from real instrumented execution
+```
+
+The frozen Part 3 reference templates are **Spawn**, **Fork--Join**, **Refinement Loop**, and **Debate**. Existing `dispatch_execute`, `parallel_aggregate`, `evaluate_refine`, `PeerExchange`, and `PeerDeliberation` inputs remain accepted as compatibility aliases. Every realized stage exports Participants, Execution Control, and Context Construction. Persistent/shared state remains an optional extension.
+
+Native `masbench_execution_v1` JSONL remains the framework-side collection format and can still feed the older diagnostic tools. Official comparison uses a versioned Semantic Trace bundle:
+
+```text
+manifest.json                 # metadata, tasks, stages, sessions, artifact index
+operations.jsonl             # streaming operation records
+artifacts/sha256/<hash>       # content-addressed payloads and recorded tool results
+```
+
+Source timestamps, queue time, TTFT/ITL, utilization, cache counters, and profiler data are stored only under `source_observations`. They are excluded from workload identity and never become replay service time. A replayed child is released when its predecessors finish on the target backend plus its controlled external delay. Root arrivals are resolved separately in `ScenarioManifest`.
+
+Minimal synthetic conformance pipeline:
+
+```bash
+cd mas_workflow
+PYTHONPATH=. python -m app.semantic.cli e2e --output ../results/semantic-e2e
+PYTHONPATH=. python -m app.semantic.cli validate --trace tests/golden/semantic/spawn
+```
+
+Canonicalize a real native trace with the exact local tokenizer used by the model:
+
+```bash
+cd mas_workflow
+PYTHONPATH=. python -m app.semantic.cli collect \
+  --source /path/to/native-run.jsonl \
+  --output ../traces/semantic/run-001 \
+  --workload-id representative-workload \
+  --workload-version 1 \
+  --tokenizer /path/to/model-or-tokenizer
+PYTHONPATH=. python -m app.semantic.cli resolve-scenario \
+  --template configs/semantic/examples/scenario.template.json \
+  --trace ../traces/semantic/run-001 \
+  --tokenizer /path/to/model-or-tokenizer \
+  --output configs/semantic/scenario.json
+```
+
+Validate, replay, and calculate task-level metrics:
+
+```bash
+PYTHONPATH=. python -m app.semantic.cli validate --trace ../traces/semantic/run-001
+PYTHONPATH=. python -m app.semantic.cli replay \
+  --trace ../traces/semantic/run-001 \
+  --scenario configs/semantic/scenario.json \
+  --system configs/semantic/system.vllm.json \
+  --backend vllm-openai --base-url http://127.0.0.1:8000/v1 \
+  --output ../results/official-run.json
+PYTHONPATH=. python -m app.semantic.cli measure \
+  --run ../results/official-run.json --slo-sec 30 --accelerators 1 \
+  --output ../results/official-metrics.json
+```
+
+The vLLM adapter requests `min_tokens == max_tokens == recorded_output_length` with `ignore_eos`, and invalidates any observed length mismatch. It does not support `token_locked`. Other generic OpenAI-compatible servers are not automatically declared length-locked. The synthetic backend exists only for conformance tests and is not hardware evidence.
+
+Coverage and Chakra entry points:
+
+```bash
+PYTHONPATH=. python -m app.semantic.cli coverage-workflow \
+  --corpus ../evaluation/coverage/corpus.json --output ../results/C_workflow.json
+PYTHONPATH=. python -m app.semantic.cli coverage-cluster \
+  --real ../evaluation/coverage/real-features.csv \
+  --benchmark ../evaluation/coverage/masbench-features.csv \
+  --clusters 6 --seed 42 --output ../results/C_cluster.json
+PYTHONPATH=. python -m app.semantic.cli lower-chakra \
+  --trace ../traces/semantic/run-001 \
+  --instrumented-execution ../results/profile/operator-nodes.json \
+  --chakra-output ../results/profile/chakra.et \
+  --manifest-output ../results/profile/lowering.json \
+  --converter-version <official-version> --model-cost-version <version> \
+  <official-converter-command> --input {input} --output {output}
+```
+
+Chakra lowering requires genuine host/device/operator instrumentation carrying `masbench_semantic_op_id`, `masbench_task_id`, and `masbench_stage_instance_id`, plus an explicit official converter. The repository does not synthesize `COMP_NODE` durations from source request latency and does not claim scheduler/batching feedback. Full schema, hashing boundary, replay invariants, and limitations are documented in [Semantic Trace 1.0](mas_workflow/configs/semantic/README.md). The four checked-in golden bundles live in `mas_workflow/tests/golden/semantic/`.

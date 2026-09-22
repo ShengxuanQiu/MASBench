@@ -1,0 +1,31 @@
+{
+  "schema": "masbench_mixed_study_v1",
+  "mode": "replay",
+  "classes": {
+    "burst_heavy": {"trace_corpus": "../../../results/part4/4_4/frozen/burst_heavy.json", "slo_sec": 120},
+    "context_heavy": {"trace_corpus": "../../../results/part4/4_4/frozen/context_heavy.json", "slo_sec": 180},
+    "dependency_heavy": {"trace_corpus": "../../../results/part4/4_4/frozen/dependency_heavy.json", "slo_sec": 180}
+  },
+  "mixes": {
+    "balanced": {"burst_heavy": 1, "context_heavy": 1, "dependency_heavy": 1},
+    "burst_dominated": {"burst_heavy": 7, "context_heavy": 1.5, "dependency_heavy": 1.5},
+    "context_dominated": {"burst_heavy": 1.5, "context_heavy": 7, "dependency_heavy": 1.5},
+    "dependency_dominated": {"burst_heavy": 1.5, "context_heavy": 1.5, "dependency_heavy": 7}
+  },
+  "isolated_baselines": true,
+  "deployments": {"a6000": "deployment-gpu3.json"},
+  "rates": [0.1, 0.25, 0.5, 1.0],
+  "count": 60,
+  "repetitions": 5,
+  "seed": 4505,
+  "arrival": "poisson",
+  "max_inflight_workflows": 192,
+  "slo_sec": 180,
+  "cache_protocol": "cache_disabled",
+  "collect_backend_metrics": true,
+  "backend_metrics_interval_sec": 0.25,
+  "output_length_tolerance": 0.1,
+  "require_identity_match": false,
+  "min_slo_success": 0.95,
+  "max_failure_fraction": 0.01
+}

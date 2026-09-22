@@ -1,0 +1,137 @@
+{
+  "schema_version": "masbench.semantic_trace/1.0.0",
+  "metadata": {
+    "workload_id": "golden-fork_join",
+    "workload_version": "1",
+    "trace_id": "golden:fork_join",
+    "source_framework": "masbench-synthetic",
+    "source_framework_version": "1",
+    "created_at": "2026-09-20T06:17:34+00:00",
+    "schema_version": "masbench.semantic_trace/1.0.0",
+    "workload_hash": "d91ed1c4555d63287ea290208ed298e5b8839f6a4594b2aee84c727be77a00a5",
+    "configuration_hash": "",
+    "content_hash": "88cf516b4d68dbc4826a08fc3138018a5477c496b5beb779bb140d71a6ae8f78",
+    "source_observations": {}
+  },
+  "tasks": [
+    {
+      "task_id": "task:fork_join",
+      "trace_id": "golden:fork_join",
+      "root_arrival_offset": 0.0,
+      "terminal_operation_ids": [
+        "op:reduce"
+      ],
+      "workload_configuration_ref": "golden-config",
+      "completion_status": "completed"
+    }
+  ],
+  "stages": [
+    {
+      "stage_instance_id": "stage:fork_join:0",
+      "logical_stage_id": "fork_join",
+      "template_type": "fork_join",
+      "parent_stage_instance_id": null,
+      "iteration": 0,
+      "participant_session_ids": [
+        "session:root",
+        "session:w1",
+        "session:w2",
+        "session:reducer"
+      ],
+      "stage_dependencies": [],
+      "execution_control": {
+        "template": "fork_join",
+        "realized": true
+      },
+      "context_construction": {
+        "artifacts": [
+          "artifact:op:w1",
+          "artifact:op:w2",
+          "artifact:op:reduce"
+        ]
+      },
+      "completion_reason": "required branches completed"
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "session:root",
+      "role_id": "Coordinator",
+      "parent_session_id": null,
+      "lifecycle_relation": "root",
+      "context_initialization": "fresh",
+      "reuse_scope_id": "scope:fork-root"
+    },
+    {
+      "session_id": "session:w1",
+      "role_id": "Worker",
+      "parent_session_id": "session:root",
+      "lifecycle_relation": "fork",
+      "context_initialization": "inherited",
+      "reuse_scope_id": "scope:fork-shared"
+    },
+    {
+      "session_id": "session:w2",
+      "role_id": "Worker",
+      "parent_session_id": "session:root",
+      "lifecycle_relation": "fork",
+      "context_initialization": "inherited",
+      "reuse_scope_id": "scope:fork-shared"
+    },
+    {
+      "session_id": "session:reducer",
+      "role_id": "Reducer",
+      "parent_session_id": "session:root",
+      "lifecycle_relation": "continuation",
+      "context_initialization": "explicit",
+      "reuse_scope_id": "scope:join"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "artifact:op:w1",
+      "producer_operation_id": "op:w1",
+      "payload_ref": "sha256/d3fbbfd96c2cb1dfc6de7a3e45ce2b41af1ce4d9cb74e19f2ded6d9586d0470b",
+      "content_hash": "d3fbbfd96c2cb1dfc6de7a3e45ce2b41af1ce4d9cb74e19f2ded6d9586d0470b",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:fork-shared",
+      "consumer_operation_ids": [
+        "op:reduce"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:w2",
+      "producer_operation_id": "op:w2",
+      "payload_ref": "sha256/78effe5432eafd9d042ed24e7feb979d8915da8b473ae1658b600e7f02155d65",
+      "content_hash": "78effe5432eafd9d042ed24e7feb979d8915da8b473ae1658b600e7f02155d65",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:fork-shared",
+      "consumer_operation_ids": [
+        "op:reduce"
+      ]
+    },
+    {
+      "artifact_id": "artifact:op:reduce",
+      "producer_operation_id": "op:reduce",
+      "payload_ref": "sha256/3716d3d0d0f0bff60246e1991a90cba236f0ef1d5ada69e0fac92513044faeed",
+      "content_hash": "3716d3d0d0f0bff60246e1991a90cba236f0ef1d5ada69e0fac92513044faeed",
+      "version": 1,
+      "selection_metadata": {},
+      "ordering_metadata": {},
+      "transformation_metadata": {},
+      "inheritance_relation": "fresh",
+      "reuse_scope_id": "scope:join",
+      "consumer_operation_ids": []
+    }
+  ],
+  "shared_state": [],
+  "operations_file": "operations.jsonl"
+}

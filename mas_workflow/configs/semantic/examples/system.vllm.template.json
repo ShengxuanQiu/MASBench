@@ -1,0 +1,15 @@
+{
+  "backend_name": "vllm-openai",
+  "backend_version": "replace-with-vllm-version",
+  "hardware_model": "replace-with-accelerator-model",
+  "accelerator_count": 1,
+  "model_identity": "replace-with-served-model-identity",
+  "tokenizer_hash": "copy-from-resolved-scenario",
+  "chat_template_hash": "copy-from-resolved-scenario",
+  "batching_policy": {},
+  "cache_implementation": {"prefix_cache": true},
+  "scheduling_policy": {},
+  "placement": {},
+  "parallelism": {},
+  "capabilities": {"supports_length_lock": true, "supports_token_lock": false}
+}

@@ -1,0 +1,40 @@
+{
+  "scenario_id": "replace-with-scenario-id",
+  "benchmark_version": "masbench-1.0",
+  "trace_set_ids": [],
+  "trace_hashes": {},
+  "workload_version": "resolved-from-trace",
+  "model_input_contract": {
+    "model_identity": "replace-with-served-model-identity",
+    "tokenizer_hash": "resolved-by-cli",
+    "chat_template_hash": "resolved-by-cli",
+    "generation_parameters": {
+      "temperature": 0.0
+    }
+  },
+  "replay": {
+    "fidelity_mode": "length_locked",
+    "tool_replay_policy": "recorded",
+    "external_delay_policy": "deterministic",
+    "cache_policy": "reuse_scope_isolated"
+  },
+  "root_arrival": {
+    "mode": "trace_offsets",
+    "arrival_rate": null,
+    "concurrency": 1,
+    "random_seed": 42,
+    "task_mix": {}
+  },
+  "measurement": {
+    "warmup_policy": "none",
+    "task_count": 100,
+    "task_slo_sec": 30.0,
+    "slo_attainment_target": 0.9
+  },
+  "validity": {
+    "error_handling": "invalidate",
+    "cancellation_policy": "invalidate",
+    "context_overflow_policy": "invalidate",
+    "truncation_policy": "forbid"
+  }
+}

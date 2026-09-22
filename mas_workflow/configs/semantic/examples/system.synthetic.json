@@ -1,0 +1,18 @@
+{
+  "backend_name": "synthetic-conformance",
+  "backend_version": "1",
+  "hardware_model": "none",
+  "accelerator_count": 1,
+  "model_identity": "synthetic-conformance-model",
+  "tokenizer_hash": "bd3d95b68ea41c9245552c588b7277a3b3f4d4012b3920e85016cc4350f3c226",
+  "chat_template_hash": "b8bb728594c9c4a35f59a5d496dd2920b27bd2f784259e9c2ccdbdfd7745f13a",
+  "batching_policy": {},
+  "cache_implementation": {},
+  "scheduling_policy": {},
+  "placement": {},
+  "parallelism": {},
+  "capabilities": {
+    "supports_length_lock": true,
+    "supports_token_lock": true
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://masbench.org/schema/semantic-operation-1.0.0.json",
+  "title": "MASBench Semantic Operation",
+  "type": "object",
+  "required": ["operation_id", "operation_type", "task_id", "stage_instance_id", "iteration", "control_dependencies", "data_dependencies", "state_dependencies", "controlled_external_delay", "source_observations"],
+  "properties": {
+    "operation_id": {"type": "string", "minLength": 1},
+    "operation_type": {"enum": ["llm", "tool", "transform", "state"]},
+    "task_id": {"type": "string", "minLength": 1},
+    "stage_instance_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": ["string", "null"]},
+    "iteration": {"type": "integer", "minimum": 0},
+    "control_dependencies": {"type": "array", "items": {"type": "string"}},
+    "data_dependencies": {"type": "array", "items": {"type": "string"}},
+    "state_dependencies": {"type": "array", "items": {"type": "string"}},
+    "controlled_external_delay": {"type": "number", "minimum": 0},
+    "llm": {"type": ["object", "null"]},
+    "tool": {"type": ["object", "null"]},
+    "transform": {"type": ["object", "null"]},
+    "state": {"type": ["object", "null"]},
+    "source_observations": {"type": "object"}
+  },
+  "additionalProperties": false
+}

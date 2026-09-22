@@ -1,0 +1,33 @@
+{
+  "tasks": {"controlled": "task-controlled.json"},
+  "deployments": {"a6000": "deployment-gpu3.json"},
+  "workloads": [
+    {"name": "parallel-width", "preset": "parallel", "factors": {"width": [1, 2, 4, 8]}},
+    {"name": "refine-depth", "preset": "refine", "factors": {"max_revisions": [0, 1, 2, 4]}},
+    {"name": "peer-rounds", "preset": "peer", "parameters": [
+      {"width": 4, "rounds": 1, "connectivity": "ring"},
+      {"width": 4, "rounds": 2, "connectivity": "ring"},
+      {"width": 4, "rounds": 4, "connectivity": "ring"}
+    ]},
+    {"name": "peer-connectivity", "preset": "peer", "parameters": [
+      {"width": 4, "rounds": 2, "connectivity": "pairwise"},
+      {"width": 4, "rounds": 2, "connectivity": "ring"},
+      {"width": 4, "rounds": 2, "connectivity": "random_k", "k": 2},
+      {"width": 4, "rounds": 2, "connectivity": "all_to_all"}
+    ]},
+    {"name": "peer-delivery", "base": "../publication/base-peer-exchange.json", "factors": {
+      "structure.motifs.peer.delivery.peer_to_peer": [
+        {"mode": "full"},
+        {"mode": "selected", "selector": {"artifact_indices": [0]}},
+        {"mode": "summarized"},
+        {"mode": "referenced"},
+        {"mode": "retrieved"}
+      ]
+    }}
+  ],
+  "study": {"rates": [0.05], "count": 5, "repetitions": 3, "seed": 4202,
+    "arrival": "constant", "max_inflight_workflows": 2, "slo_sec": 120,
+    "cache_protocol": "cache_disabled", "collect_backend_metrics": true,
+    "backend_metrics_interval_sec": 0.25},
+  "capacity": {"dense_points": 1, "min_slo_success": 0.95, "max_failure_fraction": 0.01}
+}

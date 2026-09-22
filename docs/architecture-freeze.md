@@ -1,5 +1,8 @@
 # MASBench architecture freeze
 
+> **Semantic Trace 1.0 terminology update.** The frozen public reference templates are Spawn, Fork--Join, Refinement Loop, and Debate. The earlier DispatchExecute, ParallelAggregate, EvaluateRefine, PeerExchange, and PeerDeliberation spellings remain input aliases only. The public stage contract is Participants + Execution Control + Context Construction; completion and optional shared state are recorded realized semantics. Official performance comparison uses `app.semantic`, while the older replay path remains a native-trace diagnostic compatibility layer.
+
+
 The publication path implements Section 3 without adding another runner:
 
 - `WorkflowSpec` realizes `W=(S,D,Ω)`: stages, artifact/control dependencies, and recorded activation/participant decisions.

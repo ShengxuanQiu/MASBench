@@ -1,0 +1,21 @@
+{
+  "model": "qwen35-4b-mas-pilot",
+  "backend": "openai_compatible",
+  "endpoint": "http://127.0.0.1:18080/v1",
+  "generation": {"max_tokens": 192, "temperature": 0.0, "seed": 42},
+  "concurrency": 8,
+  "hardware": {
+    "device": "NVIDIA RTX A6000",
+    "gpu_index": 0,
+    "model_path": "/data1/pretrained_models/Qwen3.5-4B",
+    "tensor_parallel_size": 1,
+    "prefix_cache_enabled": false,
+    "enable_thinking": false
+  },
+  "telemetry": {
+    "adapter": "vllm_gpu",
+    "metrics_url": "http://127.0.0.1:18080/metrics",
+    "device_id": "GPU-c45a339a-1214-2d7a-37a5-6cadc1175212"
+  },
+  "identity": {}
+}

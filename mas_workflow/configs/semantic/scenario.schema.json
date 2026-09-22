@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://masbench.org/schema/scenario-1.0.0.json",
+  "title": "Resolved MASBench ScenarioManifest",
+  "type": "object",
+  "required": ["scenario_id", "benchmark_version", "trace_set_ids", "trace_hashes", "workload_version", "model_input_contract", "replay", "root_arrival", "measurement", "validity", "scenario_version", "resolved_cache_scope_salts", "resolved_request_contracts", "scenario_hash"],
+  "properties": {
+    "scenario_version": {"const": "masbench.scenario/1.0.0"},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "benchmark_version": {"type": "string", "minLength": 1},
+    "trace_set_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "trace_hashes": {"type": "object"},
+    "workload_version": {"type": "string"},
+    "model_input_contract": {"type": "object", "required": ["model_identity", "tokenizer_hash", "chat_template_hash", "generation_parameters"]},
+    "replay": {"type": "object", "required": ["fidelity_mode", "tool_replay_policy", "external_delay_policy", "cache_policy"], "properties": {"fidelity_mode": {"enum": ["length_locked", "token_locked"]}}},
+    "root_arrival": {"type": "object", "required": ["mode", "random_seed", "task_mix"]},
+    "measurement": {"type": "object", "required": ["warmup_policy", "task_slo_sec", "slo_attainment_target"]},
+    "validity": {"type": "object", "required": ["error_handling", "cancellation_policy", "context_overflow_policy", "truncation_policy"]},
+    "resolved_cache_scope_salts": {"type": "object"},
+    "resolved_request_contracts": {"type": "object"},
+    "scenario_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

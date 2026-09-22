@@ -24,8 +24,11 @@ from .task_defaults import FAMILY_SLOTS
 from ..specs import ROLE_ALIASES, stage_dependencies
 
 MOTIF_NAMES = list(FAMILY_SLOTS)
-PUBLIC_FAMILY = {"dispatch_execute":"DispatchExecute","parallel_aggregate":"ParallelAggregate",
-                 "evaluate_refine":"EvaluateRefine","peer_exchange":"PeerExchange","atomic":"AtomicStage"}
+PUBLIC_FAMILY = {"dispatch_execute":"Spawn","parallel_aggregate":"Fork--Join",
+                 "evaluate_refine":"Refinement Loop","peer_exchange":"Debate","atomic":"Atomic"}
+# Names accepted by the compatibility parser; exported semantics use Part 3 names.
+LEGACY_PUBLIC_FAMILY = {"DispatchExecute":"Spawn", "ParallelAggregate":"Fork--Join",
+                        "EvaluateRefine":"Refinement Loop", "PeerExchange":"Debate", "PeerDeliberation":"Debate"}
 
 
 def stage_semantics(stage, participants):
@@ -45,7 +48,7 @@ def stage_semantics(stage, participants):
     elif family=='peer_exchange': realized=[{'role':'Worker','index':i} for i in participants]
     else: realized=[{'role':stage['atomic']['role'],'index':0}]
     return {'canonical_family':PUBLIC_FAMILY[family],'participants':realized,'connectivity':connectivity,
-            'coordination':coordination,'delivery':stage.get('motif_delivery',{}),'completion':completion}
+            'coordination':coordination,'delivery':stage.get('motif_delivery',{}),'completion':completion,'context_construction':{'delivery':stage.get('motif_delivery',{}),'reuse_scope_id':stage.get('reuse_scope_id')}}
 
 
 def peer_sources(index: int, count: int, connectivity: str, seed: int, k=None, sparsity=None) -> list[int]:
@@ -104,7 +107,7 @@ class FamilyWorkload(WorkloadRuntime):
         for i, stage in enumerate(stages):
             allowed = {"id", "family", "roles", "inputs", "task", "width", "rounds", "max_revisions",
                        "connectivity", "aggregation", "dispatch", "criteria", "depends_on", "seed",
-                       "routing_semantics", "evaluation_semantics", "atomic", "condition", "participants", "delivery", "motif_delivery", "allow_skipped", "parameters", "delivery_instruction", "k", "sparsity"}
+                       "routing_semantics", "evaluation_semantics", "atomic", "condition", "participants", "delivery", "motif_delivery", "allow_skipped", "parameters", "delivery_instruction", "reuse_scope_id", "k", "sparsity"}
             if not isinstance(stage, dict) or set(stage) - allowed:
                 raise ValueError("Invalid stage fields")
             family = stage.get("family")
@@ -221,7 +224,8 @@ class FamilyWorkload(WorkloadRuntime):
                             "motif_family": self._family_for(instance),
                             "motif_name": self._family_for(instance),
                             "input_artifact_ids": [a.artifact_id for a in inputs],
-                            "output_contract": binding.output_format, **identity},
+                            "output_contract": binding.output_format,
+                            "reuse_scope_id": ctx["stage"].get("reuse_scope_id") or ("session:" + instance.instance_id), **identity},
         )
         with self._context_lock:
             ctx["nodes"].append(node)
@@ -245,7 +249,7 @@ class FamilyWorkload(WorkloadRuntime):
         family = stage["family"]
         mid = ("atomic_" if family == "atomic" else "motif_") + uuid4().hex
         sid = "stage_" + uuid4().hex
-        self._stage_context[mid] = {"id": sid, "parents": list(control_parents), "nodes": [], "round_parents": {}}
+        self._stage_context[mid] = {"id": sid, "parents": list(control_parents), "nodes": [], "round_parents": {}, "stage": stage}
         width = stage.get("width", self.config.num_agents)
         participant_ids=stage.get("selected_participants",list(range(width)))
         semantics=stage_semantics(stage,participant_ids)

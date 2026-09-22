@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://masbench.org/schema/coverage-corpus-1.0.0.json",
+  "title": "MASBench coverage corpus",
+  "type": "object",
+  "required": ["schema_version", "corpus_split_version", "abstraction_version", "systems"],
+  "properties": {
+    "schema_version": {"const": "masbench.coverage_corpus/1.0.0"},
+    "corpus_split_version": {"type": "string"},
+    "abstraction_version": {"type": "string"},
+    "systems": {"type": "array", "items": {
+      "type": "object",
+      "required": ["unit_id", "system", "version", "canonical_configuration", "split", "relevance", "inspectability_sources", "frozen_reference", "external_impact_snapshot", "workflow_assessment", "zero_extension_covered"],
+      "properties": {
+        "split": {"enum": ["discovery", "held_out"]},
+        "relevance": {"const": "causal_multi_agent"},
+        "inspectability_sources": {"type": "array", "minItems": 1, "items": {"enum": ["code", "official_docs", "paper", "execution_trace"]}},
+        "external_impact_snapshot": {"type": "object", "required": ["captured_at", "github_stars", "citation_count", "publication_or_release_date", "organization_or_vendor", "maintenance_status", "downstream_adoption_evidence"]},
+        "workflow_assessment": {"type": "object", "required": ["stages", "standard_composition_expressible", "arbitrary_control_callback_required"], "properties": {
+          "stages": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["stage_id", "template_type", "standard_semantics", "requires_extension", "wrapped_as_atomic"], "properties": {"template_type": {"enum": ["spawn", "fork_join", "refinement_loop", "debate", "atomic", "extension"]}}}},
+          "standard_composition_expressible": {"type": "boolean"},
+          "arbitrary_control_callback_required": {"type": "boolean"}
+        }},
+        "zero_extension_covered": {"type": "boolean"}
+      }
+    }}
+  }
+}

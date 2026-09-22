@@ -1,0 +1,13 @@
+{
+  "structure": {
+    "motifs": {"exchange": {"family": "PeerExchange", "width": 4, "rounds": 3,
+      "connectivity": "all_to_all", "delivery": {"peer_to_peer": {"mode": "full"}}}},
+    "workflow": {"stages": [{"id": "exchange", "motif": "exchange"}]}
+  },
+  "task": {
+    "task_input": "Compare water-reduction proposals while preserving conflicting assumptions and evidence across peer exchanges.",
+    "roles": {"Worker": {"instructions": "Revise your position using every delivered peer artifact and identify unresolved disagreement."}},
+    "criteria": "The final positions preserve evidence and material disagreement."
+  },
+  "deployment": {"backend": "mock"}
+}

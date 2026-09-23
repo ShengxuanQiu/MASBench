@@ -77,6 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend-base-url", "--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--model", default="local-mas-model")
     parser.add_argument("--max-output-tokens", type=int, default=4096)
+    parser.add_argument("--generation-config", default="", help="JSON generation parameters sent to the backend.")
     parser.add_argument("--max-concurrent-llm-calls", type=int, default=32)
     parser.add_argument("--dispatch-policy", choices=["fcfs", "criticality"], default="fcfs")
     parser.add_argument("--trace-dir", default="traces")
@@ -318,6 +319,11 @@ def config_for(args: argparse.Namespace, *, query: str, instance_id: str, task_s
         if args.mode != "motif":
             raise ValueError("--workload-config requires --mode motif")
         config.extra["workload_spec"] = json.loads(Path(args.workload_config).read_text(encoding="utf-8"))
+    if args.generation_config:
+        generation = json.loads(Path(args.generation_config).read_text(encoding="utf-8"))
+        if not isinstance(generation, dict):
+            raise ValueError("--generation-config must contain a JSON object")
+        config.extra["generation"] = generation
     return config
 
 

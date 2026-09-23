@@ -191,6 +191,11 @@ class RunValidator:
             resolved = scenario.resolved_request_contracts.get(op.operation_id)
             if not resolved or resolved.get("request_hash") != sha256_json(scenario.materialize_request(op)):
                 report.add("CACHE_SCOPE_VIOLATION", "Operation lacks an exact resolved target-input contract", operation_id=op.operation_id)
+            elif scenario.replay.get("cache_policy") == "preserve_native" and (
+                resolved.get("input_token_ids") != op.llm.get("input_token_ids")
+                or resolved.get("input_token_count") != op.llm.get("input_token_count")
+            ):
+                report.add("TOKENIZER_MISMATCH", "Native-preserving replay changed recorded input tokens", operation_id=op.operation_id)
         mode = scenario.replay.get("fidelity_mode")
         capability = "supports_token_lock" if mode == "token_locked" else "supports_length_lock"
         if mode not in {"length_locked", "token_locked"} or not system.capabilities.get(capability, False):
@@ -203,8 +208,15 @@ class RunValidator:
                     report.add("REPLAY_MODE_UNSUPPORTED", "Trace lacks exact recorded output token IDs", operation_id=op.operation_id)
         scopes = {x.reuse_scope_id for x in trace.sessions if x.reuse_scope_id} | {x.reuse_scope_id for x in trace.artifacts if x.reuse_scope_id}
         salts = scenario.resolved_cache_scope_salts
-        if scopes - set(salts) or len({salts.get(x) for x in scopes}) != len(scopes):
-            report.add("CACHE_SCOPE_VIOLATION", "Reuse scopes lack deterministic, distinct cache salts")
+        cache_policy = scenario.replay.get("cache_policy")
+        if cache_policy == "reuse_scope_isolated":
+            if scopes - set(salts) or len({salts.get(x) for x in scopes}) != len(scopes):
+                report.add("CACHE_SCOPE_VIOLATION", "Reuse scopes lack deterministic, distinct cache salts")
+        elif cache_policy == "preserve_native":
+            if salts:
+                report.add("CACHE_SCOPE_VIOLATION", "Native-preserving replay must not add cache-scope salts")
+        else:
+            report.add("SCHEMA_ERROR", "Unknown cache policy")
         if run:
             if run.get("cancelled"):
                 report.add("RUN_CANCELLED", "Run was cancelled")

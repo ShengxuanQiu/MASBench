@@ -60,7 +60,11 @@ class TransformersTokenizer:
 
     def encode_request(self, request: dict[str, Any]) -> list[int]:
         messages = request.get("messages", [])
-        encoded = self._tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+        template_kwargs = request.get("chat_template_kwargs") or {}
+        if not isinstance(template_kwargs, dict):
+            raise TypeError("chat_template_kwargs must be an object")
+        encoded = self._tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True, **template_kwargs)
         # Transformers 5 may return BatchEncoding instead of a flat list.
         # Iterating that object yields field names ("input_ids", ...), which
         # silently corrupts the benchmark input contract.

@@ -8,7 +8,7 @@ import jsonschema
 from pathlib import Path
 
 from app.semantic.coverage import FEATURES, cluster_coverage, workflow_coverage
-from app.semantic.canonicalize import ByteTokenizer, canonicalize_native_trace
+from app.semantic.canonicalize import ByteTokenizer, TransformersTokenizer, canonicalize_native_trace
 from app.semantic.golden import TEMPLATES, build_golden, golden_scenario, golden_system
 from app.semantic.metrics import sustainable_capacity, task_metrics
 from app.semantic.replay import BackendResult, MockExactBackend, ReplayExecutor, materialize_request
@@ -49,6 +49,51 @@ def test_native_trace_canonicalization_pipeline(tmp_path):
     assert report.run_valid, report.to_dict()
     assert all(op.source_observations.get("duration_kind") == "source_observation" for op in trace.operations)
     assert {session.reuse_scope_id for session in trace.sessions} == {"scope:spawn"}
+
+
+def test_fork_join_context_selection_preserves_all_worker_dependencies(tmp_path):
+    results = {}
+    for mode, delivery in {
+        "full": {"mode": "full"},
+        "selected": {"mode": "selected", "selector": {"artifact_indices": [0]}},
+    }.items():
+        experiment = ExperimentConfig(
+            StructureSpec({"m": MotifSpec("ParallelAggregate", width=4,
+                                           delivery={"worker_to_reducer": delivery})},
+                          WorkflowSpec((StageSpec("join", "m"),))),
+            TaskBinding("Compare two office water savings methods."), DeploymentSpec())
+        runner = build_experiment(experiment, trace_dir=tmp_path / mode / "native")
+        runner.config.export_trace_views = False
+        assert runner.run()["status"] == "completed"
+        trace = canonicalize_native_trace(runner.trace.trace_path, tmp_path / mode / "semantic",
+                                          tokenizer=ByteTokenizer(), workload_id=f"context-{mode}")
+        assert SemanticValidator().validate(trace).run_valid
+        reducer = max((op for op in trace.operations if op.llm), key=lambda op: len(op.dependencies))
+        workers = {op.operation_id for op in trace.operations if op.llm and op.operation_id != reducer.operation_id}
+        assert len(workers) == 4
+        assert reducer.dependencies == workers
+        results[mode] = reducer
+    assert len(results["full"].llm["context_artifact_ids"]) == 4
+    assert len(results["selected"].llm["context_artifact_ids"]) == 1
+    assert results["selected"].llm["input_token_count"] < results["full"].llm["input_token_count"]
+
+
+def test_tokenizer_uses_native_chat_template_kwargs():
+    calls = []
+
+    class RecordingTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            calls.append((messages, kwargs))
+            return [1, 2, 3]
+
+    tokenizer = object.__new__(TransformersTokenizer)
+    tokenizer._tokenizer = RecordingTokenizer()
+    request = {"messages": [{"role": "user", "content": "hello"}],
+               "chat_template_kwargs": {"enable_thinking": False}}
+    assert tokenizer.encode_request(request) == [1, 2, 3]
+    assert calls == [(request["messages"], {"tokenize": True,
+                                               "add_generation_prompt": True,
+                                               "enable_thinking": False})]
 
 
 def test_source_observations_and_sut_do_not_change_workload_identity(tmp_path):
@@ -115,6 +160,29 @@ def test_cache_scopes_are_deterministically_isolated(tmp_path):
     system = golden_system()
     report = RunValidator().validate(trace, broken, system)
     assert "CACHE_SCOPE_VIOLATION" in report.invalid_reasons
+
+
+def test_native_preserving_replay_keeps_exact_recorded_inputs(tmp_path):
+    trace = build_golden("debate", tmp_path / "trace")
+    isolated = golden_scenario(trace)
+    scenario = copy.deepcopy(isolated)
+    scenario.replay["cache_policy"] = "preserve_native"
+    scopes = [session.reuse_scope_id for session in trace.sessions if session.reuse_scope_id]
+    scenario.resolve(scopes, trace, ByteTokenizer().encode_request)
+    assert not scenario.resolved_cache_scope_salts
+    assert scenario.scenario_hash != isolated.scenario_hash
+    for operation in trace.operations:
+        if not operation.llm:
+            continue
+        request = scenario.materialize_request(operation)
+        contract = scenario.resolved_request_contracts[operation.operation_id]
+        assert request == operation.llm["canonical_request"]
+        assert contract["input_token_ids"] == operation.llm["input_token_ids"]
+        assert contract["input_token_count"] == operation.llm["input_token_count"]
+    system = golden_system()
+    assert RunValidator().validate(trace, scenario, system).run_valid
+    run = ReplayExecutor(trace, scenario, system, MockExactBackend(), TraceBundle(tmp_path / "trace").artifacts).run()
+    assert run["run_valid"], run
 
 
 def test_token_lock_never_silently_degrades(tmp_path):

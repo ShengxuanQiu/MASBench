@@ -16,7 +16,7 @@
     "fidelity_mode": "length_locked",
     "tool_replay_policy": "recorded",
     "external_delay_policy": "deterministic",
-    "cache_policy": "reuse_scope_isolated"
+    "cache_policy": "preserve_native"
   },
   "root_arrival": {
     "mode": "trace_offsets",

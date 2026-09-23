@@ -32,7 +32,9 @@ An operation becomes ready only after every semantic predecessor finishes on the
 
 `length_locked` fixes realized operations, dependencies, resolved input, and output length. Generated content is discarded and never changes a downstream request. `token_locked` additionally requires exact recorded output token IDs. Backends without this capability return `REPLAY_MODE_UNSUPPORTED`; no fallback is allowed.
 
-Cache reuse is authorized by `reuse_scope_id`. Scenario resolution creates a deterministic salt for every scope from the scenario seed. Requests in different scopes receive different prefixes; requests in one scope receive the same prefix.
+`cache_policy: preserve_native` sends the recorded canonical request unchanged. This is the default in the scenario template and is required when comparing native and replay input token IDs or input-sensitive latency. The resolved token IDs must equal the recorded IDs. `reuse_scope_id` remains provenance metadata; it does not alter the prompt.
+
+`cache_policy: reuse_scope_isolated` is an explicit cache-isolation scenario. Resolution adds a deterministic marker at the start of each scope's prompts. Requests in different scopes receive different prefixes; requests in one scope receive the same prefix. This changes the backend-visible input token IDs, lengths, and cross-scope prefix overlap. Measure those properties from `resolved_request_contracts`, and do not report native-versus-replay exact-input fidelity or latency deviation for this scenario.
 
 ## Identity boundary
 
@@ -51,4 +53,3 @@ Use `python -m app.semantic.cli collect` to canonicalize a native JSONL trace wi
 `task_latency` is target task finish minus ScenarioManifest root arrival minus deterministic external delay on the realized critical terminal path. Task goodput counts successful tasks meeting the configured SLO per measured second. SLO attainment divides good tasks by all attempted tasks, including failed and incomplete tasks. Sustainable capacity is the maximum tested arrival rate or active-task concurrency meeting the scenario's configured attainment target. Resource efficiency is task goodput divided by accelerator count. Token/request throughput and serving counters remain diagnostics.
 
 Behavioral coverage features are computed from semantic dependencies and recorded model inputs, never hardware time. `context_growth` is the mean within-session range of exact input-token counts across iterations. `prefix_context_overlap` is the mean pairwise longest-common-prefix fraction within declared reuse scopes. `controlled_external_delay_fraction` is the fraction of semantic operations carrying a positive controlled delay. PCA normalization and basis fitting use held-out real workloads only; MASBench workloads are transformed into that fixed space before nearest-cluster assignment. Byte/token replication is reported as an operational delivery measure and is not called semantic-information duplication.
-

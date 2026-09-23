@@ -12,7 +12,7 @@
     "trace_hashes": {"type": "object"},
     "workload_version": {"type": "string"},
     "model_input_contract": {"type": "object", "required": ["model_identity", "tokenizer_hash", "chat_template_hash", "generation_parameters"]},
-    "replay": {"type": "object", "required": ["fidelity_mode", "tool_replay_policy", "external_delay_policy", "cache_policy"], "properties": {"fidelity_mode": {"enum": ["length_locked", "token_locked"]}}},
+    "replay": {"type": "object", "required": ["fidelity_mode", "tool_replay_policy", "external_delay_policy", "cache_policy"], "properties": {"fidelity_mode": {"enum": ["length_locked", "token_locked"]}, "cache_policy": {"enum": ["preserve_native", "reuse_scope_isolated"]}}},
     "root_arrival": {"type": "object", "required": ["mode", "random_seed", "task_mix"]},
     "measurement": {"type": "object", "required": ["warmup_policy", "task_slo_sec", "slo_attainment_target"]},
     "validity": {"type": "object", "required": ["error_handling", "cancellation_policy", "context_overflow_policy", "truncation_policy"]},

@@ -8,6 +8,7 @@ from typing import Any
 from .model import sha256_json
 
 SCENARIO_VERSION = "masbench.scenario/1.0.0"
+CACHE_POLICIES = {"preserve_native", "reuse_scope_isolated"}
 
 
 @dataclass
@@ -28,11 +29,15 @@ class ScenarioManifest:
     scenario_hash: str = ""
 
     def resolve(self, reuse_scope_ids: list[str], trace: Any | None = None, encode_request: Any | None = None) -> "ScenarioManifest":
+        cache_policy = self.replay.get("cache_policy")
+        if cache_policy not in CACHE_POLICIES:
+            raise ValueError(f"Unsupported cache policy: {cache_policy}")
         seed = int(self.root_arrival.get("random_seed", 0))
-        self.resolved_cache_scope_salts = {
-            scope: sha256_json({"seed": seed, "reuse_scope_id": scope})[:24]
-            for scope in sorted(set(reuse_scope_ids)) if scope
-        }
+        self.resolved_cache_scope_salts = (
+            {scope: sha256_json({"seed": seed, "reuse_scope_id": scope})[:24]
+             for scope in sorted(set(reuse_scope_ids)) if scope}
+            if cache_policy == "reuse_scope_isolated" else {}
+        )
         if trace is not None:
             if encode_request is None:
                 raise ValueError("Resolving exact target inputs requires the declared tokenizer")
@@ -50,6 +55,10 @@ class ScenarioManifest:
 
     def materialize_request(self, operation: Any) -> dict[str, Any]:
         request = copy.deepcopy(operation.llm["canonical_request"])
+        if self.replay.get("cache_policy") == "preserve_native":
+            return request
+        if self.replay.get("cache_policy") != "reuse_scope_isolated":
+            raise ValueError(f"Unsupported cache policy: {self.replay.get('cache_policy')}")
         scope = operation.llm.get("reuse_scope_id")
         if scope:
             salt = self.resolved_cache_scope_salts[scope]

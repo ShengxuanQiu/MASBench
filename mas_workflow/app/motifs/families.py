@@ -152,11 +152,11 @@ class FamilyWorkload(WorkloadRuntime):
             if stage.get("dispatch", "plan") not in {"plan", "route"}:
                 raise ValueError("dispatch must be plan or route")
 
-    def _call(self, instance: AgentInstance, task: str, inputs: list[Artifact], *, instruction="", round_id=0, group=None) -> Artifact:
+    def _call(self, instance: AgentInstance, task: str, inputs: list[Artifact], *, instruction="", round_id=0, group=None, control_parents=()) -> Artifact:
         node = "call_" + uuid4().hex
         binding = instance.binding
         ctx = self._stage_context[instance.motif_instance_id]
-        control = list(ctx["parents"]) + list(ctx["round_parents"].get(round_id, []))
+        control = list(dict.fromkeys(list(ctx["parents"]) + list(ctx["round_parents"].get(round_id, [])) + list(control_parents)))
         parents = list(dict.fromkeys([a.producer_node for a in inputs] + control))
         identity = {"stage_instance_id": ctx["id"], "role": ROLE_ALIASES[instance.slot.name],
                     "motif_instance_id": "" if ctx.get("atomic") else instance.motif_instance_id,
@@ -332,7 +332,8 @@ class FamilyWorkload(WorkloadRuntime):
                 else:
                     instruction = ('Return JSON with "selected_index" (zero-based integer) and "reason". Select one supplied candidate.'
                                    if policy == "judge" else "Synthesize the supplied results into one answer.")
-                    combined = self._call(agent("collector"), task, reduced_values, instruction=instruction)
+                    combined = self._call(agent("collector"), task, reduced_values, instruction=instruction,
+                                          control_parents=[value.producer_node for value in values])
                     if policy == "judge":
                         index = json.loads(combined.content)["selected_index"]
                         if type(index) is not int or not 0 <= index < len(reduced_values):

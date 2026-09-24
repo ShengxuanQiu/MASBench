@@ -23,19 +23,26 @@ def load(path):
 
 
 def font(size, bold=False):
-    candidates = (["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"] if bold else []) + [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/local/lib/python3.12/site-packages/PIL/fonts/DejaVuSans.ttf"]
+    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    candidates = [
+        Path("/usr/share/fonts/truetype/dejavu") / filename,
+        Path("/usr/local/share/fonts") / filename,
+        *Path.home().glob(f".local/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/{filename}"),
+    ]
     for path in candidates:
-        if Path(path).exists():
+        if path.is_file():
             return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+    raise RuntimeError(f"A scalable font is required to render readable figures: {filename}")
 
 
-F12, F14, F16 = font(24), font(27), font(31, True)
+TICK_FONT = font(28)
+LEGEND_FONT = font(28)
+AXIS_FONT = font(32)
+STAGE_FONT = font(27)
+TITLE_FONT = font(38, True)
 
 
-def text(draw, xy, value, *, anchor="mm", fill=TEXT, fnt=F12):
+def text(draw, xy, value, *, anchor="mm", fill=TEXT, fnt=TICK_FONT):
     draw.text(xy, str(value), fill=fill, font=fnt, anchor=anchor)
 
 
@@ -47,20 +54,21 @@ def line_chart(draw, box, series, *, xlabel, ylabel, xmax=None, ymax=None,
     xmax = xmax if xmax is not None else max((p[0] for p in all_points), default=1)
     ymax = ymax if ymax is not None else max((p[1] for p in all_points), default=1) * 1.08
     xmax, ymax = max(xmax, 1e-9), max(ymax, 1e-9)
+    stage_labels = []
     if stage_spans:
         for i, (start, end, label) in enumerate(stage_spans):
             px0, px1 = x + w * start / xmax, x + w * end / xmax
             draw.rectangle((px0, y, px1, y + h), fill=PALE if i % 2 == 0 else "#E9EDF3")
-            text(draw, ((px0 + px1) / 2, y + 15), label, fnt=font(19), fill="#626D7A")
+            stage_labels.append(((px0 + px1) / 2, label))
     for i in range(6):
         py = y + h - h * i / 5
         draw.line((x, py, x + w, py), fill=GRID, width=2)
-        text(draw, (x - 13, py), f"{ymax*i/5:.1f}", anchor="rm", fnt=font(20))
+        text(draw, (x - 14, py), f"{ymax*i/5:.1f}", anchor="rm", fnt=TICK_FONT)
     ticks = x_ticks or [xmax * i / 5 for i in range(6)]
     for value in ticks:
         px = x + w * value / xmax
         draw.line((px, y + h, px, y + h + 7), fill=TEXT, width=2)
-        text(draw, (px, y + h + 25), f"{value:g}", anchor="mt", fnt=font(20))
+        text(draw, (px, y + h + 27), f"{value:g}", anchor="mt", fnt=TICK_FONT)
     draw.rectangle((x, y, x + w, y + h), outline=TEXT, width=3)
     for si, (name, points) in enumerate(series):
         color = COLORS[si % len(COLORS)]
@@ -72,11 +80,19 @@ def line_chart(draw, box, series, *, xlabel, ylabel, xmax=None, ymax=None,
             draw.ellipse((px - 5, py - 5, px + 5, py + 5), fill=color, outline=BG, width=2)
         if legend:
             lx = x + (si % 2) * (w / 2) + 12
-            ly = y + h + 65 + (si // 2) * 34
+            ly = y + h + 72 + (si // 2) * 44
             draw.line((lx, ly, lx + 40, ly), fill=color, width=7)
-            text(draw, (lx + 49, ly), name, anchor="lm", fnt=font(21))
-    text(draw, (x + w / 2, y + h + (126 if legend else 60)), xlabel, fnt=F14)
-    text(draw, (x - 98, y + h / 2), ylabel, fnt=F14)
+            text(draw, (lx + 49, ly), name, anchor="lm", fnt=LEGEND_FONT)
+    legend_rows = math.ceil(len(series) / 2) if legend else 0
+    text(draw, (x + w / 2, y + h + (88 + 44 * legend_rows if legend else 78)),
+         xlabel, fnt=AXIS_FONT)
+    text(draw, (x, y - 30), ylabel, anchor="lm", fnt=AXIS_FONT)
+    for center, label in stage_labels:
+        bounds = draw.textbbox((center, y + 18), label, font=STAGE_FONT, anchor="mm")
+        draw.rounded_rectangle((bounds[0] - 7, bounds[1] - 3,
+                                bounds[2] + 7, bounds[3] + 3),
+                               radius=5, fill=BG)
+        text(draw, (center, y + 18), label, fnt=STAGE_FONT, fill="#566477")
 
 
 def canvas(rows, cols, panel_w=970, panel_h=650):
@@ -187,7 +203,7 @@ def main():
         spans = [((stage["first_operation_sec"]-start)/span,
                   (stage["last_operation_sec"]-start)/span,
                   stage["logical_stage_id"]) for stage in sig["stages"]]
-        text(draw, (760, i*570 + 24), name.replace("_", " "), fnt=F16)
+        text(draw, (760, i*570 + 20), name.replace("_", " "), fnt=TITLE_FONT)
         line_chart(draw, (150, i*570 + 55, 1220, 330), [("Logical KV equivalent", points)],
                    xlabel="Normalized workflow time", ylabel="KV equiv. (MiB)", xmax=1,
                    x_ticks=[0, .2, .4, .6, .8, 1], legend=False, stage_spans=spans)
@@ -205,7 +221,7 @@ def main():
         (lambda r: physical_kv_percent(r), "Physical KV usage (%)"),
         (lambda r: observation(r, "memory_bandwidth_percent", "mean"), "HBM bandwidth util. (%)"),
         (lambda r: observation(r, "ai_core_utilization_percent", "mean"), "AICore utilization (%)")]
-    img = canvas(2, 3, 950, 610); draw = ImageDraw.Draw(img)
+    img = canvas(2, 3, 950, 680); draw = ImageDraw.Draw(img)
     ordered = ["isolated__spawn", "isolated__fork_join", "isolated__refinement_loop", "isolated__debate", "balanced"]
     for pi, (getter, ylabel) in enumerate(panels):
         series = []
@@ -215,7 +231,7 @@ def main():
             label = LABELS.get(name.removeprefix("isolated__"), "Balanced mix")
             series.append((label, points))
         col, rowi = pi % 3, pi // 3
-        line_chart(draw, (130 + col*950, 45 + rowi*610, 735, 345), series,
+        line_chart(draw, (130 + col*950, 45 + rowi*680, 735, 345), series,
                    xlabel="Offered user QPS", ylabel=ylabel, xmax=20,
                    x_ticks=[0, 4, 8, 12, 16, 20], legend=True)
     save(img, figs, "fig_5_4_dense_multiplexing_pressure")
@@ -245,7 +261,10 @@ def main():
             (lambda r: r["completed_e2e_sec"]["p95"], "Aggregate task p95 (s)"),
             (lambda r: r["goodput_qps"], "Task goodput (task/s)"),
             (worst_class_slowdown, "Worst-class p95 slowdown")]):
-        series = [(name.replace("_", " "), [(row["rate"], getter(row))
+        short_name = {"balanced": "Balanced", "burst_dominated": "Burst-heavy",
+                      "dependency_dominated": "Dependency-heavy",
+                      "state_dominated": "State-heavy"}
+        series = [(short_name.get(name, name.replace("_", " ")), [(row["rate"], getter(row))
                   for row in sorted(rows, key=lambda r: r["rate"])]) for name, rows in sorted(mix_groups.items())]
         line_chart(draw, (135 + pi*960, 60, 745, 390), series,
                    xlabel="Offered user QPS", ylabel=ylabel, xmax=20,

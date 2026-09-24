@@ -1,7 +1,9 @@
 """Pressure-signature analysis for realized MASBench execution graphs.
 
-Graph-derived demand stays separate from backend observations. A model-derived
-KV value is a logical active-request envelope, never allocated device KV.
+Graph-derived demand stays separate from backend observations. The KV-equivalent
+envelope counts each request's full recorded input and output while that request
+is active. It is neither instantaneous generated-token growth nor device KV
+residency, and excludes retained prefix-cache blocks after request completion.
 """
 from __future__ import annotations
 
@@ -175,11 +177,11 @@ def build_pressure_signature(events, *, model_config, backend_samples=None):
         "causal_waves": wave_rows, "timeline": timeline,
         "stages": sorted(stage_rows, key=lambda row: row["first_operation_sec"]),
         "model_kv_contract": {"bytes_per_token": kv.bytes_per_token, "source": "estimated",
-            "definition": "2 * layers * KV heads * head_dim * bytes_per_element; logical active-request KV-equivalent only.",
+            "definition": "2 * layers * KV heads * head_dim * bytes_per_element; complete recorded tokens of each active request, not instantaneous or retained backend KV.",
             "not_physical_residency": True},
         "backend_resources": backend_resource_series(backend_samples or []),
         "metric_contract": {
-            "logical_kv_equivalent_bytes": "estimated model-state demand envelope, not allocated/resident backend KV",
+            "logical_kv_equivalent_bytes": "estimated full-request token demand envelope; request completion removes it, regardless of backend KV or prefix-cache residency",
             "compute_to_hbm_utilization_ratio": "ratio of observed utilization percentages, not FLOPs/DRAM-byte arithmetic intensity",
             "arithmetic_intensity_flops_per_dram_byte": {"value": None, "source": "unavailable",
                 "reason": "No synchronized FLOP and DRAM-byte profiler counters were supplied."}}}

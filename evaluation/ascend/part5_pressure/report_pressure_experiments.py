@@ -154,8 +154,8 @@ def main():
 
     # Figure 5.2a: the graph shape itself, expressed as causal-wave profiles.
     img = canvas(1, 3, 920, 640); draw = ImageDraw.Draw(img)
-    metrics = [("llm_operation_count", "Ready LLM ops / wave", 1),
-               ("logical_kv_equivalent_bytes", "Logical KV equiv. (MiB)", 1/(1024**2)),
+    metrics = [("llm_operation_count", "LLM ops / wave", 1),
+               ("logical_kv_equivalent_bytes", "KV-equiv. demand / wave (MiB)", 1/(1024**2)),
                ("cumulative_processed_tokens", "Cumulative tokens", 1)]
     for pi, (key, ylabel, scale) in enumerate(metrics):
         series = []
@@ -172,7 +172,7 @@ def main():
     img = canvas(1, 2, 1180, 680); draw = ImageDraw.Draw(img)
     for pi, (key, ylabel, scale) in enumerate([
             ("llm_inflight", "Concurrent LLM operations", 1),
-            ("logical_kv_equivalent_bytes", "Logical KV equiv. (MiB)", 1/(1024**2))]):
+            ("logical_kv_equivalent_bytes", "Active-request envelope (MiB)", 1/(1024**2))]):
         series = []
         for name in LABELS:
             rows = signatures[name]["timeline"]
@@ -204,8 +204,8 @@ def main():
                   (stage["last_operation_sec"]-start)/span,
                   stage["logical_stage_id"]) for stage in sig["stages"]]
         text(draw, (760, i*570 + 20), name.replace("_", " "), fnt=TITLE_FONT)
-        line_chart(draw, (150, i*570 + 55, 1220, 330), [("Logical KV equivalent", points)],
-                   xlabel="Normalized workflow time", ylabel="KV equiv. (MiB)", xmax=1,
+        line_chart(draw, (150, i*570 + 55, 1220, 330), [("Active-request envelope", points)],
+                   xlabel="Normalized workflow time", ylabel="KV-equivalent envelope (MiB)", xmax=1,
                    x_ticks=[0, .2, .4, .6, .8, 1], legend=False, stage_spans=spans)
     save(img, figs, "fig_5_3_hierarchical_stage_trajectories")
 
@@ -277,7 +277,7 @@ def main():
         shape_lines.append(
             f"- **{LABELS[name]}**：{len(sig['causal_waves'])} 个因果波次，"
             f"峰值每波 LLM 操作 {max(r['llm_operation_count'] for r in sig['causal_waves'])}，"
-            f"峰值逻辑 KV 等价 {max(r['logical_kv_equivalent_bytes'] for r in sig['causal_waves'])/1024**2:.1f} MiB。")
+            f"峰值单波次 KV 等价需求 {max(r['logical_kv_equivalent_bytes'] for r in sig['causal_waves'])/1024**2:.1f} MiB。")
     capacity_lines = []
     for name, rows in sorted(groups.items()):
         high = max(rows, key=lambda row: row["rate"])
@@ -288,6 +288,12 @@ def main():
         capacity_lines.append(
             f"- **{label}**：测试到 {high_rate:g} user QPS 仍未触发 30 s SLO failure（capacity right-censored）；"
             f"该点 achieved goodput={high_goodput:.2f} task/s，p95={high_p95:.2f} s。")
+    physical_52 = []
+    if (figs / "fig_5_2_backend_kv_occupancy.png").exists():
+        physical_52 = [
+            "补充的真实后端采样见 [5.2 KV block 占用与 prefix-cache 对照](PHYSICAL_KV_PROFILE_ZH.md)。vLLM 指标是非空闲 KV block 比例；可复用的 prefix block 仍可能位于 free queue，因此它与 NPU HBM 驻留字节不是同一指标。", "",
+            "![backend KV occupancy](figures/fig_5_2_backend_kv_occupancy.png)", "",
+        ]
     report = [
         "# MASBench Part 5 昇腾初步压力画像", "",
         "> 本报告全部数据来自 Ascend 910 + Qwen3-8B 的真实后端执行/受控 replay。它用于验证实验设计与采集链路，不能替代多次重复的大规模正式结果。", "",
@@ -295,10 +301,11 @@ def main():
         "![causal shapes](figures/fig_5_2_canonical_causal_shapes.png)", "",
         "![temporal shapes](figures/fig_5_2_canonical_temporal_signatures.png)", "",
         *shape_lines, "",
-        "两张图把结构形状和后端时间展开分开：第一张横轴是因果进度，直接显示宽、深、反复同步的差异；第二张显示这些差异在真实执行中如何变成并发请求与模型状态需求。逻辑 KV 等价值由真实 token 数和模型结构推导，不等于 vLLM 实际驻留 KV。", "",
+        "两张图把结构形状和后端时间展开分开：第一张按因果波次统计该波次请求的 token 需求；第二张在请求活跃期间计入其完整的 prompt+output token envelope，并在请求结束时移除。因此曲线下降不表示后端已释放物理 KV，更不表示 prefix cache 被清空。数值由真实 token 数和模型结构估算。", "",
+        *physical_52,
         "## 5.3 分层 workflow 的 stage 轨迹", "",
         "![workflow stages](figures/fig_5_3_hierarchical_stage_trajectories.png)", "",
-        "灰色 stage 区间与逻辑 KV 等价状态位于同一时间轴。不同 workflow 的 stage 数量、并行分支和 stage 间上下文传递会形成不同的状态峰值与持续时间；正式实验应按 stage 分解等待、计算、HBM 带宽和物理 KV。", "",
+        "灰色 stage 区间与活跃请求的 KV 等价需求上界位于同一时间轴。它显示不同 workflow 的阶段、并行分支和迭代如何改变请求需求；实际 KV block 驻留需要看后端独立采样。", "",
         "## 5.4 多 workflow 复用下的压力放大", "",
         "![multiplexing](figures/fig_5_4_dense_multiplexing_pressure.png)", "",
         *capacity_lines, "",
@@ -307,8 +314,9 @@ def main():
         "![workload mix](figures/fig_5_5_workload_mix_capacity.png)", "",
         "固定总 user QPS 时，不同 composition 产生不同的内部 request 放大、上下文状态和依赖阻塞，因此 aggregate p95、goodput 与最慢 workflow class 的 slowdown 会分离。正式论文应使用重复实验和置信区间确认差异。", "",
         "## 指标边界", "",
-        "- `logical KV equivalent`：estimated，按 `2 × layers × KV heads × head_dim × bytes × active tokens` 计算。",
-        "- `physical KV usage`：backend-reported，来自 vLLM `/metrics`。",
+        "- `KV-equivalent demand / wave`：estimated，每波请求的完整 prompt+output token 数乘以模型每 token KV 字节数；不是驻留量。",
+        "- `active-request envelope`：estimated，活跃请求的完整 token envelope 之和；结束即从曲线中移除，不包含 prefix cache 的后续驻留。",
+        "- `vLLM KV block usage`：backend-reported，来自 vLLM `/metrics` 的非空闲 KV block 比例；不是 NPU HBM 字节占用，也不计入可回收但仍可复用的 prefix block。",
         "- `AICore/HBM bandwidth utilization`：observed，来自 `npu-smi`。",
         "- `compute/HBM utilization ratio` 只能作为观察比值；当前没有同步 FLOP 与 DRAM-byte 计数，因此 arithmetic intensity 明确为 unavailable。",
         "- 本轮 replay 固定 realized DAG、recorded downstream payload 与外部结果；Qwen/vLLM 不能 strict token-lock，输出长度使用 best-effort 验证。", "",

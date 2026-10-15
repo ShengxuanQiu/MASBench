@@ -10,6 +10,11 @@ compiler caches, logs, and profiling output. The default is
 `$HOME/masbench-runtime`. Do not modify the machine's shared Python installation,
 driver, existing containers, or other users' jobs.
 
+The optional tiktoken counter downloads its vocabulary on first import. Populate
+`$MASBENCH_RUNTIME/cache/tiktoken` before offline use and verify the vocabulary
+against the SHA256 published by the installed tiktoken encoding implementation.
+This cache does not replace the experiment model's actual tokenizer contract.
+
 ```bash
 # After preparing envs/client and envs/serving in MASBENCH_RUNTIME:
 source scripts/hardware/env.sh

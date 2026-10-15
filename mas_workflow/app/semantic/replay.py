@@ -61,6 +61,9 @@ class VLLMOpenAIBackend:
         target = int(operation.llm["recorded_output_length"])
         payload = copy.deepcopy(request)
         payload.update({"stream": False, "max_tokens": target, "min_tokens": target, "ignore_eos": True})
+        # A collected streaming request may carry transport-only options.
+        # Remove them when replay sends a non-streaming response request.
+        payload.pop("stream_options", None)
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.base_url + "/chat/completions", data=body, method="POST",
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + self.api_key})

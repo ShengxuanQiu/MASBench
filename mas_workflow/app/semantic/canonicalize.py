@@ -59,7 +59,20 @@ class TransformersTokenizer:
 
     def encode_request(self, request: dict[str, Any]) -> list[int]:
         messages = request.get("messages", [])
-        return list(self._tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True))
+        encoded = self._tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+        # Transformers 5 returns BatchEncoding by default. Iterating it yields
+        # field names, not token IDs; retain support for older list returns.
+        if hasattr(encoded, "keys"):
+            encoded = encoded["input_ids"]
+        if hasattr(encoded, "tolist"):
+            encoded = encoded.tolist()
+        if encoded and isinstance(encoded[0], list):
+            if len(encoded) != 1:
+                raise ValueError("Expected exactly one tokenized chat request")
+            encoded = encoded[0]
+        if any(type(token) is not int for token in encoded):
+            raise TypeError("Chat template returned non-integer token IDs")
+        return list(encoded)
 
     def encode_text(self, text: str) -> list[int]:
         return list(self._tokenizer.encode(text, add_special_tokens=False))

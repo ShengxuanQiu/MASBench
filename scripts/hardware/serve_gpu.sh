@@ -5,8 +5,7 @@ source "$(dirname "$0")/env.sh"
 : "${CUDA_VISIBLE_DEVICES:?Select an allocated, idle GPU explicitly}"
 : "${MODEL_DIR:?Set the local model directory explicitly}"
 [[ -f "$MODEL_DIR/config.json" ]] || { echo "Missing model config: $MODEL_DIR" >&2; exit 1; }
-exec python -m vllm.entrypoints.openai.api_server \
-  --model "$MODEL_DIR" \
+exec vllm serve "$MODEL_DIR" \
   --served-model-name "${SERVED_MODEL_NAME:-masbench-model}" \
   --host "${HOST:-127.0.0.1}" --port "${PORT:-18200}" \
   --tensor-parallel-size "${TP_SIZE:-1}" \

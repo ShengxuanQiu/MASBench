@@ -65,6 +65,7 @@ PORT="${PORT:-8000}"
 TP_SIZE="${TP_SIZE:-1}"
 PP_SIZE="${PP_SIZE:-1}"
 DP_SIZE="${DP_SIZE:-1}"
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-256}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 HOST="${HOST:-0.0.0.0}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-local-mas-model}"
@@ -100,6 +101,7 @@ payload = {
     "gpu_count": int("${GPU_COUNT}"),
     "dtype": "${DTYPE}",
     "max_model_len": int("${MAX_MODEL_LEN}"),
+    "max_num_seqs": int("${MAX_NUM_SEQS}"),
     "kv_block_size": int("${KV_BLOCK_SIZE}"),
     "gpu_memory_utilization": float("${GPU_MEMORY_UTILIZATION}"),
     "vllm_mas_trace_path": "${VLLM_MAS_TRACE_PATH}",
@@ -118,6 +120,7 @@ CMD=(
   --tensor-parallel-size "${TP_SIZE}"
   --pipeline-parallel-size "${PP_SIZE}"
   --data-parallel-size "${DP_SIZE}"
+  --max-num-seqs "${MAX_NUM_SEQS}"
   --max-model-len "${MAX_MODEL_LEN}"
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
   --dtype "${DTYPE}"
@@ -139,6 +142,7 @@ echo "PORT=${PORT}"
 echo "TP_SIZE=${TP_SIZE}"
 echo "PP_SIZE=${PP_SIZE}"
 echo "DP_SIZE=${DP_SIZE}"
+echo "MAX_NUM_SEQS=${MAX_NUM_SEQS}"
 echo "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 echo "DTYPE=${DTYPE}"
 echo "KV_BLOCK_SIZE=${KV_BLOCK_SIZE}"
